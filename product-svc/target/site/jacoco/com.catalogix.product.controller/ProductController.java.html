@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ProductController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">product-svc</a> &gt; <a href="index.source.html" class="el_package">com.catalogix.product.controller</a> &gt; <span class="el_source">ProductController.java</span></div><h1>ProductController.java</h1><pre class="source lang-java linenums">package com.catalogix.product.controller;
+
+import com.catalogix.product.dto.CreateProductRequest;
+import com.catalogix.product.dto.ProductResponse;
+import com.catalogix.product.service.ProductService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import java.net.URI;
+import java.util.List;
+
+// DEV NOTE: X-USER-ID is a dev-only stand-in for auth. For production,
+// replace with Spring Security + JWT so identity is verified server-side.
+
+@RestController
+@RequestMapping(&quot;/products&quot;)
+public class ProductController {
+
+    private final ProductService svc;
+
+<span class="fc" id="L23">    public ProductController(ProductService svc) {</span>
+<span class="fc" id="L24">        this.svc = svc;</span>
+<span class="fc" id="L25">    }</span>
+
+    // List products as ProductResponse DTOs
+    @GetMapping
+    public ResponseEntity&lt;List&lt;ProductResponse&gt;&gt; listAll(
+        @RequestHeader(value = &quot;X-USER-ID&quot;, required = false) Long userId
+    ) {
+<span class="pc bpc" id="L32" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L33">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+        }
+
+<span class="fc" id="L36">        return ResponseEntity.ok(svc.listAll());</span>
+    }
+    
+    // Create product with validation
+    @PostMapping
+    public ResponseEntity&lt;ProductResponse&gt; create(
+        @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
+        @Valid @RequestBody CreateProductRequest req
+    ) {
+<span class="pc bpc" id="L45" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L46">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+        }
+
+<span class="fc" id="L49">        ProductResponse created = svc.create(req);</span>
+
+        URI location = ServletUriComponentsBuilder
+<span class="fc" id="L52">            .fromCurrentRequest()</span>
+<span class="fc" id="L53">            .path(&quot;/{id}&quot;)</span>
+<span class="fc" id="L54">            .buildAndExpand(created.getId())</span>
+<span class="fc" id="L55">            .toUri();</span>
+
+<span class="fc" id="L57">        return ResponseEntity.created(location).body(created);</span>
+    }
+
+    // Get single product
+    @GetMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;ProductResponse&gt; getOne(
+        @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
+        @PathVariable long id
+    ) {
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L67">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+        }
+
+<span class="fc" id="L70">        return svc.findById(id).map(ResponseEntity::ok)</span>
+<span class="fc" id="L71">            .orElse(ResponseEntity.notFound().build());</span>
+    }
+
+    // Delete product
+    @DeleteMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;Void&gt; delete(
+        @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
+        @PathVariable long id
+    ) {
+<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L81">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+        }
+<span class="fc bfc" id="L83" title="All 2 branches covered.">        if (!svc.deleteById(id)) {</span>
+<span class="fc" id="L84">            return ResponseEntity.notFound().build();</span>
+        }
+<span class="fc" id="L86">        return ResponseEntity.noContent().build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

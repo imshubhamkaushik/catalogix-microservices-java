@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>UserSvc.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">user-svc</a> &gt; <a href="index.source.html" class="el_package">com.catalogix.user.svc</a> &gt; <span class="el_source">UserSvc.java</span></div><h1>UserSvc.java</h1><pre class="source lang-java linenums">package com.catalogix.user.svc;
+
+import com.catalogix.user.dto.CreateUserRequest;
+import com.catalogix.user.dto.LoginRequest;
+import com.catalogix.user.dto.UserResponse;
+import com.catalogix.user.model.User;
+import com.catalogix.user.repository.UserRepository;
+import com.catalogix.user.exception.UnauthorizedException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+
+import java.util.List;
+import java.util.Collections;
+
+/**
+ * Business logic for users:
+ * - register (hash password)
+ * - login (verify password)
+ * - listAll (return DTOs)
+ * - deleteById
+ */
+
+@Service
+public class UserSvc {
+
+    private final UserRepository repo;
+    private final PasswordEncoder passwordEncoder;
+
+<span class="fc" id="L30">    public UserSvc(UserRepository repo, PasswordEncoder passwordEncoder) {</span>
+<span class="fc" id="L31">        this.repo = repo;</span>
+<span class="fc" id="L32">        this.passwordEncoder = passwordEncoder;</span>
+<span class="fc" id="L33">    }</span>
+
+    // Register a new user, Throws Exception if email already exists
+
+    public UserResponse register(CreateUserRequest req) {
+        // Check existing email
+<span class="fc bfc" id="L39" title="All 2 branches covered.">        if (repo.findByEmail(req.getEmail()).isPresent()) {</span>
+<span class="fc" id="L40">            throw new IllegalArgumentException(&quot;Email already registered&quot;);</span>
+        }
+
+<span class="fc" id="L43">        User user = new User();</span>
+<span class="fc" id="L44">        user.setName(req.getName());</span>
+<span class="fc" id="L45">        user.setEmail(req.getEmail());</span>
+<span class="fc" id="L46">        user.setPassword(passwordEncoder.encode(req.getPassword())); // Hash password before saving</span>
+        
+<span class="fc" id="L48">        User saved = repo.save(user);</span>
+<span class="fc" id="L49">        return new UserResponse(saved.getId(), saved.getName(), saved.getEmail());</span>
+    }
+
+    // Login user: return UserResponse if successful, null if failed
+    public UserResponse login(LoginRequest req) {
+<span class="fc" id="L54">        return repo.findByEmail(req.getEmail())</span>
+<span class="fc" id="L55">                .filter(u -&gt; passwordEncoder.matches(req.getPassword(), u.getPassword()))</span>
+<span class="fc" id="L56">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
+<span class="fc" id="L57">                .orElseThrow(() -&gt; new UnauthorizedException(&quot;Invalid email or password&quot;)); // 3. Throwing exception is usually safer than returning null</span>
+    }
+
+    // List all users as DTOs (no passwords)
+    public List&lt;UserResponse&gt; listAll() {
+<span class="nc" id="L62">        return Collections.unmodifiableList(repo.findAll()</span>
+<span class="nc" id="L63">                .stream()</span>
+<span class="nc" id="L64">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
+<span class="nc" id="L65">                .toList());</span>
+    }
+
+    // Delete user by id, return true if deleted, false if not found
+    public boolean deleteById(Long id) {
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (id == null) {</span>
+<span class="nc" id="L71">            return false;</span>
+        }
+<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (!repo.existsById(id)) {</span>
+<span class="nc" id="L74">            return false;</span>
+        }
+<span class="nc" id="L76">        repo.deleteById(id);</span>
+<span class="nc" id="L77">        return true;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

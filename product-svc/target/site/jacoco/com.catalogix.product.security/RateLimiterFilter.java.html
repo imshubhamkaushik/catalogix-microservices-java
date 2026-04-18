@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RateLimiterFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">product-svc</a> &gt; <a href="index.source.html" class="el_package">com.catalogix.product.security</a> &gt; <span class="el_source">RateLimiterFilter.java</span></div><h1>RateLimiterFilter.java</h1><pre class="source lang-java linenums">package com.catalogix.product.security;
+
+import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Component
+<span class="fc" id="L14">public class RateLimiterFilter implements Filter {</span>
+
+    private static final long WINDOW_MS = 60000; // 1 minute
+    private static final int MAX_REQUESTS = 30; // 30 requests per min
+
+<span class="fc" id="L19">    private final Map&lt;String, RequestCounter&gt; ipStore = new ConcurrentHashMap&lt;&gt;();</span>
+
+    @Override
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
+
+<span class="fc" id="L25">        HttpServletRequest httpRequest = (HttpServletRequest) request;</span>
+<span class="fc" id="L26">        String ip = httpRequest.getRemoteAddr();</span>
+<span class="fc" id="L27">        long now = Instant.now().toEpochMilli();</span>
+
+<span class="fc" id="L29">        ipStore.putIfAbsent(ip, new RequestCounter(0, now));</span>
+
+<span class="fc" id="L31">        RequestCounter counter = ipStore.get(ip);</span>
+
+<span class="fc" id="L33">        synchronized (counter) {</span>
+<span class="pc bpc" id="L34" title="1 of 2 branches missed.">            if (now - counter.windowStart &gt;= WINDOW_MS) {</span>
+<span class="nc" id="L35">                counter.windowStart = now;</span>
+<span class="nc" id="L36">                counter.count = 0;</span>
+            }
+
+<span class="fc" id="L39">            counter.count++;</span>
+
+<span class="pc bpc" id="L41" title="1 of 2 branches missed.">            if (counter.count &gt; MAX_REQUESTS) {</span>
+<span class="nc" id="L42">                HttpServletResponse res = (HttpServletResponse) response;</span>
+<span class="nc" id="L43">                res.setStatus(429); // Too Many Requests</span>
+<span class="nc" id="L44">                res.getWriter().write(&quot;Rate limit exceeded&quot;);</span>
+<span class="nc" id="L45">                return;</span>
+            }
+<span class="fc" id="L47">        }</span>
+
+<span class="fc" id="L49">        chain.doFilter(request, response);</span>
+<span class="fc" id="L50">    }</span>
+
+    private static class RequestCounter {
+        int count;
+        long windowStart;
+
+<span class="fc" id="L56">        RequestCounter(int count, long windowStart) {</span>
+<span class="fc" id="L57">            this.count = count;</span>
+<span class="fc" id="L58">            this.windowStart = windowStart;</span>
+<span class="fc" id="L59">        }</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

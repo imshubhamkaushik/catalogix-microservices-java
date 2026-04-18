@@ -2,7 +2,8 @@ package com.catalogix.product.controller;
 
 import com.catalogix.product.dto.CreateProductRequest;
 import com.catalogix.product.dto.ProductResponse;
-import com.catalogix.product.service.ProductService;
+import com.catalogix.product.svc.ProductSvc;
+
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,16 +19,16 @@ import java.util.List;
 @RequestMapping("/products")
 public class ProductController {
 
-    private final ProductService svc;
+    private final ProductSvc svc;
 
-    public ProductController(ProductService svc) {
+    public ProductController(ProductSvc svc) {
         this.svc = svc;
     }
 
     // List products as ProductResponse DTOs
     @GetMapping
     public ResponseEntity<List<ProductResponse>> listAll(
-        @RequestHeader("X-USER-ID") Long userId
+        @RequestHeader(value = "X-USER-ID", required = false) Long userId
     ) {
         if (userId == null) {
             return ResponseEntity.status(401).build(); // Unauthorized

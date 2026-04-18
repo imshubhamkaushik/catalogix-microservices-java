@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GlobalExceptionHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">user-svc</a> &gt; <a href="index.source.html" class="el_package">com.catalogix.user.exception</a> &gt; <span class="el_source">GlobalExceptionHandler.java</span></div><h1>GlobalExceptionHandler.java</h1><pre class="source lang-java linenums">package com.catalogix.user.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+import java.util.*;
+
+@ControllerAdvice
+<span class="fc" id="L13">public class GlobalExceptionHandler {</span>
+
+    private static final String MESSAGE = &quot;message&quot;;
+    private static final String TIMESTAMP = &quot;timestamp&quot;;
+    private static final String STATUS = &quot;status&quot;;
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleValidation(MethodArgumentNotValidException ex) {
+<span class="nc" id="L21">        List&lt;String&gt; errors = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L22" title="All 2 branches missed.">        for (FieldError fe : ex.getBindingResult().getFieldErrors()) {</span>
+<span class="nc" id="L23">            errors.add(fe.getField() + &quot;: &quot; + fe.getDefaultMessage());</span>
+<span class="nc" id="L24">        }</span>
+<span class="nc" id="L25">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L26">        body.put(MESSAGE, &quot;Validation failed&quot;);</span>
+<span class="nc" id="L27">        body.put(&quot;errors&quot;, errors);</span>
+<span class="nc" id="L28">        body.put(TIMESTAMP, new Date());</span>
+<span class="nc" id="L29">        body.put(STATUS, HttpStatus.BAD_REQUEST.value());</span>
+<span class="nc" id="L30">        return ResponseEntity.badRequest().body(body);</span>
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleBadArg(IllegalArgumentException ex) {
+<span class="nc" id="L35">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L36">        body.put(MESSAGE, ex.getMessage());</span>
+<span class="nc" id="L37">        body.put(STATUS, HttpStatus.CONFLICT.value());</span>
+<span class="nc" id="L38">        body.put(TIMESTAMP, new Date());</span>
+<span class="nc" id="L39">        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);</span>
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleAll(Exception ex) {
+<span class="nc" id="L44">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L45">        body.put(MESSAGE, ex.getMessage());</span>
+<span class="nc" id="L46">        body.put(TIMESTAMP, new Date());</span>
+<span class="nc" id="L47">        body.put(STATUS, HttpStatus.INTERNAL_SERVER_ERROR.value());</span>
+<span class="nc" id="L48">        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);</span>
+    }
+
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleUnauthorized(UnauthorizedException ex) {
+<span class="fc" id="L53">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L54">        body.put(MESSAGE, ex.getMessage());</span>
+<span class="fc" id="L55">        body.put(TIMESTAMP, new Date());</span>
+<span class="fc" id="L56">        body.put(STATUS, HttpStatus.UNAUTHORIZED.value());</span>
+<span class="fc" id="L57">        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
