@@ -6,13 +6,15 @@ import com.catalogix.user.dto.LoginRequest;
 import com.catalogix.user.dto.UserResponse;
 import com.catalogix.user.exception.UnauthorizedException;
 import com.catalogix.user.svc.UserSvc;
+
 import org.junit.jupiter.api.Test;
+
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.http.MediaType;
 
 import java.util.List;
 
@@ -24,19 +26,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.
 import static org.mockito.Mockito.when;
 
 @WebMvcTest(UserController.class)
-@AutoConfigureMockMvc
+@ActiveProfiles("test")
 class UserControllerTest {
 
     @Autowired
-    MockMvc mvc;
-    @Autowired
-    ObjectMapper mapper;
+    private ObjectMapper mapper;
+
     @MockitoBean
-    UserSvc svc;
+    private UserSvc svc;
+
+    @Autowired
+    private MockMvc mvc;
 
     // POST /users/register tests
     @Test
-    @SuppressWarnings("null")
     void registerReturnsCreated() throws Exception {
         CreateUserRequest req = new CreateUserRequest();
         req.setName("John");
@@ -57,7 +60,7 @@ class UserControllerTest {
     }
 
     @Test
-    void registerDuplicateEmailReturns400() throws Exception {
+    void registerDuplicateEmailReturns409() throws Exception {
         CreateUserRequest req = new CreateUserRequest();
         req.setName("John");
         req.setEmail("john@example.com");
@@ -68,7 +71,7 @@ class UserControllerTest {
         mvc.perform(post("/users/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isConflict());
     }
 
     // POST /users/login tests

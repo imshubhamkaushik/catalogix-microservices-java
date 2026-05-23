@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RateLimiterFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">user-svc</a> &gt; <a href="index.source.html" class="el_package">com.catalogix.user.security</a> &gt; <span class="el_source">RateLimiterFilter.java</span></div><h1>RateLimiterFilter.java</h1><pre class="source lang-java linenums">package com.catalogix.user.security;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -7,53 +8,119 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Component
-<span class="fc" id="L14">public class RateLimiterFilter implements Filter {</span>
+public class RateLimiterFilter implements Filter {
 
-    private static final long WINDOW_MS = 60000; // 1 minute
+    private static final long WINDOW_MS = 60000; // 1 minute in ms
     private static final int MAX_REQUESTS = 30; // 30 requests per min
+    private static final long EVICT_AFTER  = 2 * WINDOW_MS; // evict after 2 idle windows
 
-<span class="fc" id="L19">    private final Map&lt;String, RequestCounter&gt; ipStore = new ConcurrentHashMap&lt;&gt;();</span>
+    // Key → per-client request counter. Entries are created on first request
+    // and swept by the scheduler when they have been idle for EVICT_AFTER ms.
+<span class="fc" id="L25">    private final ConcurrentHashMap&lt;String, RequestCounter&gt; ipStore = new ConcurrentHashMap&lt;&gt;();</span>
+
+<span class="fc" id="L27">    private final ScheduledExecutorService evictionScheduler =</span>
+<span class="fc" id="L28">            Executors.newSingleThreadScheduledExecutor(r -&gt; {</span>
+<span class="fc" id="L29">                Thread t = new Thread(r, &quot;rate-limiter-eviction&quot;);</span>
+<span class="fc" id="L30">                t.setDaemon(true);</span>
+<span class="fc" id="L31">                return t;</span>
+            });
+
+    @PreDestroy
+    public void shutdown() {
+<span class="fc" id="L36">        evictionScheduler.shutdown();</span>
+        try {
+<span class="pc bpc" id="L38" title="1 of 2 branches missed.">            if (!evictionScheduler.awaitTermination(5, TimeUnit.SECONDS)) {</span>
+<span class="nc" id="L39">                evictionScheduler.shutdownNow();</span>
+            }
+<span class="nc" id="L41">        } catch (InterruptedException e) {</span>
+<span class="nc" id="L42">            evictionScheduler.shutdownNow();</span>
+<span class="nc" id="L43">            Thread.currentThread().interrupt();</span>
+<span class="fc" id="L44">        }</span>
+<span class="fc" id="L45">    }</span>
+
+<span class="fc" id="L47">    public RateLimiterFilter() {</span>
+        // Sweep every 2 minutes. Delay 2 minutes before first run so the map
+        // has time to accumulate entries worth evicting.
+<span class="fc" id="L50">        evictionScheduler.scheduleAtFixedRate(</span>
+                this::evictStaleEntries, 2, 2, TimeUnit.MINUTES
+        );
+<span class="fc" id="L53">    }</span>
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
 
-<span class="fc" id="L25">        String ip = ((HttpServletRequest) request).getRemoteAddr();</span>
-<span class="fc" id="L26">        long now = Instant.now().toEpochMilli();</span>
+<span class="fc" id="L59">        String ip = resolveClientIp((HttpServletRequest) request);</span>
+<span class="fc" id="L60">        long now = Instant.now().toEpochMilli();</span>
 
-<span class="fc" id="L28">        ipStore.putIfAbsent(ip, new RequestCounter(0, now));</span>
-<span class="fc" id="L29">        RequestCounter counter = ipStore.get(ip);</span>
+<span class="fc" id="L62">        ipStore.putIfAbsent(ip, new RequestCounter(0, now));</span>
+<span class="pc" id="L63">        RequestCounter counter = ipStore.computeIfAbsent(ip, k -&gt; new RequestCounter(0, now));</span>
 
-<span class="fc" id="L31">        synchronized (counter) {</span>
-<span class="pc bpc" id="L32" title="1 of 2 branches missed.">            if (now - counter.windowStart &gt;= WINDOW_MS) {</span>
-<span class="nc" id="L33">                counter.windowStart = now;</span>
-<span class="nc" id="L34">                counter.count = 0;</span>
+<span class="fc" id="L65">        synchronized (counter) {</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">            if (now - counter.windowStart &gt;= WINDOW_MS) {</span>
+<span class="nc" id="L67">                counter.windowStart = now;</span>
+<span class="nc" id="L68">                counter.count = 0;</span>
             }
 
-<span class="fc" id="L37">            counter.count++;</span>
+<span class="fc" id="L71">            counter.count++;</span>
 
-<span class="pc bpc" id="L39" title="1 of 2 branches missed.">            if (counter.count &gt; MAX_REQUESTS) {</span>
-<span class="nc" id="L40">                HttpServletResponse res = (HttpServletResponse) response;</span>
-<span class="nc" id="L41">                res.setStatus(429); // Too Many Requests</span>
-<span class="nc" id="L42">                res.getWriter().write(&quot;Rate limit exceeded&quot;);</span>
-<span class="nc" id="L43">                return;</span>
+<span class="pc bpc" id="L73" title="1 of 2 branches missed.">            if (counter.count &gt; MAX_REQUESTS) {</span>
+<span class="nc" id="L74">                HttpServletResponse res = (HttpServletResponse) response;</span>
+<span class="nc" id="L75">                res.setStatus(429); // Too Many Requests</span>
+<span class="nc" id="L76">                res.setContentType(&quot;text/plain&quot;);</span>
+<span class="nc" id="L77">                res.getWriter().write(&quot;Rate limit exceeded&quot;);</span>
+<span class="nc" id="L78">                return;</span>
             }
-<span class="fc" id="L45">        }</span>
-<span class="fc" id="L46">        chain.doFilter(request, response);</span>
-<span class="fc" id="L47">    }</span>
+<span class="fc" id="L80">        }</span>
+<span class="fc" id="L81">        chain.doFilter(request, response);</span>
+<span class="fc" id="L82">    }</span>
+    
+    /**
+     * Returns the real client IP address.
+     *
+     * Behind an AWS ALB the original client IP is in the X-Forwarded-For header.
+     * XFF format: &quot;client, proxy1, proxy2&quot;. The first element is always the
+     * original client. getRemoteAddr() would return the ALB's own IP, making
+     * every user share a single rate-limit bucket.
+     */
+    private String resolveClientIp(HttpServletRequest request) {
+<span class="fc" id="L93">        String xff = request.getHeader(&quot;X-Forwarded-For&quot;);</span>
+<span class="pc bpc" id="L94" title="3 of 4 branches missed.">        if (xff != null &amp;&amp; !xff.isBlank()) {</span>
+            // Take the first (leftmost) address — that is the originating client.
+<span class="nc" id="L96">            return xff.split(&quot;,&quot;)[0].strip();</span>
+        }
+        // Fallback for direct connections (local dev, integration tests, etc.)
+<span class="fc" id="L99">        return request.getRemoteAddr();</span>
+    }
 
+    /**
+     * Removes entries that have not been updated within the last EVICT_AFTER ms.
+     * Called by the eviction scheduler on a background daemon thread.
+     */
+    private void evictStaleEntries() {
+<span class="nc" id="L107">        long now = Instant.now().toEpochMilli();</span>
+<span class="nc" id="L108">        ipStore.entrySet().removeIf(entry -&gt; {</span>
+<span class="nc" id="L109">            synchronized (entry.getValue()) {</span>
+<span class="nc bnc" id="L110" title="All 2 branches missed.">                return (now - entry.getValue().windowStart) &gt; EVICT_AFTER;</span>
+            }
+        });
+<span class="nc" id="L113">    }</span>
+    
+    // Visible for testing.
     private static class RequestCounter {
         int count;
         long windowStart;
 
-<span class="fc" id="L53">        RequestCounter(int count, long windowStart) {</span>
-<span class="fc" id="L54">            this.count = count;</span>
-<span class="fc" id="L55">            this.windowStart = windowStart;</span>
-<span class="fc" id="L56">        }</span>
+<span class="fc" id="L120">        RequestCounter(int count, long windowStart) {</span>
+<span class="fc" id="L121">            this.count = count;</span>
+<span class="fc" id="L122">            this.windowStart = windowStart;</span>
+<span class="fc" id="L123">        }</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

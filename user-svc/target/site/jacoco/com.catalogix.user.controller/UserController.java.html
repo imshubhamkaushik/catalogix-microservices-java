@@ -26,7 +26,7 @@ public class UserController {
     // List all users (response without password)
     @GetMapping
     public List&lt;UserResponse&gt; getAll() {
-<span class="nc" id="L29">        return svc.listAll();</span>
+<span class="fc" id="L29">        return svc.listAll();</span>
     }
 
     // Register endpoint: creates a new user. Validates input, hashes password in service.
@@ -45,17 +45,17 @@ public class UserController {
     // Login endpoint: validates credentials and returns user info (no password) on success.
     @PostMapping(&quot;/login&quot;)
     public ResponseEntity&lt;UserResponse&gt; login(@Valid @RequestBody LoginRequest req) {
-<span class="nc" id="L48">        UserResponse user = svc.login(req);</span>
-<span class="nc" id="L49">        return ResponseEntity.ok(user);</span>
+<span class="fc" id="L48">        UserResponse user = svc.login(req);</span>
+<span class="fc" id="L49">        return ResponseEntity.ok(user);</span>
     }
 
     //Delete user by id
     @DeleteMapping(&quot;/{id}&quot;)
     public ResponseEntity&lt;Void&gt; delete(@PathVariable(&quot;id&quot;) long id) {
-<span class="nc" id="L55">        boolean deleted = svc.deleteById(id);</span>
-<span class="nc bnc" id="L56" title="All 2 branches missed.">        if (!deleted)</span>
-<span class="nc" id="L57">            return ResponseEntity.notFound().build();</span>
-<span class="nc" id="L58">        return ResponseEntity.noContent().build();</span>
+<span class="fc" id="L55">        boolean deleted = svc.deleteById(id);</span>
+<span class="fc bfc" id="L56" title="All 2 branches covered.">        if (!deleted)</span>
+<span class="fc" id="L57">            return ResponseEntity.notFound().build();</span>
+<span class="fc" id="L58">        return ResponseEntity.noContent().build();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

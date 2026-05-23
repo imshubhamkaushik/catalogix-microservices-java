@@ -2,7 +2,8 @@
 
 import com.catalogix.product.dto.CreateProductRequest;
 import com.catalogix.product.dto.ProductResponse;
-import com.catalogix.product.service.ProductService;
+import com.catalogix.product.svc.ProductSvc;
+
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,22 +19,22 @@ import java.util.List;
 @RequestMapping(&quot;/products&quot;)
 public class ProductController {
 
-    private final ProductService svc;
+    private final ProductSvc svc;
 
-<span class="fc" id="L23">    public ProductController(ProductService svc) {</span>
-<span class="fc" id="L24">        this.svc = svc;</span>
-<span class="fc" id="L25">    }</span>
+<span class="fc" id="L24">    public ProductController(ProductSvc svc) {</span>
+<span class="fc" id="L25">        this.svc = svc;</span>
+<span class="fc" id="L26">    }</span>
 
     // List products as ProductResponse DTOs
     @GetMapping
     public ResponseEntity&lt;List&lt;ProductResponse&gt;&gt; listAll(
         @RequestHeader(value = &quot;X-USER-ID&quot;, required = false) Long userId
     ) {
-<span class="pc bpc" id="L32" title="1 of 2 branches missed.">        if (userId == null) {</span>
-<span class="nc" id="L33">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L34">            return ResponseEntity.status(401).build(); // Unauthorized</span>
         }
 
-<span class="fc" id="L36">        return ResponseEntity.ok(svc.listAll());</span>
+<span class="fc" id="L37">        return ResponseEntity.ok(svc.listAll());</span>
     }
     
     // Create product with validation
@@ -42,19 +43,19 @@ public class ProductController {
         @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
         @Valid @RequestBody CreateProductRequest req
     ) {
-<span class="pc bpc" id="L45" title="1 of 2 branches missed.">        if (userId == null) {</span>
-<span class="nc" id="L46">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+<span class="pc bpc" id="L46" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L47">            return ResponseEntity.status(401).build(); // Unauthorized</span>
         }
 
-<span class="fc" id="L49">        ProductResponse created = svc.create(req);</span>
+<span class="fc" id="L50">        ProductResponse created = svc.create(req);</span>
 
         URI location = ServletUriComponentsBuilder
-<span class="fc" id="L52">            .fromCurrentRequest()</span>
-<span class="fc" id="L53">            .path(&quot;/{id}&quot;)</span>
-<span class="fc" id="L54">            .buildAndExpand(created.getId())</span>
-<span class="fc" id="L55">            .toUri();</span>
+<span class="fc" id="L53">            .fromCurrentRequest()</span>
+<span class="fc" id="L54">            .path(&quot;/{id}&quot;)</span>
+<span class="fc" id="L55">            .buildAndExpand(created.getId())</span>
+<span class="fc" id="L56">            .toUri();</span>
 
-<span class="fc" id="L57">        return ResponseEntity.created(location).body(created);</span>
+<span class="fc" id="L58">        return ResponseEntity.created(location).body(created);</span>
     }
 
     // Get single product
@@ -63,12 +64,12 @@ public class ProductController {
         @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
         @PathVariable long id
     ) {
-<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        if (userId == null) {</span>
-<span class="nc" id="L67">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L68">            return ResponseEntity.status(401).build(); // Unauthorized</span>
         }
 
-<span class="fc" id="L70">        return svc.findById(id).map(ResponseEntity::ok)</span>
-<span class="fc" id="L71">            .orElse(ResponseEntity.notFound().build());</span>
+<span class="fc" id="L71">        return svc.findById(id).map(ResponseEntity::ok)</span>
+<span class="fc" id="L72">            .orElse(ResponseEntity.notFound().build());</span>
     }
 
     // Delete product
@@ -77,13 +78,13 @@ public class ProductController {
         @RequestHeader(&quot;X-USER-ID&quot;) Long userId,
         @PathVariable long id
     ) {
-<span class="pc bpc" id="L80" title="1 of 2 branches missed.">        if (userId == null) {</span>
-<span class="nc" id="L81">            return ResponseEntity.status(401).build(); // Unauthorized</span>
+<span class="pc bpc" id="L81" title="1 of 2 branches missed.">        if (userId == null) {</span>
+<span class="nc" id="L82">            return ResponseEntity.status(401).build(); // Unauthorized</span>
         }
-<span class="fc bfc" id="L83" title="All 2 branches covered.">        if (!svc.deleteById(id)) {</span>
-<span class="fc" id="L84">            return ResponseEntity.notFound().build();</span>
+<span class="fc bfc" id="L84" title="All 2 branches covered.">        if (!svc.deleteById(id)) {</span>
+<span class="fc" id="L85">            return ResponseEntity.notFound().build();</span>
         }
-<span class="fc" id="L86">        return ResponseEntity.noContent().build();</span>
+<span class="fc" id="L87">        return ResponseEntity.noContent().build();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

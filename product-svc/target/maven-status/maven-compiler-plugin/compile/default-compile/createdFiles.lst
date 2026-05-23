@@ -5,8 +5,8 @@ com\catalogix\product\ProductSvcApplication.class
 com\catalogix\product\repository\ProductRepository.class
 com\catalogix\product\controller\HealthController.class
 com\catalogix\product\config\CorsConfig$1.class
+com\catalogix\product\svc\ProductSvc.class
 com\catalogix\product\security\RateLimiterFilter$RequestCounter.class
 com\catalogix\product\security\RateLimiterFilter.class
-com\catalogix\product\service\ProductService.class
 com\catalogix\product\dto\ProductResponse.class
 com\catalogix\product\model\Product.class

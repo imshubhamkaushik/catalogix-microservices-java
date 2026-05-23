@@ -4,12 +4,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.*;
 
-@ControllerAdvice
+@RestControllerAdvice
 <span class="fc" id="L13">public class GlobalExceptionHandler {</span>
 
     private static final String MESSAGE = &quot;message&quot;;
@@ -32,11 +32,11 @@ import java.util.*;
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleBadArg(IllegalArgumentException ex) {
-<span class="nc" id="L35">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
-<span class="nc" id="L36">        body.put(MESSAGE, ex.getMessage());</span>
-<span class="nc" id="L37">        body.put(STATUS, HttpStatus.CONFLICT.value());</span>
-<span class="nc" id="L38">        body.put(TIMESTAMP, new Date());</span>
-<span class="nc" id="L39">        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);</span>
+<span class="fc" id="L35">        Map&lt;String, Object&gt; body = new HashMap&lt;&gt;();</span>
+<span class="fc" id="L36">        body.put(MESSAGE, ex.getMessage());</span>
+<span class="fc" id="L37">        body.put(STATUS, HttpStatus.CONFLICT.value());</span>
+<span class="fc" id="L38">        body.put(TIMESTAMP, new Date());</span>
+<span class="fc" id="L39">        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);</span>
     }
 
     @ExceptionHandler(Exception.class)

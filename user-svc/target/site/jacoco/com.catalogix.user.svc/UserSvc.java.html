@@ -8,10 +8,10 @@ import com.catalogix.user.repository.UserRepository;
 import com.catalogix.user.exception.UnauthorizedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 
 import java.util.List;
-import java.util.Collections;
 
 /**
  * Business logic for users:
@@ -33,48 +33,53 @@ public class UserSvc {
 <span class="fc" id="L33">    }</span>
 
     // Register a new user, Throws Exception if email already exists
-
+    // @Transactional ensures the findByEmail check and save() are in the same DB transaction, preventing a race where two concurrent requests register the same email.
+    @Transactional
     public UserResponse register(CreateUserRequest req) {
         // Check existing email
-<span class="fc bfc" id="L39" title="All 2 branches covered.">        if (repo.findByEmail(req.getEmail()).isPresent()) {</span>
-<span class="fc" id="L40">            throw new IllegalArgumentException(&quot;Email already registered&quot;);</span>
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        if (repo.findByEmail(req.getEmail()).isPresent()) {</span>
+<span class="fc" id="L41">            throw new IllegalArgumentException(&quot;Email already registered&quot;);</span>
         }
 
-<span class="fc" id="L43">        User user = new User();</span>
-<span class="fc" id="L44">        user.setName(req.getName());</span>
-<span class="fc" id="L45">        user.setEmail(req.getEmail());</span>
-<span class="fc" id="L46">        user.setPassword(passwordEncoder.encode(req.getPassword())); // Hash password before saving</span>
+<span class="fc" id="L44">        User user = new User();</span>
+<span class="fc" id="L45">        user.setName(req.getName());</span>
+<span class="fc" id="L46">        user.setEmail(req.getEmail());</span>
+<span class="fc" id="L47">        user.setPassword(passwordEncoder.encode(req.getPassword())); // Hash password before saving</span>
         
-<span class="fc" id="L48">        User saved = repo.save(user);</span>
-<span class="fc" id="L49">        return new UserResponse(saved.getId(), saved.getName(), saved.getEmail());</span>
+<span class="fc" id="L49">        User saved = repo.save(user);</span>
+<span class="fc" id="L50">        return new UserResponse(saved.getId(), saved.getName(), saved.getEmail());</span>
     }
 
     // Login user: return UserResponse if successful, null if failed
+    @Transactional(readOnly = true)
     public UserResponse login(LoginRequest req) {
-<span class="fc" id="L54">        return repo.findByEmail(req.getEmail())</span>
-<span class="fc" id="L55">                .filter(u -&gt; passwordEncoder.matches(req.getPassword(), u.getPassword()))</span>
-<span class="fc" id="L56">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
-<span class="fc" id="L57">                .orElseThrow(() -&gt; new UnauthorizedException(&quot;Invalid email or password&quot;)); // 3. Throwing exception is usually safer than returning null</span>
+<span class="fc" id="L56">        return repo.findByEmail(req.getEmail())</span>
+<span class="fc" id="L57">                .filter(u -&gt; passwordEncoder.matches(req.getPassword(), u.getPassword()))</span>
+<span class="fc" id="L58">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
+<span class="fc" id="L59">                .orElseThrow(() -&gt; new UnauthorizedException(&quot;Invalid email or password&quot;)); // 3. Throwing exception is usually safer than returning null</span>
     }
 
     // List all users as DTOs (no passwords)
+    @Transactional(readOnly = true)
     public List&lt;UserResponse&gt; listAll() {
-<span class="nc" id="L62">        return Collections.unmodifiableList(repo.findAll()</span>
-<span class="nc" id="L63">                .stream()</span>
-<span class="nc" id="L64">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
-<span class="nc" id="L65">                .toList());</span>
+<span class="fc" id="L65">        return repo.findAll()</span>
+<span class="fc" id="L66">                .stream()</span>
+<span class="fc" id="L67">                .map(u -&gt; new UserResponse(u.getId(), u.getName(), u.getEmail()))</span>
+<span class="fc" id="L68">                .toList();</span>
     }
 
     // Delete user by id, return true if deleted, false if not found
+    // @Transactional ensures the check and delete are in the same DB transaction, preventing a race where the user is deleted between the existsById check and deleteById call.
+    @Transactional
     public boolean deleteById(Long id) {
-<span class="nc bnc" id="L70" title="All 2 branches missed.">        if (id == null) {</span>
-<span class="nc" id="L71">            return false;</span>
+<span class="fc bfc" id="L75" title="All 2 branches covered.">        if (id == null) {</span>
+<span class="fc" id="L76">            return false;</span>
         }
-<span class="nc bnc" id="L73" title="All 2 branches missed.">        if (!repo.existsById(id)) {</span>
-<span class="nc" id="L74">            return false;</span>
+<span class="fc bfc" id="L78" title="All 2 branches covered.">        if (!repo.existsById(id)) {</span>
+<span class="fc" id="L79">            return false;</span>
         }
-<span class="nc" id="L76">        repo.deleteById(id);</span>
-<span class="nc" id="L77">        return true;</span>
+<span class="fc" id="L81">        repo.deleteById(id);</span>
+<span class="fc" id="L82">        return true;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
