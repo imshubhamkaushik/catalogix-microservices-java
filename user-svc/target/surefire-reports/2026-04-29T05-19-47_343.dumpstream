@@ -1,5 +1,0 @@
-# Created at 2026-04-29T05:19:47.558
-Boot Manifest-JAR contains absolute paths in classpath 'D:\Projects\aws-cicd-devsecops\user-svc\target\test-classes'
-Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
-'other' has different root
-

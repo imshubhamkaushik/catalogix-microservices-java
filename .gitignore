@@ -1,17 +1,17 @@
 # ====== Java / Spring Boot ======
-target/
+*/target/
 *.jar
 *.war
 *.class
 *.log
 
 # ====== Node / React ======
-node_modules/
-build/
-dist/
-coverage/
-.env
-.env.local
+*/node_modules/
+*/build/
+*/dist/
+*/coverage/
+*/.env
+*/.env.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
