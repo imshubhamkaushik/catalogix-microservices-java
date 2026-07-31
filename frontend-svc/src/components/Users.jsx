@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import PropTypes from "prop-types";
-import { getUsers, createUser, deleteUser } from "../api";
+import { getUsers, deleteUser } from "../api";
+import { useAuth } from "../context/AuthContext";
 
 // Generate initials from a name string
 function initials(name) {
@@ -13,7 +14,13 @@ function initials(name) {
 }
 
 // Cycle through avatar colours deterministically by user id
-const AVATAR_CLASSES = ["av-teal", "av-blue", "av-purple", "av-amber", "av-coral"];
+const AVATAR_CLASSES = [
+  "av-teal",
+  "av-blue",
+  "av-purple",
+  "av-amber",
+  "av-coral",
+];
 function avatarClass(id) {
   return AVATAR_CLASSES[(id - 1) % AVATAR_CLASSES.length];
 }
@@ -38,20 +45,16 @@ Toast.propTypes = {
   onDone: PropTypes.func.isRequired,
 };
 
-export default function Users({ currentUser, onUserSelected }) {
-  const [users, setUsers]       = useState([]);
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState("");
-  const [toast, setToast]       = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  // Form state
-  const [name, setName]         = useState("");
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-
-  // Search filter
-  const [search, setSearch]     = useState("");
+// Admin-only directory of every registered account (route itself is hidden
+// from non-admins in App.jsx; the backend also rejects GET /users for
+// non-admins, so this is defense in depth, not the only guard).
+export default function Users() {
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [search, setSearch] = useState("");
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -66,31 +69,15 @@ export default function Users({ currentUser, onUserSelected }) {
     }
   }, []);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
-
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    if (!name.trim() || !email.trim() || !password.trim()) return;
-    setSubmitting(true);
-    try {
-      await createUser({ name: name.trim(), email: email.trim(), password });
-      setName(""); setEmail(""); setPassword("");
-      await fetchUsers();
-      setToast("User registered successfully.");
-    } catch (err) {
-      const msg = err.response?.data?.message || "Failed to register user.";
-      setError(msg);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
 
   const handleDelete = async (user) => {
-    // Inline confirmation instead of browser confirm()
-    if (!globalThis.confirm(`Remove ${user.name}? This cannot be undone.`)) return;
+    if (!globalThis.confirm(`Remove ${user.name}? This cannot be undone.`))
+      return;
     try {
       await deleteUser(user.id);
-      if (currentUser?.id === user.id) onUserSelected(null);
       await fetchUsers();
       setToast(`${user.name} removed.`);
     } catch {
@@ -98,15 +85,10 @@ export default function Users({ currentUser, onUserSelected }) {
     }
   };
 
-  const handleSelect = (user) => {
-    onUserSelected(user);
-    setToast(`${user.name} set as active user.`);
-  };
-
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase())
+      u.email.toLowerCase().includes(search.toLowerCase()),
   );
 
   return (
@@ -114,59 +96,15 @@ export default function Users({ currentUser, onUserSelected }) {
       <div className="topbar">
         <div>
           <h1 className="page-title">Users</h1>
-          <p className="page-subtitle">Manage registered accounts</p>
+          <p className="page-subtitle">
+            Admin directory of registered accounts
+          </p>
         </div>
       </div>
 
       <div className="page-content">
         {toast && <Toast message={toast} onDone={() => setToast("")} />}
         {error && <div className="toast toast-error">{error}</div>}
-
-        {/* Register form */}
-        <div className="form-panel">
-          <p className="form-panel-label">Register new user</p>
-          <form className="form-fields form-fields-4" onSubmit={handleRegister}>
-            <div className="field-wrap">
-              <label className="field-label" htmlFor="reg-name">Full name</label>
-              <input
-                className="field-input"
-                placeholder="e.g. Priya Patel"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                disabled={submitting}
-              />
-            </div>
-            <div className="field-wrap">
-              <label className="field-label" htmlFor="reg-email">Email address</label>
-              <input
-                className="field-input"
-                type="email"
-                placeholder="priya@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={submitting}
-              />
-            </div>
-            <div className="field-wrap">
-              <label className="field-label" htmlFor="reg-password">Password</label>
-              <input
-                className="field-input"
-                type="password"
-                placeholder="Min 6 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                disabled={submitting}
-              />
-            </div>
-            <button className="form-submit" type="submit" disabled={submitting}>
-              {submitting ? "Saving…" : "Register"}
-            </button>
-          </form>
-        </div>
 
         {/* List header */}
         <div className="section-header">
@@ -222,7 +160,7 @@ export default function Users({ currentUser, onUserSelected }) {
             <p className="empty-sub">
               {search
                 ? "Try a different name or email."
-                : "Register the first user using the form above."}
+                : "Nobody has registered yet."}
             </p>
           </div>
         )}
@@ -231,26 +169,26 @@ export default function Users({ currentUser, onUserSelected }) {
         {!loading && filtered.length > 0 && (
           <div className="item-list">
             {filtered.map((user) => {
-              const isActive = currentUser?.id === user.id;
+              const isSelf = currentUser?.id === user.id;
+              const isUserAdmin = user.role === "ADMIN";
               return (
-                <div
-                  key={user.id}
-                  className={`item-row${isActive ? " item-row-active" : ""}`}
-                >
+                <div key={user.id} className="item-row">
                   <div className={`avatar ${avatarClass(user.id)}`}>
                     {initials(user.name)}
                   </div>
                   <div className="item-meta">
-                    <div className="item-name">{user.name}</div>
+                    <div className="item-name">
+                      {user.name}
+                      {isSelf && <span className="item-name-hint"> (you)</span>}
+                    </div>
                     <div className="item-sub">{user.email}</div>
                   </div>
                   <div className="item-actions">
-                    <button
-                      className={`chip ${isActive ? "chip-active" : "chip-idle"}`}
-                      onClick={() => !isActive && handleSelect(user)}
+                    <span
+                      className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}
                     >
-                      {isActive ? "Active" : "Select"}
-                    </button>
+                      {user.role}
+                    </span>
                     <button
                       className="icon-btn"
                       onClick={() => handleDelete(user)}
@@ -275,8 +213,3 @@ export default function Users({ currentUser, onUserSelected }) {
     </div>
   );
 }
-
-Users.propTypes = {
-  currentUser: PropTypes.shape({ id: PropTypes.number, name: PropTypes.string }),
-  onUserSelected: PropTypes.func.isRequired,
-};

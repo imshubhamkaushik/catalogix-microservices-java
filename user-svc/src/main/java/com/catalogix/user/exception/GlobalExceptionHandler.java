@@ -56,4 +56,24 @@ public class GlobalExceptionHandler {
         body.put(STATUS, HttpStatus.UNAUTHORIZED.value());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, new Date());
+        body.put(STATUS, HttpStatus.FORBIDDEN.value());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccountLocked(AccountLockedException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, new Date());
+        body.put(STATUS, HttpStatus.TOO_MANY_REQUESTS.value());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(body);
+    }
 }

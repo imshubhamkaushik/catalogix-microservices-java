@@ -1,6 +1,7 @@
 package com.catalogix.user.model;
 
 import jakarta.persistence.*;
+import java.time.Instant;
 
 @Entity
 @Table(name = "users")
@@ -9,10 +10,27 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(nullable = false)
     private String name;
-    @Column(unique = true)
+
+    @Column(unique = true, nullable = false)
     private String email;
+
+    @Column(nullable = false)
     private String password;
+
+    // "USER" or "ADMIN". Defaults to USER; promoted to ADMIN at registration
+    // time if the email matches the ADMIN_EMAILS allow-list (see UserSvc).
+    @Column(nullable = false)
+    private String role = "USER";
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt = Instant.now();
+
+    // Tracked for UI purposes (e.g. showing a "verify your email" banner) but
+    // NOT enforced as a login gate — see V4 migration / README for why.
+    @Column(nullable = false)
+    private boolean verified = false;
 
     public User() {
     }
@@ -23,7 +41,7 @@ public class User {
         this.password = password;
     }
 
-    // getters and setters omitted for brevity
+    // getters and setters
     public Long getId() {
         return id;
     }
@@ -54,5 +72,29 @@ public class User {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void setVerified(boolean verified) {
+        this.verified = verified;
     }
 }

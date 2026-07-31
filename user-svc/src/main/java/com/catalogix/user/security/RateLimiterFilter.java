@@ -4,6 +4,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -13,7 +14,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+// Runs before JwtAuthFilter (@Order(2)) so abusive clients get throttled
+// before we spend any effort parsing/verifying their token.
 @Component
+@Order(1)
 public class RateLimiterFilter implements Filter {
 
     private static final long WINDOW_MS = 60000; // 1 minute in ms

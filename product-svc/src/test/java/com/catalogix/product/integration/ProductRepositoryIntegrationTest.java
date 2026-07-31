@@ -34,7 +34,11 @@ public class ProductRepositoryIntegrationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("ALLOWED_ORIGINS", () -> "http://localhost:3000");
+        registry.add("JWT_SECRET", () -> "test-secret-key-at-least-32-characters-long!!");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        // This test exercises the repository/schema directly; Flyway migrations are
+        // covered indirectly whenever the app boots against a real Postgres instance.
+        registry.add("spring.flyway.enabled", () -> false);
     }
 
     @Autowired
@@ -51,6 +55,7 @@ public class ProductRepositoryIntegrationTest {
     @Test
     void saveAndFindProduct() {
         Product p = new Product("Laptop", "A fast laptop", new BigDecimal("55000.00"));
+        p.setOwnerId(1L);
         Product saved = productRepository.save(p);
 
         Long savedId = Objects.requireNonNull(saved.getId(), "saved ID must not be null");
@@ -66,8 +71,12 @@ public class ProductRepositoryIntegrationTest {
     @Test
     void listAllProducts() {
         productRepository.deleteAll();
-        productRepository.save(new Product("Phone", "A phone", new BigDecimal("15000.00")));
-        productRepository.save(new Product("Tablet", "A tablet", new BigDecimal("25000.00")));
+        Product phone = new Product("Phone", "A phone", new BigDecimal("15000.00"));
+        phone.setOwnerId(1L);
+        Product tablet = new Product("Tablet", "A tablet", new BigDecimal("25000.00"));
+        tablet.setOwnerId(1L);
+        productRepository.save(phone);
+        productRepository.save(tablet);
 
         List<Product> products = productRepository.findAll();
         assertThat(products).hasSize(2);
@@ -75,9 +84,10 @@ public class ProductRepositoryIntegrationTest {
 
     @Test
     void deleteProduct() {
-        Product p = productRepository.save(
-                new Product("Headphones", "Wireless", new BigDecimal("3000.00")));
-        Long id = Objects.requireNonNull(p.getId(), "Saved product ID should not be null");
+        Product p = new Product("Headphones", "Wireless", new BigDecimal("3000.00"));
+        p.setOwnerId(1L);
+        Product saved = productRepository.save(p);
+        Long id = Objects.requireNonNull(saved.getId(), "Saved product ID should not be null");
         productRepository.deleteById(id);
         assertThat(productRepository.findById(id)).isEmpty();
     }

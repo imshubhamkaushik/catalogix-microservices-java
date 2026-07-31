@@ -1,19 +1,22 @@
 package com.catalogix.product.controller;
 
 import com.catalogix.product.dto.CreateProductRequest;
+import com.catalogix.product.dto.PagedResponse;
 import com.catalogix.product.dto.ProductResponse;
+import com.catalogix.product.dto.StockAdjustmentRequest;
 import com.catalogix.product.svc.ProductSvc;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
-import java.util.List;
 
-// DEV NOTE: X-USER-ID is a dev-only stand-in for auth. For production,
-// replace with Spring Security + JWT so identity is verified server-side.
+// Caller identity comes from JwtAuthFilter, which verifies the bearer token and
+// attaches userId/userRole as request attributes — no more trusting a client header.
 
 @RestController
 @RequestMapping("/products")
@@ -25,29 +28,24 @@ public class ProductController {
         this.svc = svc;
     }
 
-    // List products as ProductResponse DTOs
+    // Paginated, searchable, filterable product listing.
+    // GET /products?search=phone&category=electronics&page=0&size=20&sort=price,asc
     @GetMapping
-    public ResponseEntity<List<ProductResponse>> listAll(
-        @RequestHeader(value = "X-USER-ID", required = false) Long userId
+    public ResponseEntity<PagedResponse<ProductResponse>> listAll(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable
     ) {
-        if (userId == null) {
-            return ResponseEntity.status(401).build(); // Unauthorized
-        }
-
-        return ResponseEntity.ok(svc.listAll());
+        return ResponseEntity.ok(svc.search(search, category, pageable));
     }
-    
-    // Create product with validation
+
+    // Create product with validation. Ownership is assigned from the caller's JWT.
     @PostMapping
     public ResponseEntity<ProductResponse> create(
-        @RequestHeader("X-USER-ID") Long userId,
-        @Valid @RequestBody CreateProductRequest req
+            @RequestAttribute("userId") Long userId,
+            @Valid @RequestBody CreateProductRequest req
     ) {
-        if (userId == null) {
-            return ResponseEntity.status(401).build(); // Unauthorized
-        }
-
-        ProductResponse created = svc.create(req);
+        ProductResponse created = svc.create(req, userId);
 
         URI location = ServletUriComponentsBuilder
             .fromCurrentRequest()
@@ -60,30 +58,32 @@ public class ProductController {
 
     // Get single product
     @GetMapping("/{id}")
-    public ResponseEntity<ProductResponse> getOne(
-        @RequestHeader("X-USER-ID") Long userId,
-        @PathVariable long id
-    ) {
-        if (userId == null) {
-            return ResponseEntity.status(401).build(); // Unauthorized
-        }
-
+    public ResponseEntity<ProductResponse> getOne(@PathVariable long id) {
         return svc.findById(id).map(ResponseEntity::ok)
             .orElse(ResponseEntity.notFound().build());
     }
 
-    // Delete product
+    // Delete product — owner or admin only.
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(
-        @RequestHeader("X-USER-ID") Long userId,
-        @PathVariable long id
+            @PathVariable long id,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("userRole") String role
     ) {
-        if (userId == null) {
-            return ResponseEntity.status(401).build(); // Unauthorized
-        }
-        if (!svc.deleteById(id)) {
+        if (!svc.deleteById(id, userId, role)) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.noContent().build();
+    }
+
+    // Adjust stock (positive = restock, negative = reserve/sell). Called both from the
+    // admin UI and, internally, by order-svc (with the placing user's token forwarded)
+    // when an order is created or cancelled.
+    @PatchMapping("/{id}/stock")
+    public ResponseEntity<ProductResponse> adjustStock(
+            @PathVariable long id,
+            @Valid @RequestBody StockAdjustmentRequest req
+    ) {
+        return ResponseEntity.ok(svc.adjustStock(id, req.getDelta()));
     }
 }

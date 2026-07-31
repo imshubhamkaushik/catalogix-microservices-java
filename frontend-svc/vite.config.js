@@ -10,4 +10,9 @@ export default defineConfig({
   build: {
     outDir: "build", // keeps 'build/' so the Dockerfile COPY path stays unchanged
   },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: "./src/setupTests.js",
+  },
 });

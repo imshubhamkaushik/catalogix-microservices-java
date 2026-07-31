@@ -1,6 +1,7 @@
 package com.catalogix.product.dto;
 
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
@@ -15,6 +16,13 @@ public class CreateProductRequest {
     @NotNull(message = "Price is required and must be positive")
     @DecimalMin(value = "0.0", inclusive = false , message = "Price must be greater than zero")
     private BigDecimal price;
+
+    // Optional — defaults to "GENERAL" in the service layer if blank.
+    private String category;
+
+    // Optional — defaults to 0 (out of stock until restocked) if omitted.
+    @Min(value = 0, message = "Stock quantity cannot be negative")
+    private Integer stockQuantity;
 
     public CreateProductRequest() {
         // No-argument constructor required for framework instantiation (e.g., Jackson deserialization)
@@ -39,5 +47,19 @@ public class CreateProductRequest {
     }
     public void setPrice(BigDecimal price) {
         this.price = price;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public Integer getStockQuantity() {
+        return stockQuantity;
+    }
+    public void setStockQuantity(Integer stockQuantity) {
+        this.stockQuantity = stockQuantity;
     }
 }

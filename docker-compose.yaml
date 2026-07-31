@@ -1,0 +1,184 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: ${POSTGRES_DB}
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [catalogix]
+
+  # NOTE on healthchecks: user-svc/product-svc/order-svc/notification-svc run on
+  # a distroless base image (see their Dockerfiles) with no shell and no
+  # wget/curl, so a container-level `healthcheck:` isn't practical here. They
+  # instead rely on `depends_on: postgres (service_healthy)` for correct
+  # startup ordering and `restart: unless-stopped` to recover from any early
+  # connection races.
+
+  # Dev-only SMTP catcher: every email any service sends lands here instead of anywhere real. 
+  # View them at http://localhost:8025. Swap spring.mail.host/port for a real provider's settings in notification-svc's env for anything beyond local dev/demo.
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+    networks: [catalogix]
+
+  user-svc:
+    build:
+      context: .
+      dockerfile: user-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
+      REFRESH_TOKEN_EXPIRATION_MS: ${REFRESH_TOKEN_EXPIRATION_MS}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+      NOTIFICATION_SVC_URL: http://notification-svc:8084
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notification-svc:
+        condition: service_started
+    networks: [catalogix]
+
+  product-svc:
+    build:
+      context: .
+      dockerfile: product-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
+  order-svc:
+    build:
+      context: .
+      dockerfile: order-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      PRODUCT_SVC_URL: http://product-svc:8082
+      NOTIFICATION_SVC_URL: http://notification-svc:8084
+    ports:
+      - "8083:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # product-svc/notification-svc have no container healthcheck to wait on
+      # (see note above); this just avoids order-svc's *container* starting
+      # before theirs does. Either may still be warming up when the first
+      # order lands — those calls fail fast in that narrow window and are
+      # either retried by the client (product-svc) or simply best-effort and
+      # logged (notification-svc's order-confirmation email).
+      product-svc:
+        condition: service_started
+      notification-svc:
+        condition: service_started
+    networks: [catalogix]
+
+  notification-svc:
+    build:
+      context: .
+      dockerfile: notification-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_FROM: ${MAIL_FROM}
+    ports:
+      - "8084:8084"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks: [catalogix]
+
+  # frontend-svc and gateway both run on nginx:alpine, which does have wget,
+  # and both Dockerfiles bake in a real HEALTHCHECK — so service_healthy works.
+
+  frontend-svc:
+    build:
+      context: ./frontend-svc
+    restart: unless-stopped
+    # Not published to the host — reached only through the gateway, which is
+    # the single entry point browsers should use (see gateway/nginx.conf).
+    expose:
+      - "80"
+    depends_on:
+      - user-svc
+      - product-svc
+      - order-svc
+    networks: [catalogix]
+
+  gateway:
+    build:
+      context: ./gateway
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      user-svc:
+        condition: service_started
+      product-svc:
+        condition: service_started
+      order-svc:
+        condition: service_started
+      frontend-svc:
+        condition: service_healthy
+    networks: [catalogix]
+
+networks:
+  catalogix:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+secrets:
+  # File-based secret for Postgres's own bootstrap (the officially-supported
+  # POSTGRES_PASSWORD_FILE convention — no custom code needed). The app
+  # services still connect using SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
+  # from .env, so keep that value identical to this file's contents. In a real
+  # deployment, both would instead come from your platform's secrets manager
+  # (Vault, AWS/GCP Secrets Manager, etc.), injected as environment variables —
+  # this local file is a stand-in for that, not a replacement for it.
+  postgres_password:
+    file: ./secrets/postgres_password.txt
