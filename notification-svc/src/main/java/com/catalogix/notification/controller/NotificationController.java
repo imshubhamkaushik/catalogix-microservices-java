@@ -1,38 +1,45 @@
 package com.catalogix.notification.controller;
 
-import com.catalogix.notification.dto.NotificationResponse;
-import com.catalogix.notification.dto.SendEmailRequest;
+import com.catalogix.notification.dto.NotificationLogResponse;
+import com.catalogix.notification.dto.PagedResponse;
 import com.catalogix.notification.exception.ForbiddenException;
-import com.catalogix.notification.svc.EmailSvc;
+import com.catalogix.notification.model.Notification;
+import com.catalogix.notification.repository.NotificationRepository;
 
-import jakarta.validation.Valid;
-import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.*;
 
-// Internal, service-to-service API — never meant to be called by an end
-// user's own session token, hence the SYSTEM role check on every endpoint.
+/**
+ * Admin-only, read-only visibility into what's been sent — the actual
+ * sending now happens entirely via RabbitMQ consumers (see the `listener`
+ * package); there's no longer an inbound "send an email" endpoint for other
+ * services to call.
+ */
 @RestController
 @RequestMapping("/notifications")
 public class NotificationController {
 
-    private final EmailSvc emailSvc;
+    private final NotificationRepository repo;
 
-    public NotificationController(EmailSvc emailSvc) {
-        this.emailSvc = emailSvc;
+    public NotificationController(NotificationRepository repo) {
+        this.repo = repo;
     }
 
-    @PostMapping("/email")
-    public ResponseEntity<NotificationResponse> sendEmail(
+    @GetMapping
+    public PagedResponse<NotificationLogResponse> list(
             @RequestAttribute("userRole") String role,
-            @Valid @RequestBody SendEmailRequest req
+            @PageableDefault(size = 20) Pageable pageable
     ) {
-        requireSystemCaller(role);
-        return ResponseEntity.ok(emailSvc.send(req));
+        if (!"ADMIN".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Only admins may view the notification log");
+        }
+        Page<Notification> page = repo.findAllByOrderByCreatedAtDesc(pageable);
+        return PagedResponse.from(page, page.getContent().stream().map(this::toResponse).toList());
     }
 
-    private void requireSystemCaller(String role) {
-        if (!"SYSTEM".equalsIgnoreCase(role)) {
-            throw new ForbiddenException("notification-svc only accepts calls from trusted internal services");
-        }
+    private NotificationLogResponse toResponse(Notification n) {
+        return new NotificationLogResponse(n.getId(), n.getRecipient(), n.getSubject(), n.getStatus(), n.getError(), n.getCreatedAt());
     }
 }

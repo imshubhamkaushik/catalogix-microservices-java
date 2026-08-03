@@ -30,7 +30,6 @@ import org.springframework.http.MediaType;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -55,22 +54,6 @@ import static org.mockito.Mockito.doThrow;
 @ActiveProfiles("test")
 class UserControllerTest {
 
-    private static final String JOHN_EMAIL = "john@example.com";
-    private static final String FAKE_ACCESS_TOKEN = "fake.access.token";
-    private static final String FAKE_REFRESH_TOKEN = "fake-refresh-token";
-    private static final String VALID_PASSWORD = "Password1";
-    private static final String JSON_PATH_ACCESS_TOKEN = "$.accessToken";
-    private static final String JSON_PATH_REFRESH_TOKEN = "$.refreshToken";
-    private static final String LOGIN_URL = "/users/login";
-    private static final String BOGUS_TOKEN = "bogus";
-    private static final String ATTR_USER_ID = "userId";
-    private static final String ATTR_USER_ROLE = "userRole";
-    private static final String ROLE_ADMIN = "ADMIN";
-    private static final String ROLE_USER = "USER";
-    private static final String RAW_TOKEN = "raw-token";
-    private static final String NEW_PASSWORD = "NewPassword1";
-    private static final String NEW_NAME = "New Name";
-
     @Autowired
     private ObjectMapper mapper;
 
@@ -81,8 +64,8 @@ class UserControllerTest {
     private MockMvc mvc;
 
     private AuthResponse sampleAuthResponse() {
-        UserResponse profile = new UserResponse(1L, "John", JOHN_EMAIL , "USER");
-        return new AuthResponse(FAKE_ACCESS_TOKEN, 900000L, FAKE_REFRESH_TOKEN, profile);
+        UserResponse profile = new UserResponse(1L, "John", "john@example.com", "USER");
+        return new AuthResponse("fake.access.token", 900000L, "fake-refresh-token", profile);
     }
 
     // POST /users/register tests
@@ -91,8 +74,8 @@ class UserControllerTest {
     void registerReturnsCreated() throws Exception {
         CreateUserRequest req = new CreateUserRequest();
         req.setName("John");
-        req.setEmail(JOHN_EMAIL);
-        req.setPassword(VALID_PASSWORD);
+        req.setEmail("john@example.com");
+        req.setPassword("Password1");
 
         when(svc.register(any())).thenReturn(sampleAuthResponse());
 
@@ -101,11 +84,11 @@ class UserControllerTest {
                 .content(mapper.writeValueAsString(req)))
                 .andDo(print())
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath(JSON_PATH_ACCESS_TOKEN).value(FAKE_ACCESS_TOKEN))
-                .andExpect(jsonPath(JSON_PATH_REFRESH_TOKEN).value(FAKE_REFRESH_TOKEN))
+                .andExpect(jsonPath("$.accessToken").value("fake.access.token"))
+                .andExpect(jsonPath("$.refreshToken").value("fake-refresh-token"))
                 .andExpect(jsonPath("$.user.id").value(1L))
                 .andExpect(jsonPath("$.user.name").value("John"))
-                .andExpect(jsonPath("$.user.email").value(JOHN_EMAIL));
+                .andExpect(jsonPath("$.user.email").value("john@example.com"));
     }
 
     @Test
@@ -113,8 +96,8 @@ class UserControllerTest {
     void registerDuplicateEmailReturns409() throws Exception {
         CreateUserRequest req = new CreateUserRequest();
         req.setName("John");
-        req.setEmail(JOHN_EMAIL);
-        req.setPassword(VALID_PASSWORD);
+        req.setEmail("john@example.com");
+        req.setPassword("Password1");
 
         when(svc.register(any())).thenThrow(new IllegalArgumentException("Email already registered"));
 
@@ -129,18 +112,18 @@ class UserControllerTest {
     @SuppressWarnings("null")
     void loginReturnsOkWithTokens() throws Exception {
         LoginRequest req = new LoginRequest();
-        req.setEmail(JOHN_EMAIL);
-        req.setPassword(VALID_PASSWORD);
+        req.setEmail("john@example.com");
+        req.setPassword("Password1");
 
         when(svc.login(any())).thenReturn(sampleAuthResponse());
 
-        mvc.perform(post(LOGIN_URL)
+        mvc.perform(post("/users/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath(JSON_PATH_ACCESS_TOKEN).value(FAKE_ACCESS_TOKEN))
-                .andExpect(jsonPath(JSON_PATH_REFRESH_TOKEN).value(FAKE_REFRESH_TOKEN))
-                .andExpect(jsonPath("$.user.email").value(JOHN_EMAIL));
+                .andExpect(jsonPath("$.accessToken").value("fake.access.token"))
+                .andExpect(jsonPath("$.refreshToken").value("fake-refresh-token"))
+                .andExpect(jsonPath("$.user.email").value("john@example.com"));
     }
 
     @Test
@@ -152,7 +135,7 @@ class UserControllerTest {
 
         when(svc.login(any())).thenThrow(new UnauthorizedException("Invalid email or password"));
 
-        mvc.perform(post(LOGIN_URL)
+        mvc.perform(post("/users/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
@@ -167,7 +150,7 @@ class UserControllerTest {
 
         when(svc.login(any())).thenThrow(new AccountLockedException(Duration.ofSeconds(120)));
 
-        mvc.perform(post(LOGIN_URL)
+        mvc.perform(post("/users/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isTooManyRequests())
@@ -188,17 +171,17 @@ class UserControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath(JSON_PATH_ACCESS_TOKEN).value("new.access.token"))
-                .andExpect(jsonPath(JSON_PATH_REFRESH_TOKEN).value("new-refresh-token"));
+                .andExpect(jsonPath("$.accessToken").value("new.access.token"))
+                .andExpect(jsonPath("$.refreshToken").value("new-refresh-token"));
     }
 
     @Test
     @SuppressWarnings("null")
     void refreshWithInvalidTokenReturns401() throws Exception {
         RefreshRequest req = new RefreshRequest();
-        req.setRefreshToken(BOGUS_TOKEN);
+        req.setRefreshToken("bogus");
 
-        when(svc.refresh(BOGUS_TOKEN)).thenThrow(new UnauthorizedException("Invalid refresh token"));
+        when(svc.refresh("bogus")).thenThrow(new UnauthorizedException("Invalid refresh token"));
 
         mvc.perform(post("/users/refresh")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -223,7 +206,7 @@ class UserControllerTest {
 
     @Test
     void logoutAllReturnsNoContent() throws Exception {
-        mvc.perform(post("/users/logout-all").requestAttr(ATTR_USER_ID, 1L))
+        mvc.perform(post("/users/logout-all").requestAttr("userId", 1L))
                 .andExpect(status().isNoContent());
 
         verify(svc).logoutEverywhere(1L);
@@ -235,13 +218,13 @@ class UserControllerTest {
     @SuppressWarnings("null")
     void getAllReturnsListOfUsersForAdmin() throws Exception {
         when(svc.listAll()).thenReturn(List.of(
-                new UserResponse(1L, "Alice", "alice@example.com", ROLE_ADMIN),
-                new UserResponse(2L, "Bob",   "bob@example.com", ROLE_USER)
+                new UserResponse(1L, "Alice", "alice@example.com", "ADMIN"),
+                new UserResponse(2L, "Bob",   "bob@example.com", "USER")
         ));
 
         mvc.perform(get("/users")
-                .requestAttr(ATTR_USER_ID, 1L)
-                .requestAttr(ATTR_USER_ROLE, ROLE_ADMIN))
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "ADMIN"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
                 .andExpect(jsonPath("$[0].name").value("Alice"))
@@ -251,8 +234,8 @@ class UserControllerTest {
     @Test
     void getAllRejectsNonAdmin() throws Exception {
         mvc.perform(get("/users")
-                .requestAttr(ATTR_USER_ID, 2L)
-                .requestAttr(ATTR_USER_ROLE, ROLE_USER))
+                .requestAttr("userId", 2L)
+                .requestAttr("userRole", "USER"))
                 .andExpect(status().isForbidden());
     }
 
@@ -263,18 +246,18 @@ class UserControllerTest {
         when(svc.deleteById(1L, 1L, "USER")).thenReturn(true);
 
         mvc.perform(delete("/users/1")
-                .requestAttr(ATTR_USER_ID, 1L)
-                .requestAttr(ATTR_USER_ROLE, ROLE_USER))
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "USER"))
                 .andExpect(status().isNoContent());
     }
 
     @Test
     void deleteReturnsNotFoundWhenUserMissing() throws Exception {
-        when(svc.deleteById(99L, 1L, ROLE_ADMIN)).thenReturn(false);
+        when(svc.deleteById(99L, 1L, "ADMIN")).thenReturn(false);
 
         mvc.perform(delete("/users/99")
-                .requestAttr(ATTR_USER_ID, 1L)
-                .requestAttr(ATTR_USER_ROLE, ROLE_ADMIN))
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "ADMIN"))
                 .andExpect(status().isNotFound());
     }
 
@@ -284,31 +267,31 @@ class UserControllerTest {
                 .thenThrow(new ForbiddenException("You may only delete your own account"));
 
         mvc.perform(delete("/users/2")
-                .requestAttr(ATTR_USER_ID, 1L)
-                .requestAttr(ATTR_USER_ROLE, ROLE_USER))
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "USER"))
                 .andExpect(status().isForbidden());
     }
 
     // GET /users/verify-email
     @Test
     void verifyEmailReturnsNoContentOnSuccess() throws Exception {
-        mvc.perform(get("/users/verify-email").param("token", RAW_TOKEN))
+        mvc.perform(get("/users/verify-email").param("token", "raw-token"))
                 .andExpect(status().isNoContent());
-        verify(svc).verifyEmail(RAW_TOKEN);
+        verify(svc).verifyEmail("raw-token");
     }
 
     @Test
     void verifyEmailReturnsUnauthorizedForBadToken() throws Exception {
         doThrow(new UnauthorizedException("Invalid or expired verification link"))
-                .when(svc).verifyEmail(BOGUS_TOKEN);
+                .when(svc).verifyEmail("bogus");
 
-        mvc.perform(get("/users/verify-email").param("token", BOGUS_TOKEN))
+        mvc.perform(get("/users/verify-email").param("token", "bogus"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     void resendVerificationReturnsAccepted() throws Exception {
-        mvc.perform(post("/users/resend-verification").requestAttr(ATTR_USER_ID, 1L))
+        mvc.perform(post("/users/resend-verification").requestAttr("userId", 1L))
                 .andExpect(status().isAccepted());
         verify(svc).resendVerificationEmail(1L);
     }
@@ -333,15 +316,15 @@ class UserControllerTest {
     @SuppressWarnings("null")
     void resetPasswordReturnsNoContentOnSuccess() throws Exception {
         ResetPasswordRequest req = new ResetPasswordRequest();
-        req.setToken(RAW_TOKEN);
-        req.setNewPassword(NEW_PASSWORD);
+        req.setToken("raw-token");
+        req.setNewPassword("NewPassword1");
 
         mvc.perform(post("/users/reset-password")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isNoContent());
 
-        verify(svc).resetPassword(RAW_TOKEN, NEW_PASSWORD);
+        verify(svc).resetPassword("raw-token", "NewPassword1");
     }
 
     @Test
@@ -349,10 +332,10 @@ class UserControllerTest {
     void resetPasswordReturnsUnauthorizedForExpiredToken() throws Exception {
         ResetPasswordRequest req = new ResetPasswordRequest();
         req.setToken("expired-token");
-        req.setNewPassword(VALID_PASSWORD);
+        req.setNewPassword("NewPassword1");
 
         doThrow(new UnauthorizedException("Invalid or expired reset link"))
-                .when(svc).resetPassword("expired-token", VALID_PASSWORD);
+                .when(svc).resetPassword("expired-token", "NewPassword1");
 
         mvc.perform(post("/users/reset-password")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -365,17 +348,17 @@ class UserControllerTest {
     @SuppressWarnings("null")
     void updateProfileReturnsUpdatedUser() throws Exception {
         UpdateProfileRequest req = new UpdateProfileRequest();
-        req.setName(NEW_NAME);
+        req.setName("New Name");
 
         when(svc.updateProfile(eq(1L), any(UpdateProfileRequest.class)))
-                .thenReturn(new UserResponse(1L, NEW_NAME, "x@x.com", "USER", true));
+                .thenReturn(new UserResponse(1L, "New Name", "x@x.com", "USER", true));
 
         mvc.perform(patch("/users/me")
-                .requestAttr(ATTR_USER_ID, 1L)
+                .requestAttr("userId", 1L)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.name").value(NEW_NAME));
+                .andExpect(jsonPath("$.name").value("New Name"));
     }
 
     @Test
@@ -388,7 +371,7 @@ class UserControllerTest {
                 .thenThrow(new UnauthorizedException("currentPassword is required and must be correct"));
 
         mvc.perform(patch("/users/me")
-                .requestAttr(ATTR_USER_ID, 1L)
+                .requestAttr("userId", 1L)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());

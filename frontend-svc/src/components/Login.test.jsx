@@ -21,7 +21,7 @@ function renderLogin() {
       <AuthProvider>
         <Login />
       </AuthProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
@@ -41,9 +41,7 @@ describe("Login", () => {
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /register/i }));
     expect(screen.getByLabelText(/full name/i)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /create account/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
   });
 
   it("calls the login API with a trimmed email and untouched password", async () => {
@@ -55,16 +53,11 @@ describe("Login", () => {
     });
 
     renderLogin();
-    await userEvent.type(
-      screen.getByLabelText(/email address/i),
-      "  alice@example.com  ",
-    );
+    await userEvent.type(screen.getByLabelText(/email address/i), "  alice@example.com  ");
     await userEvent.type(screen.getByLabelText(/^password$/i), "Password1");
     await userEvent.click(submitLogInButton());
 
-    await waitFor(() =>
-      expect(api.login).toHaveBeenCalledWith("alice@example.com", "Password1"),
-    );
+    await waitFor(() => expect(api.login).toHaveBeenCalledWith("alice@example.com", "Password1"));
   });
 
   it("calls the register API when in register mode", async () => {
@@ -78,55 +71,34 @@ describe("Login", () => {
     renderLogin();
     await userEvent.click(screen.getByRole("button", { name: /register/i }));
     await userEvent.type(screen.getByLabelText(/full name/i), "Bob");
-    await userEvent.type(
-      screen.getByLabelText(/email address/i),
-      "bob@example.com",
-    );
+    await userEvent.type(screen.getByLabelText(/email address/i), "bob@example.com");
     await userEvent.type(screen.getByLabelText(/^password$/i), "Password1");
-    await userEvent.click(
-      screen.getByRole("button", { name: /create account/i }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     await waitFor(() =>
-      expect(api.register).toHaveBeenCalledWith(
-        "Bob",
-        "bob@example.com",
-        "Password1",
-      ),
+      expect(api.register).toHaveBeenCalledWith("Bob", "bob@example.com", "Password1")
     );
   });
 
   it("shows the server's error message when login fails", async () => {
-    api.login.mockRejectedValue({
-      response: { data: { message: "Invalid email or password" } },
-    });
+    api.login.mockRejectedValue({ response: { data: { message: "Invalid email or password" } } });
 
     renderLogin();
-    await userEvent.type(
-      screen.getByLabelText(/email address/i),
-      "bad@example.com",
-    );
+    await userEvent.type(screen.getByLabelText(/email address/i), "bad@example.com");
     await userEvent.type(screen.getByLabelText(/^password$/i), "wrongpass");
     await userEvent.click(submitLogInButton());
 
-    expect(
-      await screen.findByText("Invalid email or password"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Invalid email or password")).toBeInTheDocument();
   });
 
   it("falls back to a generic error message when the server gives no message", async () => {
     api.login.mockRejectedValue(new Error("network down"));
 
     renderLogin();
-    await userEvent.type(
-      screen.getByLabelText(/email address/i),
-      "bad@example.com",
-    );
+    await userEvent.type(screen.getByLabelText(/email address/i), "bad@example.com");
     await userEvent.type(screen.getByLabelText(/^password$/i), "wrongpass");
     await userEvent.click(submitLogInButton());
 
-    expect(
-      await screen.findByText(/invalid email or password/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/invalid email or password/i)).toBeInTheDocument();
   });
 });

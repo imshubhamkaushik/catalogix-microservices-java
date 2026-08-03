@@ -5,8 +5,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
-// Backs every @Async method (currently just OrderNotifier's order-confirmation
-// email) with a small bounded pool instead of Spring's default
+// Backs every @Async method (currently OrderEventPublisher's RabbitMQ relay
+// methods) with a small bounded pool instead of Spring's default
 // SimpleAsyncTaskExecutor, which spins up an unbounded new thread per call.
 @Configuration
 public class AsyncConfig {

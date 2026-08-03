@@ -2,6 +2,9 @@ package com.catalogix.order.svc;
 
 import com.catalogix.order.client.ProductSvcClient;
 import com.catalogix.order.dto.*;
+import com.catalogix.order.event.OrderCancelledEvent;
+import com.catalogix.order.event.OrderConfirmedEvent;
+import com.catalogix.order.event.OrderItemEventData;
 import com.catalogix.order.exception.ForbiddenException;
 import com.catalogix.order.exception.InvalidOrderStateException;
 import com.catalogix.order.exception.OrderNotFoundException;
@@ -11,6 +14,7 @@ import com.catalogix.order.repository.StockAdjustmentOutboxRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -20,7 +24,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -69,7 +72,7 @@ public class OrderSvc {
     private final OrderRepository repo;
     private final StockAdjustmentOutboxRepository outboxRepo;
     private final ProductSvcClient productSvcClient;
-    private final OrderNotifier orderNotifier;
+    private final ApplicationEventPublisher eventPublisher;
     private final CouponSvc couponSvc;
     private final PaymentSvc paymentSvc;
 
@@ -77,14 +80,14 @@ public class OrderSvc {
             OrderRepository repo,
             StockAdjustmentOutboxRepository outboxRepo,
             ProductSvcClient productSvcClient,
-            OrderNotifier orderNotifier,
+            ApplicationEventPublisher eventPublisher,
             CouponSvc couponSvc,
             PaymentSvc paymentSvc
     ) {
         this.repo = repo;
         this.outboxRepo = outboxRepo;
         this.productSvcClient = productSvcClient;
-        this.orderNotifier = orderNotifier;
+        this.eventPublisher = eventPublisher;
         this.couponSvc = couponSvc;
         this.paymentSvc = paymentSvc;
     }
@@ -168,7 +171,7 @@ public class OrderSvc {
     public OrderPaymentResult payOrder(
             Long orderId, Long userId, String role, PayOrderRequest req, String bearerToken, String userEmail
     ) {
-        Order order = repo.findById(Objects.requireNonNull(orderId)).orElseThrow(() -> new OrderNotFoundException(orderId));
+        Order order = repo.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
         assertCanAccess(order, userId, role);
 
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
@@ -188,7 +191,8 @@ public class OrderSvc {
         Order saved = repo.save(order);
         OrderResponse response = toResponse(saved);
         if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
-            orderNotifier.notifyOrderConfirmed(userEmail, response);
+            eventPublisher.publishEvent(new OrderConfirmedEvent(
+                    saved.getId(), userEmail, toEventItems(saved), saved.getTotalAmount()));
         }
         return new OrderPaymentResult(response, payment);
     }
@@ -196,7 +200,7 @@ public class OrderSvc {
     // Admin-only forward progression: CONFIRMED -> SHIPPED -> DELIVERED.
     @Transactional
     public OrderResponse updateStatus(Long orderId, OrderStatus newStatus) {
-        Order order = repo.findById(Objects.requireNonNull(orderId)).orElseThrow(() -> new OrderNotFoundException(orderId));
+        Order order = repo.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
         Set<OrderStatus> allowed = ALLOWED_STATUS_TRANSITIONS.getOrDefault(order.getStatus(), Set.of());
         if (!allowed.contains(newStatus)) {
             throw new InvalidOrderStateException(
@@ -220,14 +224,14 @@ public class OrderSvc {
     @Transactional(readOnly = true)
     public PagedResponse<OrderResponse> listOrders(Long userId, String role, Pageable pageable) {
         Page<Order> page = "ADMIN".equalsIgnoreCase(role)
-                ? repo.findAll(Objects.requireNonNull(pageable))
-                : repo.findByUserId(userId, Objects.requireNonNull(pageable));
+                ? repo.findAll(pageable)
+                : repo.findByUserId(userId, pageable);
         return PagedResponse.from(page, page.getContent().stream().map(this::toResponse).toList());
     }
 
     @Transactional(readOnly = true)
     public OrderResponse getOrder(Long id, Long userId, String role) {
-        Order order = repo.findById(Objects.requireNonNull(id)).orElseThrow(() -> new OrderNotFoundException(id));
+        Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
         assertCanAccess(order, userId, role);
         return toResponse(order);
     }
@@ -237,7 +241,7 @@ public class OrderSvc {
     // returns/refunds problem, out of scope here.
     @Transactional
     public OrderResponse cancelOrder(Long id, Long userId, String role, String bearerToken, String userEmail) {
-        Order order = repo.findById(Objects.requireNonNull(id)).orElseThrow(() -> new OrderNotFoundException(id));
+        Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
         assertCanAccess(order, userId, role);
 
         if (order.getStatus() == OrderStatus.CANCELLED) {
@@ -251,9 +255,9 @@ public class OrderSvc {
         releaseOrderSideEffects(order, bearerToken, "cancel-order-" + id);
         order.setStatus(OrderStatus.CANCELLED);
 
-        OrderResponse response = toResponse(repo.save(order));
-        orderNotifier.notifyOrderCancelled(userEmail, response);
-        return response;
+        Order saved = repo.save(order);
+        eventPublisher.publishEvent(new OrderCancelledEvent(saved.getId(), userEmail));
+        return toResponse(saved);
     }
 
     // Shared by cancelOrder and payOrder's decline branch: restock every item
@@ -292,6 +296,12 @@ public class OrderSvc {
                         r.product().getId(), r.quantity(), "compensate-failed-reservation"));
             }
         }
+    }
+
+    private List<OrderItemEventData> toEventItems(Order order) {
+        return order.getItems().stream()
+                .map(i -> new OrderItemEventData(i.getProductName(), i.getQuantity(), i.getUnitPrice(), i.getSubtotal()))
+                .toList();
     }
 
     private OrderResponse toResponse(Order order) {

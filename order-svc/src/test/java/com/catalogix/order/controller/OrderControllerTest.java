@@ -26,7 +26,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Objects;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -84,12 +83,12 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1L))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
-                .andExpect(jsonPath("$.items", Objects.requireNonNull(hasSize(1))));
+                .andExpect(jsonPath("$.items", hasSize(1)));
     }
 
     @Test
@@ -104,8 +103,8 @@ class OrderControllerTest {
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "key-abc")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L));
     }
@@ -121,8 +120,8 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isConflict());
     }
 
@@ -140,8 +139,8 @@ class OrderControllerTest {
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "key-abc")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L));
     }
@@ -153,7 +152,7 @@ class OrderControllerTest {
 
         mvc.perform(get("/orders").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content", Objects.requireNonNull(hasSize(1))));
+                .andExpect(jsonPath("$.content", hasSize(1)));
     }
 
     @Test
@@ -185,8 +184,8 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.order.status").value("CONFIRMED"))
                 .andExpect(jsonPath("$.payment.status").value("SUCCEEDED"));
@@ -206,8 +205,8 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isConflict());
     }
 
@@ -221,8 +220,8 @@ class OrderControllerTest {
 
         mvc.perform(patch("/orders/1/status")
                 .requestAttr("userRole", "ADMIN")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SHIPPED"));
     }
@@ -235,8 +234,8 @@ class OrderControllerTest {
 
         mvc.perform(patch("/orders/1/status")
                 .requestAttr("userRole", "USER")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isForbidden());
     }
 

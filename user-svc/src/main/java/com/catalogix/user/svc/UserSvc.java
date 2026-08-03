@@ -1,6 +1,5 @@
 package com.catalogix.user.svc;
 
-import com.catalogix.user.client.NotificationClient;
 import com.catalogix.user.dto.AuthResponse;
 import com.catalogix.user.dto.CreateUserRequest;
 import com.catalogix.user.dto.LoginRequest;
@@ -8,6 +7,8 @@ import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
 import com.catalogix.user.dto.UserResponse;
 import com.catalogix.user.exception.ForbiddenException;
+import com.catalogix.user.event.EmailVerificationRequestedEvent;
+import com.catalogix.user.event.PasswordResetRequestedEvent;
 import com.catalogix.user.exception.UnauthorizedException;
 import com.catalogix.user.model.EmailVerificationToken;
 import com.catalogix.user.model.PasswordResetToken;
@@ -20,6 +21,7 @@ import com.catalogix.user.security.LoginAttemptTracker;
 import com.catalogix.user.security.RefreshTokenService;
 import com.catalogix.user.security.TokenHasher;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +56,7 @@ public class UserSvc {
     private final EmailVerificationTokenRepository emailVerificationRepo;
     private final PasswordResetTokenRepository passwordResetRepo;
     private final TokenHasher tokenHasher;
-    private final NotificationClient notificationClient;
+    private final ApplicationEventPublisher eventPublisher;
     private final String frontendBaseUrl;
     private final Set<String> adminEmails;
 
@@ -67,7 +69,7 @@ public class UserSvc {
             EmailVerificationTokenRepository emailVerificationRepo,
             PasswordResetTokenRepository passwordResetRepo,
             TokenHasher tokenHasher,
-            NotificationClient notificationClient,
+            ApplicationEventPublisher eventPublisher,
             @Value("${FRONTEND_BASE_URL:http://localhost:8080}") String frontendBaseUrl,
             @Value("${ADMIN_EMAILS:}") String adminEmailsCsv
     ) {
@@ -79,7 +81,7 @@ public class UserSvc {
         this.emailVerificationRepo = emailVerificationRepo;
         this.passwordResetRepo = passwordResetRepo;
         this.tokenHasher = tokenHasher;
-        this.notificationClient = notificationClient;
+        this.eventPublisher = eventPublisher;
         this.frontendBaseUrl = frontendBaseUrl;
         this.adminEmails = Arrays.stream(adminEmailsCsv.split(","))
                 .map(String::trim)
@@ -150,20 +152,16 @@ public class UserSvc {
     }
 
     // Kicks off (or re-sends) the email verification link for a newly-created
-    // or not-yet-verified account. Best-effort — NotificationClient itself
-    // swallows delivery failures, so this never blocks registration.
+    // or not-yet-verified account. Publishing (rather than emailing directly)
+    // is best-effort by construction — see UserEventPublisher — so this never
+    // blocks registration even if RabbitMQ/notification-svc are unavailable.
     private void sendVerificationEmail(User user) {
         String rawToken = tokenHasher.generateRawToken();
         emailVerificationRepo.save(new EmailVerificationToken(
                 user.getId(), tokenHasher.hash(rawToken), Instant.now().plusMillis(EMAIL_VERIFICATION_TTL_MS)));
 
         String link = frontendBaseUrl + "/verify-email?token=" + rawToken;
-        notificationClient.sendEmail(
-                user.getEmail(),
-                "Verify your Catalogix email",
-                "Hi " + user.getName() + ",\n\n"
-                        + "Please verify your email address by visiting the link below:\n" + link + "\n\n"
-                        + "This link expires in 24 hours. If you didn't create this account, you can ignore this email.");
+        eventPublisher.publishEvent(new EmailVerificationRequestedEvent(user.getEmail(), user.getName(), link));
     }
 
     @Transactional
@@ -204,12 +202,7 @@ public class UserSvc {
                     user.getId(), tokenHasher.hash(rawToken), Instant.now().plusMillis(PASSWORD_RESET_TTL_MS)));
 
             String link = frontendBaseUrl + "/reset-password?token=" + rawToken;
-            notificationClient.sendEmail(
-                    user.getEmail(),
-                    "Reset your Catalogix password",
-                    "Hi " + user.getName() + ",\n\n"
-                            + "Reset your password by visiting the link below:\n" + link + "\n\n"
-                            + "This link expires in 1 hour. If you didn't request this, you can safely ignore this email.");
+            eventPublisher.publishEvent(new PasswordResetRequestedEvent(user.getEmail(), user.getName(), link));
         });
     }
 

@@ -45,7 +45,6 @@ public class Order {
     private List<OrderItem> items = new ArrayList<>();
 
     public Order() {
-        // Required by JPA for entity instantiation. Do not remove.
     }
 
     public Long getId() {

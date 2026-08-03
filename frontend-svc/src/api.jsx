@@ -1,8 +1,5 @@
 import axios from "axios";
-import {
-  getStoredAccessToken,
-  getStoredRefreshToken,
-} from "./context/AuthContext";
+import { getStoredAccessToken, getStoredRefreshToken } from "./context/AuthContext";
 
 // Base URL for backend APIs
 // - In Docker/K8s behind the gateway (see gateway/nginx.conf), keep this as ""
@@ -42,12 +39,8 @@ function performRefresh() {
     refreshPromise = (async () => {
       const refreshToken = getStoredRefreshToken();
       if (!refreshToken) throw new Error("No refresh token available");
-      const res = await refreshClient.post(`${USER_API_BASE}/refresh`, {
-        refreshToken,
-      });
-      window.dispatchEvent(
-        new CustomEvent("catalogix:tokens-refreshed", { detail: res.data }),
-      );
+      const res = await refreshClient.post(`${USER_API_BASE}/refresh`, { refreshToken });
+      window.dispatchEvent(new CustomEvent("catalogix:tokens-refreshed", { detail: res.data }));
       return res.data.accessToken;
     })().finally(() => {
       refreshPromise = null;
@@ -60,17 +53,11 @@ http.interceptors.response.use(
   (res) => res,
   async (err) => {
     const { config, response } = err;
-    const isAuthEndpoint =
-      config?.url?.startsWith(`${USER_API_BASE}/login`) ||
-      config?.url?.startsWith(`${USER_API_BASE}/register`) ||
-      config?.url?.startsWith(`${USER_API_BASE}/refresh`);
+    const isAuthEndpoint = config?.url?.startsWith(`${USER_API_BASE}/login`)
+      || config?.url?.startsWith(`${USER_API_BASE}/register`)
+      || config?.url?.startsWith(`${USER_API_BASE}/refresh`);
 
-    if (
-      response?.status === 401 &&
-      config &&
-      !config._retry &&
-      !isAuthEndpoint
-    ) {
+    if (response?.status === 401 && config && !config._retry && !isAuthEndpoint) {
       config._retry = true;
       try {
         const newAccessToken = await performRefresh();
@@ -88,7 +75,7 @@ http.interceptors.response.use(
     }
 
     return Promise.reject(err);
-  },
+  }
 );
 
 // -------- AUTH APIs --------
@@ -99,11 +86,7 @@ export const login = async (email, password) => {
 };
 
 export const register = async (name, email, password) => {
-  const res = await http.post(`${USER_API_BASE}/register`, {
-    name,
-    email,
-    password,
-  });
+  const res = await http.post(`${USER_API_BASE}/register`, { name, email, password });
   return res.data; // { accessToken, accessTokenExpiresInMs, refreshToken, user }
 };
 
@@ -183,14 +166,8 @@ export const adjustStock = async (id, delta) => {
 // retried "place order" click returns the original order instead of creating
 // a duplicate — see order-svc's Idempotency-Key header handling.
 export const createOrder = async (items, idempotencyKey, couponCode) => {
-  const headers = idempotencyKey
-    ? { "Idempotency-Key": idempotencyKey }
-    : undefined;
-  const res = await http.post(
-    ORDER_API_BASE,
-    { items, couponCode },
-    { headers },
-  );
+  const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
+  const res = await http.post(ORDER_API_BASE, { items, couponCode }, { headers });
   return res.data;
 };
 
@@ -206,10 +183,7 @@ export const cancelOrder = async (id) => {
 
 // method e.g. "MOCK_CARD"; cardLast4 "0000" always simulates a decline (for demos/testing).
 export const payOrder = async (id, method, cardLast4) => {
-  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, {
-    method,
-    cardLast4,
-  });
+  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, { method, cardLast4 });
   return res.data; // { order, payment }
 };
 
@@ -229,17 +203,12 @@ export const getCart = async () => {
 };
 
 export const addCartItem = async (productId, quantity) => {
-  const res = await http.post(`${CART_API_BASE}/items`, {
-    productId,
-    quantity,
-  });
+  const res = await http.post(`${CART_API_BASE}/items`, { productId, quantity });
   return res.data;
 };
 
 export const updateCartItemQuantity = async (productId, quantity) => {
-  const res = await http.patch(`${CART_API_BASE}/items/${productId}`, {
-    quantity,
-  });
+  const res = await http.patch(`${CART_API_BASE}/items/${productId}`, { quantity });
   return res.data;
 };
 
@@ -261,9 +230,7 @@ export const removeCartCoupon = async () => {
 // Converts the cart into an order (PENDING_PAYMENT, stock reserved) and
 // clears the cart on success — the order still needs payOrder() to complete.
 export const checkoutCart = async (idempotencyKey) => {
-  const headers = idempotencyKey
-    ? { "Idempotency-Key": idempotencyKey }
-    : undefined;
+  const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
   const res = await http.post(`${CART_API_BASE}/checkout`, {}, { headers });
   return res.data;
 };

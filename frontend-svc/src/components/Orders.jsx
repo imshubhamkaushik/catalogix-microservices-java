@@ -1,18 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import {
-  getProducts,
-  getOrders,
-  cancelOrder,
-  payOrder,
-  updateOrderStatus,
-  getCart,
-  addCartItem,
-  updateCartItemQuantity,
-  removeCartItem,
-  applyCartCoupon,
-  removeCartCoupon,
-  checkoutCart,
+  getProducts, getOrders, cancelOrder, payOrder, updateOrderStatus,
+  getCart, addCartItem, updateCartItemQuantity, removeCartItem,
+  applyCartCoupon, removeCartCoupon, checkoutCart,
 } from "../api";
 import { useAuth } from "../context/AuthContext";
 
@@ -27,11 +18,7 @@ function formatPrice(value) {
 
 function formatDate(value) {
   return new Date(value).toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -62,11 +49,7 @@ const STATUS_BADGE_CLASS = {
 };
 
 function StatusBadge({ status }) {
-  return (
-    <span className={`badge ${STATUS_BADGE_CLASS[status] || "badge-user"}`}>
-      {status.replace("_", " ")}
-    </span>
-  );
+  return <span className={`badge ${STATUS_BADGE_CLASS[status] || "badge-user"}`}>{status.replace("_", " ")}</span>;
 }
 StatusBadge.propTypes = { status: PropTypes.string.isRequired };
 
@@ -100,13 +83,7 @@ function ProductPicker({ onAdd }) {
   return (
     <div className="product-picker">
       <div className="search-box">
-        <svg
-          viewBox="0 0 16 16"
-          width="13"
-          height="13"
-          fill="currentColor"
-          style={{ opacity: 0.4, flexShrink: 0 }}
-        >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" style={{ opacity: 0.4, flexShrink: 0 }}>
           <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398l3.85 3.85a1 1 0 001.415-1.414l-3.868-3.834zm-5.242 1.156a5 5 0 110-10 5 5 0 010 10z" />
         </svg>
         <input
@@ -118,32 +95,21 @@ function ProductPicker({ onAdd }) {
       {(searching || results.length > 0) && (
         <div className="picker-results">
           {searching && <div className="picker-result-empty">Searching…</div>}
-          {!searching &&
-            results.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className="picker-result-row"
-                disabled={(p.stockQuantity ?? 0) === 0}
-                onClick={() => {
-                  onAdd(p);
-                  setQuery("");
-                  setResults([]);
-                }}
-              >
-                <span className="picker-result-name">{p.name}</span>
-                <span className="picker-result-price">
-                  {formatPrice(p.price)}
-                </span>
-                <span
-                  className={`badge ${(p.stockQuantity ?? 0) === 0 ? "badge-out-of-stock" : "badge-in-stock"}`}
-                >
-                  {(p.stockQuantity ?? 0) === 0
-                    ? "Out of stock"
-                    : `${p.stockQuantity} in stock`}
-                </span>
-              </button>
-            ))}
+          {!searching && results.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="picker-result-row"
+              disabled={(p.stockQuantity ?? 0) === 0}
+              onClick={() => { onAdd(p); setQuery(""); setResults([]); }}
+            >
+              <span className="picker-result-name">{p.name}</span>
+              <span className="picker-result-price">{formatPrice(p.price)}</span>
+              <span className={`badge ${(p.stockQuantity ?? 0) === 0 ? "badge-out-of-stock" : "badge-in-stock"}`}>
+                {(p.stockQuantity ?? 0) === 0 ? "Out of stock" : `${p.stockQuantity} in stock`}
+              </span>
+            </button>
+          ))}
           {!searching && results.length === 0 && (
             <div className="picker-result-empty">No matching products.</div>
           )}
@@ -183,11 +149,7 @@ function PaymentForm({ order, onPaid, onError }) {
         onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, ""))}
         disabled={paying}
       />
-      <button
-        className="btn-small btn-primary-small"
-        type="submit"
-        disabled={paying}
-      >
+      <button className="btn-small btn-primary-small" type="submit" disabled={paying}>
         {paying ? "Processing…" : `Pay ${formatPrice(order.totalAmount)}`}
       </button>
       <span className="auth-help-text" style={{ margin: 0 }}>
@@ -197,10 +159,7 @@ function PaymentForm({ order, onPaid, onError }) {
   );
 }
 PaymentForm.propTypes = {
-  order: PropTypes.shape({
-    id: PropTypes.number,
-    totalAmount: PropTypes.number,
-  }).isRequired,
+  order: PropTypes.shape({ id: PropTypes.number, totalAmount: PropTypes.number }).isRequired,
   onPaid: PropTypes.func.isRequired,
   onError: PropTypes.func.isRequired,
 };
@@ -239,10 +198,7 @@ export default function Orders() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchCart();
-    fetchOrders();
-  }, [fetchCart, fetchOrders]);
+  useEffect(() => { fetchCart(); fetchOrders(); }, [fetchCart, fetchOrders]);
 
   const handleAddToCart = async (product) => {
     try {
@@ -302,15 +258,9 @@ export default function Orders() {
       await checkoutCart(crypto.randomUUID());
       setCouponInput("");
       await Promise.all([fetchCart(), fetchOrders()]);
-      setToast({
-        message: "Order placed — complete payment below to confirm it.",
-        type: "success",
-      });
+      setToast({ message: "Order placed — complete payment below to confirm it.", type: "success" });
     } catch (err) {
-      setError(
-        err.response?.data?.message ||
-          "Checkout failed — one or more items may be unavailable.",
-      );
+      setError(err.response?.data?.message || "Checkout failed — one or more items may be unavailable.");
     } finally {
       setCheckingOut(false);
     }
@@ -319,19 +269,15 @@ export default function Orders() {
   const handlePaid = (result) => {
     fetchOrders();
     setToast({
-      message:
-        result.payment.status === "SUCCEEDED"
-          ? "Payment successful — order confirmed!"
-          : "Payment declined — the order was cancelled and stock released.",
+      message: result.payment.status === "SUCCEEDED"
+        ? "Payment successful — order confirmed!"
+        : "Payment declined — the order was cancelled and stock released.",
       type: result.payment.status === "SUCCEEDED" ? "success" : "error",
     });
   };
 
   const handleCancel = async (order) => {
-    if (
-      !globalThis.confirm(`Cancel order #${order.id}? Stock will be restored.`)
-    )
-      return;
+    if (!globalThis.confirm(`Cancel order #${order.id}? Stock will be restored.`)) return;
     try {
       await cancelOrder(order.id);
       await fetchOrders();
@@ -345,10 +291,7 @@ export default function Orders() {
     try {
       await updateOrderStatus(order.id, nextStatus);
       await fetchOrders();
-      setToast({
-        message: `Order #${order.id} marked ${nextStatus.toLowerCase()}.`,
-        type: "success",
-      });
+      setToast({ message: `Order #${order.id} marked ${nextStatus.toLowerCase()}.`, type: "success" });
     } catch (err) {
       setError(err.response?.data?.message || "Failed to update order status.");
     }
@@ -360,21 +303,13 @@ export default function Orders() {
         <div>
           <h1 className="page-title">Orders</h1>
           <p className="page-subtitle">
-            {isAdmin
-              ? "Build a cart and manage every order"
-              : "Build a cart and track your orders"}
+            {isAdmin ? "Build a cart and manage every order" : "Build a cart and track your orders"}
           </p>
         </div>
       </div>
 
       <div className="page-content">
-        {toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            onDone={() => setToast(null)}
-          />
-        )}
+        {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
         {error && <div className="toast toast-error">{error}</div>}
 
         {/* Cart builder */}
@@ -392,27 +327,11 @@ export default function Orders() {
                     type="number"
                     min="1"
                     value={line.quantity}
-                    onChange={(e) =>
-                      updateQty(
-                        line.productId,
-                        Number.parseInt(e.target.value, 10) || 1,
-                      )
-                    }
+                    onChange={(e) => updateQty(line.productId, Number.parseInt(e.target.value, 10) || 1)}
                   />
-                  <span className="cart-line-subtotal">
-                    {formatPrice(line.subtotal)}
-                  </span>
-                  <button
-                    className="icon-btn"
-                    onClick={() => removeFromCart(line.productId)}
-                    title="Remove"
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      width="12"
-                      height="12"
-                      fill="currentColor"
-                    >
+                  <span className="cart-line-subtotal">{formatPrice(line.subtotal)}</span>
+                  <button className="icon-btn" onClick={() => removeFromCart(line.productId)} title="Remove">
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                       <path d="M2.146 2.854a.5.5 0 111.415-1.415L8 6.086l4.44-4.647a.5.5 0 01.708.707L8.707 6.793l4.647 4.647a.5.5 0 01-.708.708L8 7.5l-4.44 4.648a.5.5 0 01-.707-.708L7.293 6.793l-4.647-4.647.5.708z" />
                     </svg>
                   </button>
@@ -422,16 +341,8 @@ export default function Orders() {
               <form className="coupon-row" onSubmit={handleApplyCoupon}>
                 {cart.couponCode ? (
                   <>
-                    <span className="badge badge-in-stock">
-                      Coupon: {cart.couponCode}
-                    </span>
-                    <button
-                      className="btn-small"
-                      type="button"
-                      onClick={handleRemoveCoupon}
-                    >
-                      Remove
-                    </button>
+                    <span className="badge badge-in-stock">Coupon: {cart.couponCode}</span>
+                    <button className="btn-small" type="button" onClick={handleRemoveCoupon}>Remove</button>
                   </>
                 ) : (
                   <>
@@ -443,11 +354,7 @@ export default function Orders() {
                       onChange={(e) => setCouponInput(e.target.value)}
                       disabled={applyingCoupon}
                     />
-                    <button
-                      className="btn-small"
-                      type="submit"
-                      disabled={applyingCoupon}
-                    >
+                    <button className="btn-small" type="submit" disabled={applyingCoupon}>
                       {applyingCoupon ? "Applying…" : "Apply"}
                     </button>
                   </>
@@ -456,23 +363,13 @@ export default function Orders() {
 
               <div className="cart-footer">
                 <div>
-                  <div className="auth-help-text" style={{ margin: 0 }}>
-                    Subtotal: {formatPrice(cart.subtotal)}
-                  </div>
+                  <div className="auth-help-text" style={{ margin: 0 }}>Subtotal: {formatPrice(cart.subtotal)}</div>
                   {cart.discountAmount > 0 && (
-                    <div className="auth-help-text" style={{ margin: 0 }}>
-                      Discount: -{formatPrice(cart.discountAmount)}
-                    </div>
+                    <div className="auth-help-text" style={{ margin: 0 }}>Discount: -{formatPrice(cart.discountAmount)}</div>
                   )}
-                  <span className="cart-total">
-                    Total: {formatPrice(cart.total)}
-                  </span>
+                  <span className="cart-total">Total: {formatPrice(cart.total)}</span>
                 </div>
-                <button
-                  className="form-submit cart-submit"
-                  onClick={handleCheckout}
-                  disabled={checkingOut}
-                >
+                <button className="form-submit cart-submit" onClick={handleCheckout} disabled={checkingOut}>
                   {checkingOut ? "Placing order…" : "Checkout"}
                 </button>
               </div>
@@ -483,39 +380,26 @@ export default function Orders() {
         {/* Order history */}
         <div className="section-header">
           <div className="section-header-left">
-            <span className="section-title">
-              {isAdmin ? "All orders" : "Your orders"}
-            </span>
-            {!loading && (
-              <span className="section-count">{orders.length} orders</span>
-            )}
+            <span className="section-title">{isAdmin ? "All orders" : "Your orders"}</span>
+            {!loading && <span className="section-count">{orders.length} orders</span>}
           </div>
         </div>
 
         {loading && (
           <div className="skeleton-list">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="skeleton-row" />
-            ))}
+            {[1, 2, 3].map((i) => <div key={i} className="skeleton-row" />)}
           </div>
         )}
 
         {!loading && orders.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon">
-              <svg
-                viewBox="0 0 16 16"
-                width="20"
-                height="20"
-                fill="currentColor"
-              >
-                <path d="M1 2.5A.5.5 0 011.5 2H3a.5.5 0 01.485.379L3.89 4H14.5a.5.5 0 01.491.592l-1 5A.5.5 0 0113.5 10H5a.5.5 0 01-.491-.408L3.01 4.607 2.61 3H1.5a.5.5 0 01-.5-.5zM5 12a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" />
+              <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor">
+                <path d="M1 2.5A.5.5 0 011.5 2H3a.5.5 0 01.485.379L3.89 4H14.5a.5.5 0 01.491.592l-1 5A.5.5 0 0113.5 10H5a.5.5 0 01-.491-.408L3.01 4.607 2.61 3H1.5a.5.5 0 01-.5-.5zM5 12a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/>
               </svg>
             </div>
             <p className="empty-title">No orders yet</p>
-            <p className="empty-sub">
-              Search for a product above to build your first order.
-            </p>
+            <p className="empty-sub">Search for a product above to build your first order.</p>
           </div>
         )}
 
@@ -526,58 +410,32 @@ export default function Orders() {
                 <div className="item-meta">
                   <div className="item-name">
                     Order #{order.id}
-                    {isAdmin && (
-                      <span className="item-name-hint">
-                        {" "}
-                        · user #{order.userId}
-                      </span>
-                    )}
+                    {isAdmin && <span className="item-name-hint"> · user #{order.userId}</span>}
                   </div>
                   <div className="item-sub">
-                    {order.items
-                      .map((i) => `${i.quantity} × ${i.productName}`)
-                      .join(", ")}
+                    {order.items.map((i) => `${i.quantity} × ${i.productName}`).join(", ")}
                   </div>
                   <div className="item-sub item-sub-faint">
                     {formatDate(order.createdAt)}
-                    {order.appliedCouponCode &&
-                      ` · Coupon ${order.appliedCouponCode} (-${formatPrice(order.discountAmount)})`}
+                    {order.appliedCouponCode && ` · Coupon ${order.appliedCouponCode} (-${formatPrice(order.discountAmount)})`}
                   </div>
                   {order.status === "PENDING_PAYMENT" && (
-                    <PaymentForm
-                      order={order}
-                      onPaid={handlePaid}
-                      onError={setError}
-                    />
+                    <PaymentForm order={order} onPaid={handlePaid} onError={setError} />
                   )}
                 </div>
                 <div className="item-actions">
                   <StatusBadge status={order.status} />
-                  <span className="price-tag">
-                    {formatPrice(order.totalAmount)}
-                  </span>
-                  {(order.status === "PENDING_PAYMENT" ||
-                    order.status === "CONFIRMED") && (
-                    <button
-                      className="btn-small"
-                      onClick={() => handleCancel(order)}
-                    >
-                      Cancel
-                    </button>
+                  <span className="price-tag">{formatPrice(order.totalAmount)}</span>
+                  {(order.status === "PENDING_PAYMENT" || order.status === "CONFIRMED") && (
+                    <button className="btn-small" onClick={() => handleCancel(order)}>Cancel</button>
                   )}
                   {isAdmin && order.status === "CONFIRMED" && (
-                    <button
-                      className="btn-small"
-                      onClick={() => handleAdvanceStatus(order, "SHIPPED")}
-                    >
+                    <button className="btn-small" onClick={() => handleAdvanceStatus(order, "SHIPPED")}>
                       Mark shipped
                     </button>
                   )}
                   {isAdmin && order.status === "SHIPPED" && (
-                    <button
-                      className="btn-small"
-                      onClick={() => handleAdvanceStatus(order, "DELIVERED")}
-                    >
+                    <button className="btn-small" onClick={() => handleAdvanceStatus(order, "DELIVERED")}>
                       Mark delivered
                     </button>
                   )}

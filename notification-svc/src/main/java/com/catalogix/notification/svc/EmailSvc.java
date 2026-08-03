@@ -1,7 +1,6 @@
 package com.catalogix.notification.svc;
 
 import com.catalogix.notification.dto.NotificationResponse;
-import com.catalogix.notification.dto.SendEmailRequest;
 import com.catalogix.notification.model.Notification;
 import com.catalogix.notification.model.NotificationStatus;
 import com.catalogix.notification.repository.NotificationRepository;
@@ -17,11 +16,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Sends a plain-text email and records the attempt (success or failure) in
- * notification_log either way — this is an audit trail, not a retry queue.
- * A failed send here does NOT throw back to the caller as an HTTP error;
- * the response body's `status` field is FAILED, and it's up to the caller
- * (typically a best-effort, non-blocking call — see order-svc/user-svc) to
- * decide whether that matters to them.
+ * notification_log either way — an audit trail of every attempt, including
+ * retries (see below).
+ *
+ * On failure, this RETHROWS after logging — unlike the old HTTP-endpoint
+ * version, which swallowed the failure and returned a FAILED status in the
+ * response body. Now that the only caller is a @RabbitListener (see the
+ * `listener` package), rethrowing is what lets Spring AMQP's retry policy
+ * (spring.rabbitmq.listener.simple.retry.*) actually kick in — and, once
+ * retries are exhausted, dead-letters the message into catalogix.events.dlq
+ * (see RabbitMQConfig) instead of it being silently lost.
  */
 @Service
 public class EmailSvc {
@@ -43,21 +47,23 @@ public class EmailSvc {
     }
 
     @Transactional
-    public NotificationResponse send(SendEmailRequest req) {
-        Notification entry = new Notification(req.getTo(), req.getSubject(), req.getBody());
+    public NotificationResponse send(String to, String subject, String body) {
+        Notification entry = new Notification(to, subject, body);
 
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromAddress);
-            message.setTo(req.getTo());
-            message.setSubject(req.getSubject());
-            message.setText(req.getBody());
+            message.setTo(to);
+            message.setSubject(subject);
+            message.setText(body);
             mailSender.send(message);
             entry.setStatus(NotificationStatus.SENT);
         } catch (MailException e) {
-            log.warn("Failed to send email to {}: {}", req.getTo(), e.getMessage());
+            log.warn("Failed to send email to {}: {}", to, e.getMessage());
             entry.setStatus(NotificationStatus.FAILED);
             entry.setError(truncate(e.getMessage()));
+            repo.save(entry);
+            throw e;
         }
 
         Notification saved = repo.save(entry);

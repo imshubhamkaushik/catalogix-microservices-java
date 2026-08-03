@@ -19,10 +19,12 @@ import java.util.Map;
 
 /**
  * Validates the "Authorization: Bearer <token>" header on every request
- * except health/metrics/docs. Every real endpoint here additionally requires
- * the SYSTEM role (see NotificationController) — this is an internal,
- * service-to-service API, never something an end user's own session token
- * should be able to call directly.
+ * except health/metrics/docs. The one remaining real endpoint (GET
+ * /notifications) is admin-only — enforced in the controller, not here.
+ * Notification-svc no longer accepts inbound "send an email" requests from
+ * other services at all; that flow is now entirely RabbitMQ-driven (see the
+ * `listener` package), so this filter only ever sees requests from real,
+ * logged-in admin users hitting the log-visibility endpoint.
  */
 @Component
 @Order(2)

@@ -20,15 +20,32 @@ services:
       retries: 10
     networks: [catalogix]
 
+  # Message broker: order-svc/user-svc publish domain events here (order confirmed/cancelled, verification/password-reset requested); notification-svc consumes them and sends the actual emails. 
+  # Replaces what used to be direct HTTP calls from order-svc/user-svc into notification-svc. 
+  # The official image ships a real shell + rabbitmq-diagnostics, so (unlike the distroless Java services) a proper healthcheck is possible here.
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "15672:15672" # management UI (http://localhost:15672)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [catalogix]
+
   # NOTE on healthchecks: user-svc/product-svc/order-svc/notification-svc run on
   # a distroless base image (see their Dockerfiles) with no shell and no
   # wget/curl, so a container-level `healthcheck:` isn't practical here. They
-  # instead rely on `depends_on: postgres (service_healthy)` for correct
-  # startup ordering and `restart: unless-stopped` to recover from any early
-  # connection races.
+  # instead rely on `depends_on: postgres/rabbitmq (service_healthy)` for
+  # correct startup ordering and `restart: unless-stopped` to recover from any early connection races.
 
-  # Dev-only SMTP catcher: every email any service sends lands here instead of anywhere real. 
-  # View them at http://localhost:8025. Swap spring.mail.host/port for a real provider's settings in notification-svc's env for anything beyond local dev/demo.
+  # Dev-only SMTP catcher: every email any service sends lands here instead of anywhere real. View them at http://localhost:8025. Swap spring.mail.host/port for a real provider's settings in notification-svc's env for anything beyond local dev/demo.
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped
@@ -50,15 +67,18 @@ services:
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
       REFRESH_TOKEN_EXPIRATION_MS: ${REFRESH_TOKEN_EXPIRATION_MS}
       ADMIN_EMAILS: ${ADMIN_EMAILS}
-      NOTIFICATION_SVC_URL: http://notification-svc:8084
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
     ports:
       - "8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
-      notification-svc:
-        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks: [catalogix]
 
   product-svc:
@@ -91,21 +111,23 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       PRODUCT_SVC_URL: http://product-svc:8082
-      NOTIFICATION_SVC_URL: http://notification-svc:8084
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
     ports:
       - "8083:8083"
     depends_on:
       postgres:
         condition: service_healthy
-      # product-svc/notification-svc have no container healthcheck to wait on
-      # (see note above); this just avoids order-svc's *container* starting
-      # before theirs does. Either may still be warming up when the first
-      # order lands — those calls fail fast in that narrow window and are
-      # either retried by the client (product-svc) or simply best-effort and
-      # logged (notification-svc's order-confirmation email).
+      rabbitmq:
+        condition: service_healthy
+      # product-svc has no container healthcheck to wait on (see note above);
+      # this just avoids order-svc's *container* starting before product-svc's
+      # does. product-svc may still be warming up when the first order lands —
+      # those calls fail fast in that narrow window (circuit-breaker-guarded)
+      # and the client can retry, same as any other transient inter-service hiccup.
       product-svc:
-        condition: service_started
-      notification-svc:
         condition: service_started
     networks: [catalogix]
 
@@ -122,10 +144,16 @@ services:
       MAIL_HOST: mailpit
       MAIL_PORT: 1025
       MAIL_FROM: ${MAIL_FROM}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
     ports:
       - "8084:8084"
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
       mailpit:
         condition: service_started

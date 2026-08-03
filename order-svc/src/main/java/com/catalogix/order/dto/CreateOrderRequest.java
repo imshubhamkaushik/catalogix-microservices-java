@@ -15,7 +15,6 @@ public class CreateOrderRequest {
     private String couponCode;
 
     public CreateOrderRequest() {
-        // Default constructor required for frameworks and deserialization.
     }
 
     public List<OrderItemRequest> getItems() {

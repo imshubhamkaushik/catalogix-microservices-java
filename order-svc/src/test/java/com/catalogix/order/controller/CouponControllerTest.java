@@ -17,8 +17,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Objects;
-
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -44,11 +42,9 @@ class CouponControllerTest {
     @Autowired
     private MockMvc mvc;
 
-    private static final String COUPON_SAVE10 = "SAVE10";
-
     private CreateCouponRequest sampleRequest() {
         CreateCouponRequest req = new CreateCouponRequest();
-        req.setCode(COUPON_SAVE10);
+        req.setCode("SAVE10");
         req.setDiscountType(DiscountType.PERCENTAGE);
         req.setDiscountValue(BigDecimal.TEN);
         return req;
@@ -58,12 +54,12 @@ class CouponControllerTest {
     @SuppressWarnings("null")
     void createAllowsAdmin() throws Exception {
         when(svc.create(any())).thenReturn(new CouponResponse(
-                1L, COUPON_SAVE10, DiscountType.PERCENTAGE, BigDecimal.TEN, null, 0, null, true, Instant.now()));
+                1L, "SAVE10", DiscountType.PERCENTAGE, BigDecimal.TEN, null, 0, null, true, Instant.now()));
 
         mvc.perform(post("/coupons")
                 .requestAttr("userRole", "ADMIN")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.code").value("SAVE10"));
     }
@@ -72,8 +68,8 @@ class CouponControllerTest {
     void createRejectsNonAdmin() throws Exception {
         mvc.perform(post("/coupons")
                 .requestAttr("userRole", "USER")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isForbidden());
     }
 }

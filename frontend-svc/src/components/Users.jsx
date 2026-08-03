@@ -14,13 +14,7 @@ function initials(name) {
 }
 
 // Cycle through avatar colours deterministically by user id
-const AVATAR_CLASSES = [
-  "av-teal",
-  "av-blue",
-  "av-purple",
-  "av-amber",
-  "av-coral",
-];
+const AVATAR_CLASSES = ["av-teal", "av-blue", "av-purple", "av-amber", "av-coral"];
 function avatarClass(id) {
   return AVATAR_CLASSES[(id - 1) % AVATAR_CLASSES.length];
 }
@@ -50,11 +44,11 @@ Toast.propTypes = {
 // non-admins, so this is defense in depth, not the only guard).
 export default function Users() {
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState([]);
+  const [users, setUsers]     = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-  const [search, setSearch] = useState("");
+  const [error, setError]     = useState("");
+  const [toast, setToast]     = useState("");
+  const [search, setSearch]   = useState("");
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -69,13 +63,10 @@ export default function Users() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const handleDelete = async (user) => {
-    if (!globalThis.confirm(`Remove ${user.name}? This cannot be undone.`))
-      return;
+    if (!globalThis.confirm(`Remove ${user.name}? This cannot be undone.`)) return;
     try {
       await deleteUser(user.id);
       await fetchUsers();
@@ -88,7 +79,7 @@ export default function Users() {
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
-      u.email.toLowerCase().includes(search.toLowerCase()),
+      u.email.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -96,9 +87,7 @@ export default function Users() {
       <div className="topbar">
         <div>
           <h1 className="page-title">Users</h1>
-          <p className="page-subtitle">
-            Admin directory of registered accounts
-          </p>
+          <p className="page-subtitle">Admin directory of registered accounts</p>
         </div>
       </div>
 
@@ -145,12 +134,7 @@ export default function Users() {
         {!loading && filtered.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon">
-              <svg
-                viewBox="0 0 16 16"
-                width="20"
-                height="20"
-                fill="currentColor"
-              >
+              <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor">
                 <path d="M8 8a3 3 0 100-6 3 3 0 000 6zm-5 6a5 5 0 0110 0H3z" />
               </svg>
             </div>
@@ -158,9 +142,7 @@ export default function Users() {
               {search ? "No users match your search" : "No users yet"}
             </p>
             <p className="empty-sub">
-              {search
-                ? "Try a different name or email."
-                : "Nobody has registered yet."}
+              {search ? "Try a different name or email." : "Nobody has registered yet."}
             </p>
           </div>
         )}
@@ -184,9 +166,7 @@ export default function Users() {
                     <div className="item-sub">{user.email}</div>
                   </div>
                   <div className="item-actions">
-                    <span
-                      className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}
-                    >
+                    <span className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}>
                       {user.role}
                     </span>
                     <button
@@ -194,12 +174,7 @@ export default function Users() {
                       onClick={() => handleDelete(user)}
                       title="Remove user"
                     >
-                      <svg
-                        viewBox="0 0 16 16"
-                        width="12"
-                        height="12"
-                        fill="currentColor"
-                      >
+                      <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                         <path d="M11 1.5v1h3.5a.5.5 0 010 1H13v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9H1.5a.5.5 0 010-1H5v-1A1.5 1.5 0 016.5 0h3A1.5 1.5 0 0111 1.5zm-5 0v1h4v-1a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5zM5.5 5.5a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6z" />
                       </svg>
                     </button>

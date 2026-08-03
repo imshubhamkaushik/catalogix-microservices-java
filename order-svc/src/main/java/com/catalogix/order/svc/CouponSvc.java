@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 
 @Service
 public class CouponSvc {
@@ -87,9 +86,8 @@ public class CouponSvc {
 
     @Transactional
     public CouponResponse deactivate(Long id) {
-        Long nonNullId = Objects.requireNonNull(id, "Coupon id is required");
-        Coupon coupon = repo.findById(nonNullId)
-                .orElseThrow(() -> new IllegalArgumentException("Coupon not found: " + nonNullId));
+        Coupon coupon = repo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Coupon not found: " + id));
         coupon.setActive(false);
         return toResponse(repo.save(coupon));
     }

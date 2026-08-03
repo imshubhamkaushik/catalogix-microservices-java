@@ -5,14 +5,14 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 @Entity
-@Table(name = "email_verification_tokens")
-public class EmailVerificationToken extends AbstractSingleUseToken {
+@Table(name = "password_reset_tokens")
+public class PasswordResetToken extends AbstractSingleUseToken {
 
-    public EmailVerificationToken() {
+    public PasswordResetToken() {
         super();
     }
 
-    public EmailVerificationToken(Long userId, String tokenHash, Instant expiresAt) {
+    public PasswordResetToken(Long userId, String tokenHash, Instant expiresAt) {
         super(userId, tokenHash, expiresAt);
     }
 }

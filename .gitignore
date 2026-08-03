@@ -20,6 +20,8 @@ _env
 # ====== Misc ======
 *.zip
 .github/
+secrets/*
+!secrets/*.example
 
 # ====== IDE / Editors ======
 .idea/

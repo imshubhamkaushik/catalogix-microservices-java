@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Operational visibility into the stock-adjustment outbox (see
@@ -45,7 +44,7 @@ public class AdminController {
             @RequestAttribute("userRole") String role
     ) {
         requireAdmin(role);
-        StockAdjustmentOutbox entry = outboxRepo.findById(Objects.requireNonNull(id))
+        StockAdjustmentOutbox entry = outboxRepo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Outbox entry not found: " + id));
         entry.setStatus(OutboxStatus.PENDING);
         entry.setAttempts(0);

@@ -1,27 +1,27 @@
 package com.catalogix.notification.controller;
 
-import com.catalogix.notification.dto.NotificationResponse;
-import com.catalogix.notification.dto.SendEmailRequest;
+import com.catalogix.notification.model.Notification;
 import com.catalogix.notification.model.NotificationStatus;
+import com.catalogix.notification.repository.NotificationRepository;
 import com.catalogix.notification.security.JwtAuthFilter;
 import com.catalogix.notification.security.RateLimiterFilter;
-import com.catalogix.notification.svc.EmailSvc;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
-import org.springframework.http.MediaType;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Objects;
+import java.util.List;
 
+import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -35,74 +35,34 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 classes = {JwtAuthFilter.class, RateLimiterFilter.class}))
 class NotificationControllerTest {
 
-    private static final String EMAIL_ENDPOINT = "/notifications/email";
-
-    @Autowired
-    private ObjectMapper mapper;
-
     @MockitoBean
-    private EmailSvc emailSvc;
+    private NotificationRepository repo;
 
     @Autowired
     private MockMvc mvc;
 
-    private SendEmailRequest sampleRequest() {
-        SendEmailRequest req = new SendEmailRequest();
-        req.setTo("alice@example.com");
-        req.setSubject("Welcome");
-        req.setBody("Hello Alice!");
-        return req;
+    private Notification sampleNotification() {
+        Notification n = new Notification("alice@example.com", "Welcome", "Hello Alice!");
+        n.setId(1L);
+        n.setStatus(NotificationStatus.SENT);
+        return n;
     }
 
     @Test
-    @SuppressWarnings("null")
-    void sendEmailReturnsOkForSystemCaller() throws Exception {
-        when(emailSvc.send(any(SendEmailRequest.class)))
-                .thenReturn(new NotificationResponse(1L, NotificationStatus.SENT, null));
+    void listReturnsPagedLogForAdmin() throws Exception {
+        when(repo.findAllByOrderByCreatedAtDesc(any()))
+                .thenReturn(new PageImpl<>(List.of(sampleNotification()), PageRequest.of(0, 20), 1));
 
-        mvc.perform(post(EMAIL_ENDPOINT)
-                .requestAttr("userRole", "SYSTEM")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
+        mvc.perform(get("/notifications").requestAttr("userRole", "ADMIN"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SENT"));
+                .andExpect(jsonPath("$.content", hasSize(1)))
+                .andExpect(jsonPath("$.content[0].recipient").value("alice@example.com"))
+                .andExpect(jsonPath("$.content[0].status").value("SENT"));
     }
 
     @Test
-    @SuppressWarnings("null")
-    void sendEmailReportsFailedStatusWithoutErroringHttpWise() throws Exception {
-        when(emailSvc.send(any(SendEmailRequest.class)))
-                .thenReturn(new NotificationResponse(1L, NotificationStatus.FAILED, "Connection refused"));
-
-        mvc.perform(post(EMAIL_ENDPOINT)
-                .requestAttr("userRole", "SYSTEM")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FAILED"))
-                .andExpect(jsonPath("$.error").value("Connection refused"));
-    }
-
-    @Test
-    void sendEmailRejectsNonSystemCaller() throws Exception {
-        mvc.perform(post(EMAIL_ENDPOINT)
-                .requestAttr("userRole", "USER")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
+    void listRejectsNonAdmin() throws Exception {
+        mvc.perform(get("/notifications").requestAttr("userRole", "USER"))
                 .andExpect(status().isForbidden());
-    }
-
-    @Test
-    void sendEmailValidatesRequestBody() throws Exception {
-        SendEmailRequest invalid = new SendEmailRequest();
-        invalid.setTo("not-an-email");
-        invalid.setSubject("");
-        invalid.setBody("");
-
-        mvc.perform(post(EMAIL_ENDPOINT)
-                .requestAttr("userRole", "SYSTEM")
-                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
-                .content(Objects.requireNonNull(mapper.writeValueAsString(invalid))))
-                .andExpect(status().isBadRequest());
     }
 }

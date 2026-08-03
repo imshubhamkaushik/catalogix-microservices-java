@@ -48,7 +48,7 @@ public class ProductSvcClient {
 
         try {
             ResponseEntity<ProductLookupResponse> resp = restTemplate.exchange(
-                    productSvcUrl + "/products/{id}", HttpMethod.valueOf("GET"), entity,
+                    productSvcUrl + "/products/{id}", HttpMethod.GET, entity,
                     ProductLookupResponse.class, productId);
             ProductLookupResponse body = resp.getBody();
             if (body == null) {
@@ -77,7 +77,7 @@ public class ProductSvcClient {
 
         try {
             restTemplate.exchange(
-                    productSvcUrl + "/products/{id}/stock", HttpMethod.valueOf("PATCH"), entity,
+                    productSvcUrl + "/products/{id}/stock", HttpMethod.PATCH, entity,
                     ProductLookupResponse.class, productId);
         } catch (HttpClientErrorException.Conflict e) {
             throw new ProductUnavailableException("Insufficient stock for product " + productId);

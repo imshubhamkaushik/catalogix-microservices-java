@@ -58,29 +58,6 @@ public class JwtService {
                 .compact();
     }
 
-    // Sentinel identity for internally-minted tokens — never a real user id.
-    private static final String SYSTEM_SUBJECT = "0";
-    private static final long SYSTEM_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-    /**
-     * Mints a short-lived token identifying a call as coming from user-svc
-     * itself, not a user's session — used when calling notification-svc for
-     * password-reset/verification emails, which happen before (or entirely
-     * outside of) any user session existing.
-     */
-    public String generateSystemToken() {
-        Date now = new Date();
-        Date expiry = new Date(now.getTime() + SYSTEM_TOKEN_TTL_MS);
-        return Jwts.builder()
-                .subject(SYSTEM_SUBJECT)
-                .claim("email", "system@internal")
-                .claim("role", "SYSTEM")
-                .issuedAt(now)
-                .expiration(expiry)
-                .signWith(key)
-                .compact();
-    }
-
     public long getExpirationMs() {
         return expirationMs;
     }

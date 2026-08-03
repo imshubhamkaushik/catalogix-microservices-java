@@ -22,7 +22,7 @@ function renderHarness() {
   return render(
     <AuthProvider>
       <Harness />
-    </AuthProvider>,
+    </AuthProvider>
   );
 }
 
@@ -50,9 +50,7 @@ describe("AuthContext", () => {
       screen.getByText("do-login").click();
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("in"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("in"));
     expect(screen.getByTestId("user-name")).toHaveTextContent("Alice");
     expect(screen.getByTestId("is-admin")).toHaveTextContent("yes");
 
@@ -74,17 +72,13 @@ describe("AuthContext", () => {
     await act(async () => {
       screen.getByText("do-login").click();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("in"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("in"));
 
     await act(async () => {
       screen.getByText("do-logout").click();
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("out"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("out"));
     expect(localStorage.getItem("catalogix.auth")).toBeNull();
   });
 
@@ -100,17 +94,13 @@ describe("AuthContext", () => {
     await act(async () => {
       screen.getByText("do-login").click();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("in"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("in"));
 
     await act(async () => {
       window.dispatchEvent(new Event("catalogix:unauthorized"));
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("out"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("out"));
   });
 
   it("updates stored tokens on a silent-refresh event without logging out", async () => {
@@ -125,16 +115,12 @@ describe("AuthContext", () => {
     await act(async () => {
       screen.getByText("do-login").click();
     });
-    await waitFor(() =>
-      expect(screen.getByTestId("auth-state")).toHaveTextContent("in"),
-    );
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("in"));
 
     await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent("catalogix:tokens-refreshed", {
-          detail: { accessToken: "new-token", refreshToken: "new-refresh" },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("catalogix:tokens-refreshed", {
+        detail: { accessToken: "new-token", refreshToken: "new-refresh" },
+      }));
     });
 
     await waitFor(() => {
