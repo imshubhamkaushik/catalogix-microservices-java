@@ -20,12 +20,17 @@ export default function VerifyEmail() {
         if (!cancelled) setStatus("success");
       } catch (err) {
         if (!cancelled) {
-          setError(err.response?.data?.message || "That verification link is invalid or has expired.");
+          setError(
+            err.response?.data?.message ||
+              "That verification link is invalid or has expired.",
+          );
           setStatus("error");
         }
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   return (
@@ -41,13 +46,21 @@ export default function VerifyEmail() {
         </div>
 
         {status === "missing" && (
-          <p className="auth-help-text">This link is missing its verification token.</p>
+          <p className="auth-help-text">
+            This link is missing its verification token.
+          </p>
         )}
-        {status === "loading" && <p className="auth-help-text">Verifying your email…</p>}
+        {status === "loading" && (
+          <p className="auth-help-text">Verifying your email…</p>
+        )}
         {status === "success" && (
-          <p className="auth-help-text">Your email is verified. You're all set.</p>
+          <p className="auth-help-text">
+            Your email is verified. You're all set.
+          </p>
         )}
-        {status === "error" && <div className="toast toast-error auth-error">{error}</div>}
+        {status === "error" && (
+          <div className="toast toast-error auth-error">{error}</div>
+        )}
 
         <Link
           className="form-submit auth-submit"

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
-import { getProducts, createProduct, deleteProduct, createOrder } from "../api";
+import { getProducts, createProduct, deleteProduct, addCartItem } from "../api";
 import { useAuth } from "../context/AuthContext";
 
 const PAGE_SIZE = 10;
@@ -59,25 +59,25 @@ StockBadge.propTypes = {
   quantity: PropTypes.number,
 };
 
-// Per-row quantity + order control.
-function OrderControl({ product, onOrdered, onError }) {
+// Per-row quantity + add-to-cart control. Checkout (and the mock payment
+// step) happens on the Orders page now that orders go through a proper
+// PENDING_PAYMENT -> pay -> CONFIRMED lifecycle — this just adds to the
+// persistent server-side cart.
+function AddToCartControl({ product, onAdded, onError }) {
   const [qty, setQty] = useState(1);
-  const [placing, setPlacing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const outOfStock = (product.stockQuantity ?? 0) === 0;
 
-  const handleOrder = async () => {
-    setPlacing(true);
+  const handleAdd = async () => {
+    setAdding(true);
     try {
-      await createOrder(
-        [{ productId: product.id, quantity: qty }],
-        crypto.randomUUID(),
-      );
-      onOrdered(product, qty);
+      await addCartItem(product.id, qty);
+      onAdded(product, qty);
       setQty(1);
     } catch (err) {
-      onError(err.response?.data?.message || "Failed to place order.");
+      onError(err.response?.data?.message || "Failed to add to cart.");
     } finally {
-      setPlacing(false);
+      setAdding(false);
     }
   };
 
@@ -92,25 +92,25 @@ function OrderControl({ product, onOrdered, onError }) {
         onChange={(e) =>
           setQty(Math.max(1, Number.parseInt(e.target.value, 10) || 1))
         }
-        disabled={outOfStock || placing}
+        disabled={outOfStock || adding}
       />
       <button
         className="btn-small btn-primary-small"
-        onClick={handleOrder}
-        disabled={outOfStock || placing}
+        onClick={handleAdd}
+        disabled={outOfStock || adding}
       >
-        {placing ? "…" : "Order"}
+        {adding ? "…" : "Add to cart"}
       </button>
     </div>
   );
 }
 
-OrderControl.propTypes = {
+AddToCartControl.propTypes = {
   product: PropTypes.shape({
     id: PropTypes.number,
     stockQuantity: PropTypes.number,
   }).isRequired,
-  onOrdered: PropTypes.func.isRequired,
+  onAdded: PropTypes.func.isRequired,
   onError: PropTypes.func.isRequired,
 };
 
@@ -225,12 +225,11 @@ export default function Products() {
     }
   };
 
-  const handleOrdered = (product, qty) => {
+  const handleAdded = (product, qty) => {
     setToast({
-      message: `Ordered ${qty} × "${product.name}".`,
+      message: `Added ${qty} × "${product.name}" to your cart.`,
       type: "success",
     });
-    fetchProducts();
   };
 
   return (
@@ -429,9 +428,9 @@ export default function Products() {
                       <span className="price-tag">
                         {formatPrice(product.price)}
                       </span>
-                      <OrderControl
+                      <AddToCartControl
                         product={product}
-                        onOrdered={handleOrdered}
+                        onAdded={handleAdded}
                         onError={setError}
                       />
                       {canManage && (

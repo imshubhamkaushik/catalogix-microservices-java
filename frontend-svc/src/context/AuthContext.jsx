@@ -1,6 +1,17 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import PropTypes from "prop-types";
-import { login as apiLogin, register as apiRegister, logout as apiLogout } from "../api";
+import {
+  login as apiLogin,
+  register as apiRegister,
+  logout as apiLogout,
+} from "../api";
 
 const AuthContext = createContext(null);
 
@@ -31,17 +42,23 @@ export function AuthProvider({ children }) {
     writeStoredAuth(next);
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const data = await apiLogin(email, password);
-    persist(data);
-    return data;
-  }, [persist]);
+  const login = useCallback(
+    async (email, password) => {
+      const data = await apiLogin(email, password);
+      persist(data);
+      return data;
+    },
+    [persist],
+  );
 
-  const register = useCallback(async (name, email, password) => {
-    const data = await apiRegister(name, email, password);
-    persist(data);
-    return data;
-  }, [persist]);
+  const register = useCallback(
+    async (name, email, password) => {
+      const data = await apiRegister(name, email, password);
+      persist(data);
+      return data;
+    },
+    [persist],
+  );
 
   const logout = useCallback(async () => {
     const refreshToken = readStoredAuth()?.refreshToken;
@@ -50,24 +67,32 @@ export function AuthProvider({ children }) {
     // local session on it (e.g. the backend being briefly unreachable
     // shouldn't trap the user in a "logged in" state on their own machine).
     if (refreshToken) {
-      try { await apiLogout(refreshToken); } catch { /* already logged out locally */ }
+      try {
+        await apiLogout(refreshToken);
+      } catch {
+        /* already logged out locally */
+      }
     }
   }, [persist]);
 
   // Merges a fresh profile (e.g. the response from PATCH /users/me) into the
   // current session without touching the tokens — used after editing your profile.
-  const updateUser = useCallback((updatedUser) => {
-    const current = readStoredAuth();
-    if (!current) return;
-    persist({ ...current, user: updatedUser });
-  }, [persist]);
+  const updateUser = useCallback(
+    (updatedUser) => {
+      const current = readStoredAuth();
+      if (!current) return;
+      persist({ ...current, user: updatedUser });
+    },
+    [persist],
+  );
 
   // api.jsx dispatches this when even a silent token refresh fails (refresh
   // token itself expired/revoked) — there's no way to recover the session.
   useEffect(() => {
     const onForcedLogout = () => persist(null);
     window.addEventListener("catalogix:unauthorized", onForcedLogout);
-    return () => window.removeEventListener("catalogix:unauthorized", onForcedLogout);
+    return () =>
+      window.removeEventListener("catalogix:unauthorized", onForcedLogout);
   }, [persist]);
 
   // api.jsx calls this after silently refreshing an expired access token,
@@ -76,23 +101,34 @@ export function AuthProvider({ children }) {
     const onTokensRefreshed = (e) => {
       const current = readStoredAuth();
       if (!current) return;
-      const next = { ...current, accessToken: e.detail.accessToken, refreshToken: e.detail.refreshToken };
+      const next = {
+        ...current,
+        accessToken: e.detail.accessToken,
+        refreshToken: e.detail.refreshToken,
+      };
       setAuth(next);
       writeStoredAuth(next);
     };
     window.addEventListener("catalogix:tokens-refreshed", onTokensRefreshed);
-    return () => window.removeEventListener("catalogix:tokens-refreshed", onTokensRefreshed);
+    return () =>
+      window.removeEventListener(
+        "catalogix:tokens-refreshed",
+        onTokensRefreshed,
+      );
   }, []);
 
-  const value = useMemo(() => ({
-    user: auth?.user ?? null,
-    isAuthenticated: Boolean(auth?.accessToken),
-    isAdmin: auth?.user?.role === "ADMIN",
-    login,
-    register,
-    logout,
-    updateUser,
-  }), [auth, login, register, logout, updateUser]);
+  const value = useMemo(
+    () => ({
+      user: auth?.user ?? null,
+      isAuthenticated: Boolean(auth?.accessToken),
+      isAdmin: auth?.user?.role === "ADMIN",
+      login,
+      register,
+      logout,
+      updateUser,
+    }),
+    [auth, login, register, logout, updateUser],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

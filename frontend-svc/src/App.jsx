@@ -12,6 +12,7 @@ import HomePage from "./components/HomePage";
 import Users from "./components/Users";
 import Products from "./components/Products";
 import Orders from "./components/Orders";
+import Coupons from "./components/Coupons";
 import Login from "./components/Login";
 import ForgotPassword from "./components/ForgotPassword";
 import ResetPassword from "./components/ResetPassword";
@@ -50,6 +51,11 @@ const LogoutIcon = () => (
 const AccountIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
     <path d="M8 8a3 3 0 100-6 3 3 0 000 6zM3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3z" />
+  </svg>
+);
+const CouponsIcon = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+    <path d="M1.5 4.5A1.5 1.5 0 013 3h10a1.5 1.5 0 011.5 1.5v1a.5.5 0 01-.5.5 1.5 1.5 0 000 3 .5.5 0 01.5.5v1A1.5 1.5 0 0113 12.5H3A1.5 1.5 0 011.5 11v-1a.5.5 0 01.5-.5 1.5 1.5 0 000-3 .5.5 0 01-.5-.5v-1zM6 5v1h1V5H6zm0 2.5v1h1v-1H6zM6 10v1h1v-1H6z" />
   </svg>
 );
 
@@ -118,6 +124,16 @@ function Layout() {
               <UsersIcon /> Users
             </NavLink>
           )}
+          {isAdmin && (
+            <NavLink
+              to="/coupons"
+              className={({ isActive }) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+            >
+              <CouponsIcon /> Coupons
+            </NavLink>
+          )}
 
           <span className="nav-section-label" style={{ marginTop: 10 }}>
             Account
@@ -163,6 +179,7 @@ function Layout() {
           <Route path="orders" element={<Orders />} />
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}
+          {isAdmin && <Route path="coupons" element={<Coupons />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

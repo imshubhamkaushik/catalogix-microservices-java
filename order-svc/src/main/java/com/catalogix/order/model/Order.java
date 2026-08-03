@@ -21,7 +21,7 @@ public class Order {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private OrderStatus status = OrderStatus.PENDING;
+    private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
     @Column(name = "total_amount", precision = 12, scale = 2, nullable = false)
     private BigDecimal totalAmount = BigDecimal.ZERO;
@@ -35,10 +35,17 @@ public class Order {
     @Column(name = "idempotency_key", length = 64)
     private String idempotencyKey;
 
+    @Column(name = "applied_coupon_code", length = 50)
+    private String appliedCouponCode;
+
+    @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<OrderItem> items = new ArrayList<>();
 
     public Order() {
+        // Required by JPA for entity instantiation. Do not remove.
     }
 
     public Long getId() {
@@ -88,6 +95,20 @@ public class Order {
     }
     public void setIdempotencyKey(String idempotencyKey) {
         this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getAppliedCouponCode() {
+        return appliedCouponCode;
+    }
+    public void setAppliedCouponCode(String appliedCouponCode) {
+        this.appliedCouponCode = appliedCouponCode;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
     }
 
     // Convenience method to keep both sides of the bidirectional association in sync.

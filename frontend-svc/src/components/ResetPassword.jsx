@@ -20,7 +20,10 @@ export default function ResetPassword() {
       await resetPassword(token, newPassword);
       setDone(true);
     } catch (err) {
-      setError(err.response?.data?.message || "That reset link is invalid or has expired.");
+      setError(
+        err.response?.data?.message ||
+          "That reset link is invalid or has expired.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -46,20 +49,29 @@ export default function ResetPassword() {
         ) : done ? (
           <div>
             <p className="auth-help-text">
-              Your password has been reset. All existing sessions have been signed out for security —
-              log in again with your new password.
+              Your password has been reset. All existing sessions have been
+              signed out for security — log in again with your new password.
             </p>
-            <button className="form-submit auth-submit" onClick={() => navigate("/login")}>
+            <button
+              className="form-submit auth-submit"
+              onClick={() => navigate("/login")}
+            >
               Go to log in
             </button>
           </div>
         ) : (
           <>
-            <p className="auth-help-text">Choose a new password for your account.</p>
-            {error && <div className="toast toast-error auth-error">{error}</div>}
+            <p className="auth-help-text">
+              Choose a new password for your account.
+            </p>
+            {error && (
+              <div className="toast toast-error auth-error">{error}</div>
+            )}
             <form className="auth-form" onSubmit={handleSubmit}>
               <div className="field-wrap">
-                <label className="field-label" htmlFor="rp-password">New password</label>
+                <label className="field-label" htmlFor="rp-password">
+                  New password
+                </label>
                 <input
                   id="rp-password"
                   className="field-input"
@@ -72,7 +84,11 @@ export default function ResetPassword() {
                   disabled={submitting}
                 />
               </div>
-              <button className="form-submit auth-submit" type="submit" disabled={submitting}>
+              <button
+                className="form-submit auth-submit"
+                type="submit"
+                disabled={submitting}
+              >
                 {submitting ? "Resetting…" : "Reset password"}
               </button>
             </form>

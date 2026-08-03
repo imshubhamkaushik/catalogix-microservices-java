@@ -11,7 +11,11 @@ public class CreateOrderRequest {
     @Valid
     private List<OrderItemRequest> items;
 
+    // Optional — validated and applied at checkout if present (see OrderSvc).
+    private String couponCode;
+
     public CreateOrderRequest() {
+        // Default constructor required for frameworks and deserialization.
     }
 
     public List<OrderItemRequest> getItems() {
@@ -19,5 +23,12 @@ public class CreateOrderRequest {
     }
     public void setItems(List<OrderItemRequest> items) {
         this.items = items;
+    }
+
+    public String getCouponCode() {
+        return couponCode;
+    }
+    public void setCouponCode(String couponCode) {
+        this.couponCode = couponCode;
     }
 }

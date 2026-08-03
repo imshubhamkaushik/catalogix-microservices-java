@@ -39,20 +39,31 @@ export default function ForgotPassword() {
         {submitted ? (
           <div>
             <p className="auth-help-text">
-              If an account exists for <strong>{email.trim()}</strong>, we've sent a link to reset your password.
-              Check Mailpit / your inbox for the email.
+              If an account exists for <strong>{email.trim()}</strong>, we've
+              sent a link to reset your password. Check Mailpit / your inbox for
+              the email.
             </p>
-            <Link className="form-submit auth-submit" style={{ display: "block", textAlign: "center", marginTop: 14 }} to="/login">
+            <Link
+              className="form-submit auth-submit"
+              style={{ display: "block", textAlign: "center", marginTop: 14 }}
+              to="/login"
+            >
               Back to log in
             </Link>
           </div>
         ) : (
           <>
-            <p className="auth-help-text">Enter your account email and we'll send you a reset link.</p>
-            {error && <div className="toast toast-error auth-error">{error}</div>}
+            <p className="auth-help-text">
+              Enter your account email and we'll send you a reset link.
+            </p>
+            {error && (
+              <div className="toast toast-error auth-error">{error}</div>
+            )}
             <form className="auth-form" onSubmit={handleSubmit}>
               <div className="field-wrap">
-                <label className="field-label" htmlFor="fp-email">Email address</label>
+                <label className="field-label" htmlFor="fp-email">
+                  Email address
+                </label>
                 <input
                   id="fp-email"
                   className="field-input"
@@ -64,7 +75,11 @@ export default function ForgotPassword() {
                   disabled={submitting}
                 />
               </div>
-              <button className="form-submit auth-submit" type="submit" disabled={submitting}>
+              <button
+                className="form-submit auth-submit"
+                type="submit"
+                disabled={submitting}
+              >
                 {submitting ? "Sending…" : "Send reset link"}
               </button>
             </form>

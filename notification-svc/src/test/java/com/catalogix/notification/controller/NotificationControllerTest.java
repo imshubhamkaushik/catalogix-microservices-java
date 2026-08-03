@@ -35,6 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                 classes = {JwtAuthFilter.class, RateLimiterFilter.class}))
 class NotificationControllerTest {
 
+    private static final String EMAIL_ENDPOINT = "/notifications/email";
+
     @Autowired
     private ObjectMapper mapper;
 
@@ -58,7 +60,7 @@ class NotificationControllerTest {
         when(emailSvc.send(any(SendEmailRequest.class)))
                 .thenReturn(new NotificationResponse(1L, NotificationStatus.SENT, null));
 
-        mvc.perform(post("/notifications/email")
+        mvc.perform(post(EMAIL_ENDPOINT)
                 .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest())))
@@ -72,7 +74,7 @@ class NotificationControllerTest {
         when(emailSvc.send(any(SendEmailRequest.class)))
                 .thenReturn(new NotificationResponse(1L, NotificationStatus.FAILED, "Connection refused"));
 
-        mvc.perform(post("/notifications/email")
+        mvc.perform(post(EMAIL_ENDPOINT)
                 .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest())))
@@ -83,7 +85,7 @@ class NotificationControllerTest {
 
     @Test
     void sendEmailRejectsNonSystemCaller() throws Exception {
-        mvc.perform(post("/notifications/email")
+        mvc.perform(post(EMAIL_ENDPOINT)
                 .requestAttr("userRole", "USER")
                 .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                 .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
@@ -97,7 +99,7 @@ class NotificationControllerTest {
         invalid.setSubject("");
         invalid.setBody("");
 
-        mvc.perform(post("/notifications/email")
+        mvc.perform(post(EMAIL_ENDPOINT)
                 .requestAttr("userRole", "SYSTEM")
                 .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                 .content(Objects.requireNonNull(mapper.writeValueAsString(invalid))))

@@ -2,8 +2,10 @@ package com.catalogix.order.controller;
 
 import com.catalogix.order.dto.*;
 import com.catalogix.order.exception.ForbiddenException;
+import com.catalogix.order.exception.InvalidOrderStateException;
 import com.catalogix.order.exception.ProductUnavailableException;
 import com.catalogix.order.model.OrderStatus;
+import com.catalogix.order.model.PaymentStatus;
 import com.catalogix.order.security.JwtAuthFilter;
 import com.catalogix.order.security.RateLimiterFilter;
 import com.catalogix.order.svc.OrderSvc;
@@ -23,8 +25,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.Objects;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
@@ -64,10 +66,10 @@ class OrderControllerTest {
         return req;
     }
 
-    private OrderResponse sampleResponse() {
+    private OrderResponse sampleResponse(OrderStatus status) {
         OrderItemResponse item = new OrderItemResponse(
                 1L, "Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"));
-        return new OrderResponse(1L, 42L, OrderStatus.CONFIRMED, new BigDecimal("200.00"),
+        return new OrderResponse(1L, 42L, status, new BigDecimal("200.00"),
                 Instant.now(), List.of(item));
     }
 
@@ -75,26 +77,26 @@ class OrderControllerTest {
     @SuppressWarnings("null")
     void createReturnsCreatedWhenNewOrder() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), isNull(), eq(EMAIL)))
-                .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(), true));
+                .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), true));
 
         mvc.perform(post("/orders")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1L))
-                .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.items", hasSize(1)));
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.items", Objects.requireNonNull(hasSize(1))));
     }
 
     @Test
     @SuppressWarnings("null")
     void createReturnsOkNotCreatedWhenIdempotencyKeyMatchesExistingOrder() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), eq("key-abc"), eq(EMAIL)))
-                .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(), false));
+                .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), false));
 
         mvc.perform(post("/orders")
                 .requestAttr("userId", 42L)
@@ -102,8 +104,8 @@ class OrderControllerTest {
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "key-abc")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L));
     }
@@ -119,8 +121,8 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
                 .andExpect(status().isConflict());
     }
 
@@ -130,7 +132,7 @@ class OrderControllerTest {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), eq("key-abc"), eq(EMAIL)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
         when(svc.findExistingByIdempotencyKey(42L, "key-abc"))
-                .thenReturn(Optional.of(sampleResponse()));
+                .thenReturn(Optional.of(sampleResponse(OrderStatus.PENDING_PAYMENT)));
 
         mvc.perform(post("/orders")
                 .requestAttr("userId", 42L)
@@ -138,15 +140,15 @@ class OrderControllerTest {
                 .requestAttr("bearerToken", "Bearer token")
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "key-abc")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(mapper.writeValueAsString(sampleRequest())))
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(sampleRequest()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L));
     }
 
     @Test
     void listReturnsOwnOrdersForRegularUser() throws Exception {
-        PagedResponse<OrderResponse> page = new PagedResponse<>(List.of(sampleResponse()), 0, 20, 1, 1);
+        PagedResponse<OrderResponse> page = new PagedResponse<>(List.of(sampleResponse(OrderStatus.CONFIRMED)), 0, 20, 1, 1);
         when(svc.listOrders(eq(42L), eq("USER"), any(Pageable.class))).thenReturn(page);
 
         mvc.perform(get("/orders").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
@@ -164,12 +166,84 @@ class OrderControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    // POST /orders/{id}/pay
+    @Test
+    @SuppressWarnings("null")
+    void payReturnsOkWithConfirmedOrderOnSuccess() throws Exception {
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod("MOCK_CARD");
+        req.setCardLast4("4242");
+
+        OrderResponse confirmed = sampleResponse(OrderStatus.CONFIRMED);
+        PaymentResponse payment = new PaymentResponse(1L, 1L, new BigDecimal("200.00"), "MOCK_CARD",
+                PaymentStatus.SUCCEEDED, "MOCK-REF", Instant.now());
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq("Bearer token"), eq(EMAIL)))
+                .thenReturn(new OrderSvc.OrderPaymentResult(confirmed, payment));
+
+        mvc.perform(post("/orders/1/pay")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", "Bearer token")
+                .requestAttr("userEmail", EMAIL)
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.order.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.payment.status").value("SUCCEEDED"));
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void payReturnsConflictWhenOrderNotAwaitingPayment() throws Exception {
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod("MOCK_CARD");
+
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq("Bearer token"), eq(EMAIL)))
+                .thenThrow(new InvalidOrderStateException("Order 1 is not awaiting payment"));
+
+        mvc.perform(post("/orders/1/pay")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", "Bearer token")
+                .requestAttr("userEmail", EMAIL)
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .andExpect(status().isConflict());
+    }
+
+    // PATCH /orders/{id}/status
+    @Test
+    @SuppressWarnings("null")
+    void updateStatusAllowsAdmin() throws Exception {
+        UpdateOrderStatusRequest req = new UpdateOrderStatusRequest();
+        req.setStatus(OrderStatus.SHIPPED);
+        when(svc.updateStatus(1L, OrderStatus.SHIPPED)).thenReturn(sampleResponse(OrderStatus.SHIPPED));
+
+        mvc.perform(patch("/orders/1/status")
+                .requestAttr("userRole", "ADMIN")
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SHIPPED"));
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void updateStatusRejectsNonAdmin() throws Exception {
+        UpdateOrderStatusRequest req = new UpdateOrderStatusRequest();
+        req.setStatus(OrderStatus.SHIPPED);
+
+        mvc.perform(patch("/orders/1/status")
+                .requestAttr("userRole", "USER")
+                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                .content(Objects.requireNonNull(mapper.writeValueAsString(req))))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     @SuppressWarnings("null")
     void cancelReturnsOk() throws Exception {
-        OrderResponse cancelled = sampleResponse();
-        cancelled.setStatus(OrderStatus.CANCELLED);
-        when(svc.cancelOrder(1L, 42L, "USER", "Bearer token", EMAIL)).thenReturn(cancelled);
+        when(svc.cancelOrder(1L, 42L, "USER", "Bearer token", EMAIL)).thenReturn(sampleResponse(OrderStatus.CANCELLED));
 
         mvc.perform(patch("/orders/1/cancel")
                 .requestAttr("userId", 42L)

@@ -3,6 +3,9 @@ package com.catalogix.order.controller;
 import com.catalogix.order.dto.CreateOrderRequest;
 import com.catalogix.order.dto.OrderResponse;
 import com.catalogix.order.dto.PagedResponse;
+import com.catalogix.order.dto.PayOrderRequest;
+import com.catalogix.order.dto.UpdateOrderStatusRequest;
+import com.catalogix.order.exception.ForbiddenException;
 import com.catalogix.order.svc.OrderSvc;
 
 import jakarta.validation.Valid;
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.net.URI;
+import java.util.Map;
 
 // Caller identity (userId/userRole) and the raw bearer token come from JwtAuthFilter's
 // request attributes. The token is forwarded to product-svc by OrderSvc so the whole
@@ -82,6 +86,36 @@ public class OrderController {
             @RequestAttribute("userRole") String role
     ) {
         return ResponseEntity.ok(svc.getOrder(id, userId, role));
+    }
+
+    // Processes a mock payment for an order still awaiting one. Always 200 —
+    // even a declined payment is a normal outcome, not a server error; check
+    // the returned payment.status and order.status to see what happened.
+    @PostMapping("/{id}/pay")
+    public ResponseEntity<Map<String, Object>> pay(
+            @PathVariable Long id,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("userRole") String role,
+            @RequestAttribute("bearerToken") String bearerToken,
+            @RequestAttribute("userEmail") String userEmail,
+            @Valid @RequestBody PayOrderRequest req
+    ) {
+        OrderSvc.OrderPaymentResult result = svc.payOrder(id, userId, role, req, bearerToken, userEmail);
+        return ResponseEntity.ok(Map.of("order", result.order(), "payment", result.payment()));
+    }
+
+    // Admin-only: advances CONFIRMED -> SHIPPED -> DELIVERED. Not exposed to
+    // regular users — there's no seller-fulfillment flow yet (see roadmap).
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<OrderResponse> updateStatus(
+            @PathVariable Long id,
+            @RequestAttribute("userRole") String role,
+            @Valid @RequestBody UpdateOrderStatusRequest req
+    ) {
+        if (!"ADMIN".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Only admins may update order status");
+        }
+        return ResponseEntity.ok(svc.updateStatus(id, req.getStatus()));
     }
 
     @PatchMapping("/{id}/cancel")

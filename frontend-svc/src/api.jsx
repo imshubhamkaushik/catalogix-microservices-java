@@ -182,11 +182,15 @@ export const adjustStock = async (id, delta) => {
 // idempotencyKey: optional client-generated UUID; passing the same key for a
 // retried "place order" click returns the original order instead of creating
 // a duplicate — see order-svc's Idempotency-Key header handling.
-export const createOrder = async (items, idempotencyKey) => {
+export const createOrder = async (items, idempotencyKey, couponCode) => {
   const headers = idempotencyKey
     ? { "Idempotency-Key": idempotencyKey }
     : undefined;
-  const res = await http.post(ORDER_API_BASE, { items }, { headers });
+  const res = await http.post(
+    ORDER_API_BASE,
+    { items, couponCode },
+    { headers },
+  );
   return res.data;
 };
 
@@ -197,5 +201,88 @@ export const getOrders = async (params = {}) => {
 
 export const cancelOrder = async (id) => {
   const res = await http.patch(`${ORDER_API_BASE}/${id}/cancel`);
+  return res.data;
+};
+
+// method e.g. "MOCK_CARD"; cardLast4 "0000" always simulates a decline (for demos/testing).
+export const payOrder = async (id, method, cardLast4) => {
+  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, {
+    method,
+    cardLast4,
+  });
+  return res.data; // { order, payment }
+};
+
+// Admin-only: CONFIRMED -> SHIPPED -> DELIVERED.
+export const updateOrderStatus = async (id, status) => {
+  const res = await http.patch(`${ORDER_API_BASE}/${id}/status`, { status });
+  return res.data;
+};
+
+// -------- CART APIs (server-side, persists across refresh/devices) --------
+
+const CART_API_BASE = "/cart";
+
+export const getCart = async () => {
+  const res = await http.get(CART_API_BASE);
+  return res.data; // { items, couponCode, subtotal, discountAmount, total }
+};
+
+export const addCartItem = async (productId, quantity) => {
+  const res = await http.post(`${CART_API_BASE}/items`, {
+    productId,
+    quantity,
+  });
+  return res.data;
+};
+
+export const updateCartItemQuantity = async (productId, quantity) => {
+  const res = await http.patch(`${CART_API_BASE}/items/${productId}`, {
+    quantity,
+  });
+  return res.data;
+};
+
+export const removeCartItem = async (productId) => {
+  const res = await http.delete(`${CART_API_BASE}/items/${productId}`);
+  return res.data;
+};
+
+export const applyCartCoupon = async (code) => {
+  const res = await http.post(`${CART_API_BASE}/coupon`, { code });
+  return res.data;
+};
+
+export const removeCartCoupon = async () => {
+  const res = await http.delete(`${CART_API_BASE}/coupon`);
+  return res.data;
+};
+
+// Converts the cart into an order (PENDING_PAYMENT, stock reserved) and
+// clears the cart on success — the order still needs payOrder() to complete.
+export const checkoutCart = async (idempotencyKey) => {
+  const headers = idempotencyKey
+    ? { "Idempotency-Key": idempotencyKey }
+    : undefined;
+  const res = await http.post(`${CART_API_BASE}/checkout`, {}, { headers });
+  return res.data;
+};
+
+// -------- COUPON APIs (admin-only management) --------
+
+const COUPON_API_BASE = "/coupons";
+
+export const getCoupons = async () => {
+  const res = await http.get(COUPON_API_BASE);
+  return res.data;
+};
+
+export const createCoupon = async (coupon) => {
+  const res = await http.post(COUPON_API_BASE, coupon);
+  return res.data;
+};
+
+export const deactivateCoupon = async (id) => {
+  const res = await http.patch(`${COUPON_API_BASE}/${id}/deactivate`);
   return res.data;
 };
