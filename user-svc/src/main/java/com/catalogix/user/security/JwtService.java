@@ -58,6 +58,14 @@ public class JwtService {
                 .compact();
     }
 
+    public String generateSystemToken() {
+        return generateToken(
+                0L,
+                "user-svc@internal",
+                "SYSTEM"
+        );
+    }
+
     public long getExpirationMs() {
         return expirationMs;
     }

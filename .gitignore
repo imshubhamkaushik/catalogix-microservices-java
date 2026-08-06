@@ -10,12 +10,19 @@
 */build/
 */dist/
 */coverage/
+# .env at repo root — this is the actual secrets file (JWT_SECRET, DB/RabbitMQ
+# passwords) created via `cp .env.example .env`. The original pattern here was
+# `_env` (a typo — matches a literal filename "_env", not dotfiles) plus
+# `*/.env`, which only matches .env inside a subdirectory. Neither pattern
+# covers the root .env, so it was never actually gitignored — a real risk of
+# committing live secrets. Both now fixed below.
+.env
+.env.local
 */.env
 */.env.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-_env
 
 # ====== Misc ======
 *.zip

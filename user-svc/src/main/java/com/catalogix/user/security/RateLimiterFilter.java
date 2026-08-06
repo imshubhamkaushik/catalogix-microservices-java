@@ -24,8 +24,6 @@ public class RateLimiterFilter implements Filter {
     private static final int MAX_REQUESTS = 30; // 30 requests per min
     private static final long EVICT_AFTER  = 2 * WINDOW_MS; // evict after 2 idle windows
 
-    // Key → per-client request counter. Entries are created on first request
-    // and swept by the scheduler when they have been idle for EVICT_AFTER ms.
     private final ConcurrentHashMap<String, RequestCounter> ipStore = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService evictionScheduler =
@@ -49,8 +47,6 @@ public class RateLimiterFilter implements Filter {
     }
 
     public RateLimiterFilter() {
-        // Sweep every 2 minutes. Delay 2 minutes before first run so the map
-        // has time to accumulate entries worth evicting.
         evictionScheduler.scheduleAtFixedRate(
                 this::evictStaleEntries, 2, 2, TimeUnit.MINUTES
         );
@@ -76,37 +72,38 @@ public class RateLimiterFilter implements Filter {
 
             if (counter.count > MAX_REQUESTS) {
                 HttpServletResponse res = (HttpServletResponse) response;
-                res.setStatus(429); // Too Many Requests
+                res.setStatus(429);
                 res.setContentType("text/plain");
-                res.getWriter().write("Rate limit exceeded");
+                res.getWriter().write("Rate limit exceeded. Try again in a moment.");
                 return;
             }
         }
+
         chain.doFilter(request, response);
-    }
-    
-    /**
-     * Returns the real client IP address.
-     *
-     * Behind an AWS ALB the original client IP is in the X-Forwarded-For header.
-     * XFF format: "client, proxy1, proxy2". The first element is always the
-     * original client. getRemoteAddr() would return the ALB's own IP, making
-     * every user share a single rate-limit bucket.
-     */
-    private String resolveClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            // Take the first (leftmost) address — that is the originating client.
-            return xff.split(",")[0].strip();
-        }
-        // Fallback for direct connections (local dev, integration tests, etc.)
-        return request.getRemoteAddr();
     }
 
     /**
-     * Removes entries that have not been updated within the last EVICT_AFTER ms.
-     * Called by the eviction scheduler on a background daemon thread.
+     * Returns the real client IP address.
+     *
+     * X-Real-IP is set by the gateway from nginx's own $remote_addr, which is
+     * NOT attacker-controllable at that hop — prefer it. X-Forwarded-For is
+     * used only as a fallback for direct-to-service calls (e.g. local dev
+     * without the gateway in front); note that a caller reaching this
+     * service directly can freely spoof XFF, so this fallback is weaker and
+     * only relied on outside the gateway path.
      */
+    private String resolveClientIp(HttpServletRequest request) {
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.strip();
+        }
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].strip();
+        }
+        return request.getRemoteAddr();
+    }
+
     private void evictStaleEntries() {
         long now = Instant.now().toEpochMilli();
         ipStore.entrySet().removeIf(entry -> {
@@ -115,8 +112,7 @@ public class RateLimiterFilter implements Filter {
             }
         });
     }
-    
-    // Visible for testing.
+
     private static class RequestCounter {
         int count;
         long windowStart;

@@ -17,7 +17,7 @@ public class RestTemplateConfig {
         // the JDK's default HttpURLConnection-based factory does not support PATCH,
         // which order-svc needs for PATCH /products/{id}/stock.
         return builder
-                .requestFactory(HttpComponentsClientHttpRequestFactory::new)
+                .requestFactory(HttpComponentsClientHttpRequestFactory.class)
                 .connectTimeout(Duration.ofSeconds(3))
                 .readTimeout(Duration.ofSeconds(5))
                 .build();

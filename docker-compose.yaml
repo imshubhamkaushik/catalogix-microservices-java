@@ -6,23 +6,27 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_USER}
     secrets:
       - postgres_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Runs once, on first init of an empty data volume, to create one
+      # database per service — see the script for the isolation tradeoffs
+      # this local/dev-tier setup does and doesn't give you.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks: [catalogix]
 
-  # Message broker: order-svc/user-svc publish domain events here (order confirmed/cancelled, verification/password-reset requested); notification-svc consumes them and sends the actual emails. 
-  # Replaces what used to be direct HTTP calls from order-svc/user-svc into notification-svc. 
-  # The official image ships a real shell + rabbitmq-diagnostics, so (unlike the distroless Java services) a proper healthcheck is possible here.
+  # Message broker: checkout-svc/user-svc publish domain events here (order
+  # confirmed/cancelled, verification/password-reset requested); notification-svc
+  # consumes them and sends the actual emails.
   rabbitmq:
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
@@ -39,18 +43,28 @@ services:
       start_period: 20s
     networks: [catalogix]
 
-  # NOTE on healthchecks: user-svc/product-svc/order-svc/notification-svc run on
-  # a distroless base image (see their Dockerfiles) with no shell and no
-  # wget/curl, so a container-level `healthcheck:` isn't practical here. They
-  # instead rely on `depends_on: postgres/rabbitmq (service_healthy)` for
-  # correct startup ordering and `restart: unless-stopped` to recover from any early connection races.
-
-  # Dev-only SMTP catcher: every email any service sends lands here instead of anywhere real. View them at http://localhost:8025. Swap spring.mail.host/port for a real provider's settings in notification-svc's env for anything beyond local dev/demo.
+  # Dev-only SMTP catcher — view sent mail at http://localhost:8025.
   mailpit:
     image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
       - "8025:8025"
+    networks: [catalogix]
+
+  # Distributed tracing: every service below is wired with Micrometer
+  # Tracing + an OTLP exporter pointed at this collector. Trace context
+  # (a single ID per request) now actually matters, since one checkout can
+  # fan out across checkout-svc, catalog-svc, inventory-svc, promotions-svc,
+  # payment-svc, and cart-svc — debugging "why did checkout hang" across six
+  # services by reading six sets of logs independently doesn't scale the way
+  # it did when this was four services. View traces at http://localhost:16686.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # UI
     networks: [catalogix]
 
   user-svc:
@@ -59,7 +73,7 @@ services:
       dockerfile: user-svc/Dockerfile
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_users
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -72,6 +86,7 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8081:8081"
     depends_on:
@@ -81,17 +96,22 @@ services:
         condition: service_healthy
     networks: [catalogix]
 
-  product-svc:
+  # "What a product is" — name/description/price/category. Renamed from
+  # product-svc when stock ownership split off to inventory-svc; external
+  # API path (/products via the gateway) is unchanged.
+  catalog-svc:
     build:
       context: .
-      dockerfile: product-svc/Dockerfile
+      dockerfile: catalog-svc/Dockerfile
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_catalog
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
+      INVENTORY_SVC_URL: http://inventory-svc:8085
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8082:8082"
     depends_on:
@@ -99,22 +119,125 @@ services:
         condition: service_healthy
     networks: [catalogix]
 
-  order-svc:
+  # "How many are left" — split out of product-svc's old Product entity.
+  # Owns row-level locking for reserve/release; nothing else in the system
+  # is allowed to touch stock counts except through this service.
+  inventory-svc:
     build:
       context: .
-      dockerfile: order-svc/Dockerfile
+      dockerfile: inventory-svc/Dockerfile
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_inventory
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
-      PRODUCT_SVC_URL: http://product-svc:8082
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
+  # Server-side cart. Reads catalog-svc (price/name) and inventory-svc
+  # (stock, display-only) live on every read; never reserves stock itself —
+  # that only happens once, at checkout-svc, at the moment of actually
+  # placing an order.
+  cart-svc:
+    build:
+      context: .
+      dockerfile: cart-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_cart
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      CATALOG_SVC_URL: http://catalog-svc:8082
+      INVENTORY_SVC_URL: http://inventory-svc:8085
+      PROMOTIONS_SVC_URL: http://promotions-svc:8087
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8086:8086"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
+  # Coupons. commit()/release() are row-locked at the coupon, closing the
+  # over-redemption race the original single-service design had (validate
+  # and recordUsage used to be two separate, unlocked calls with a gap
+  # between them).
+  promotions-svc:
+    build:
+      context: .
+      dockerfile: promotions-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_promotions
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8087:8087"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
+  # Mock payment processing — the one split in this whole migration that's
+  # justified by more than scale: isolating "the code that ever sees a card"
+  # is the same reasoning real PCI-scope isolation is built on, even though
+  # nothing here talks to an actual card network. Not reachable through the
+  # gateway; checkout-svc is its only caller.
+  payment-svc:
+    build:
+      context: .
+      dockerfile: payment-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8088:8088"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
+  # The saga orchestrator. Renamed from order-svc; still owns orders and
+  # order_items, but cart/coupon/payment logic that used to be in-process
+  # here now lives in cart-svc/promotions-svc/payment-svc, each reached over
+  # HTTP with explicit compensation on failure — see CheckoutSvc's Javadoc.
+  checkout-svc:
+    build:
+      context: .
+      dockerfile: checkout-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_checkout
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      CATALOG_SVC_URL: http://catalog-svc:8082
+      INVENTORY_SVC_URL: http://inventory-svc:8085
+      PROMOTIONS_SVC_URL: http://promotions-svc:8087
+      PAYMENT_SVC_URL: http://payment-svc:8088
+      CART_SVC_URL: http://cart-svc:8086
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8083:8083"
     depends_on:
@@ -122,12 +245,20 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      # product-svc has no container healthcheck to wait on (see note above);
-      # this just avoids order-svc's *container* starting before product-svc's
-      # does. product-svc may still be warming up when the first order lands —
-      # those calls fail fast in that narrow window (circuit-breaker-guarded)
-      # and the client can retry, same as any other transient inter-service hiccup.
-      product-svc:
+      # None of these have container healthchecks (distroless, no shell — see
+      # note further down), so this only sequences container *start*, not
+      # readiness. Calls made before a dependency has finished warming up
+      # fail fast (circuit-breaker-guarded on checkout-svc's side) and the
+      # client can retry, same as any other transient inter-service hiccup.
+      catalog-svc:
+        condition: service_started
+      inventory-svc:
+        condition: service_started
+      promotions-svc:
+        condition: service_started
+      payment-svc:
+        condition: service_started
+      cart-svc:
         condition: service_started
     networks: [catalogix]
 
@@ -137,7 +268,7 @@ services:
       dockerfile: notification-svc/Dockerfile
     restart: unless-stopped
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
@@ -148,6 +279,7 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8084:8084"
     depends_on:
@@ -159,21 +291,22 @@ services:
         condition: service_started
     networks: [catalogix]
 
-  # frontend-svc and gateway both run on nginx:alpine, which does have wget,
-  # and both Dockerfiles bake in a real HEALTHCHECK — so service_healthy works.
+  # frontend-svc and gateway both run on nginx:alpine (real HEALTHCHECK, has
+  # wget) — every Java service above is distroless with no shell, so a
+  # container-level healthcheck isn't practical for them; they rely on
+  # depends_on + restart: unless-stopped instead.
 
   frontend-svc:
     build:
       context: ./frontend-svc
     restart: unless-stopped
-    # Not published to the host — reached only through the gateway, which is
-    # the single entry point browsers should use (see gateway/nginx.conf).
     expose:
       - "80"
     depends_on:
       - user-svc
-      - product-svc
-      - order-svc
+      - catalog-svc
+      - checkout-svc
+      - cart-svc
     networks: [catalogix]
 
   gateway:
@@ -185,9 +318,13 @@ services:
     depends_on:
       user-svc:
         condition: service_started
-      product-svc:
+      catalog-svc:
         condition: service_started
-      order-svc:
+      checkout-svc:
+        condition: service_started
+      cart-svc:
+        condition: service_started
+      promotions-svc:
         condition: service_started
       frontend-svc:
         condition: service_healthy
@@ -201,12 +338,10 @@ volumes:
   postgres_data:
 
 secrets:
-  # File-based secret for Postgres's own bootstrap (the officially-supported
-  # POSTGRES_PASSWORD_FILE convention — no custom code needed). The app
-  # services still connect using SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD}
-  # from .env, so keep that value identical to this file's contents. In a real
-  # deployment, both would instead come from your platform's secrets manager
-  # (Vault, AWS/GCP Secrets Manager, etc.), injected as environment variables —
-  # this local file is a stand-in for that, not a replacement for it.
+  # File-based secret for Postgres's own bootstrap. App services still
+  # connect using SPRING_DATASOURCE_PASSWORD=${POSTGRES_PASSWORD} from .env —
+  # keep that value identical to this file's contents. In a real deployment
+  # both would instead come from your platform's secrets manager (Vault,
+  # AWS/GCP Secrets Manager, etc.); this local file is a stand-in for that.
   postgres_password:
     file: ./secrets/postgres_password.txt

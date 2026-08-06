@@ -11,6 +11,7 @@ import com.catalogix.order.repository.CartRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -21,20 +22,27 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+@SuppressWarnings("null")
 class CartSvcTest {
 
     @Mock private CartRepository repo;
     @Mock private ProductSvcClient productSvcClient;
     @Mock private CouponSvc couponSvc;
 
-    private CartSvc svc;
+    @InjectMocks private CartSvc svc;
 
     private static final String TOKEN = "Bearer test-token";
+    private static final String PHONE = "Phone";
+    private static final String PRICE_100 = "100.00";
+    private static final String PRICE_200 = "200.00";
+    private static final String COUPON_SAVE10 = "SAVE10";
+    private static final String BAD_COUPON = "BAD";
+    private static final Long USER_ID = 42L;
+    private static final Long PRODUCT_ID = 1L;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new CartSvc(repo, productSvcClient, couponSvc);
         when(repo.save(any(Cart.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -46,9 +54,9 @@ class CartSvcTest {
 
     @Test
     void getOrCreateCartCreatesEmptyCartWhenNoneExists() {
-        when(repo.findByUserId(42L)).thenReturn(Optional.empty());
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.empty());
 
-        CartResponse resp = svc.getOrCreateCart(42L, TOKEN);
+        CartResponse resp = svc.getOrCreateCart(USER_ID, TOKEN);
 
         assertTrue(resp.getItems().isEmpty());
         assertEquals(BigDecimal.ZERO, resp.getSubtotal());
@@ -57,32 +65,32 @@ class CartSvcTest {
 
     @Test
     void addItemAddsNewLineAndComputesSubtotal() {
-        when(repo.findByUserId(42L)).thenReturn(Optional.empty());
-        when(productSvcClient.fetchProduct(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 10));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.empty());
+        when(productSvcClient.fetchProduct(PRODUCT_ID, TOKEN)).thenReturn(product(PRODUCT_ID, PHONE, PRICE_100, 10));
 
         AddCartItemRequest req = new AddCartItemRequest();
-        req.setProductId(1L);
+        req.setProductId(PRODUCT_ID);
         req.setQuantity(2);
 
-        CartResponse resp = svc.addItem(42L, req, TOKEN);
+        CartResponse resp = svc.addItem(USER_ID, req, TOKEN);
 
         assertEquals(1, resp.getItems().size());
-        assertEquals(new BigDecimal("200.00"), resp.getSubtotal());
-        assertEquals(new BigDecimal("200.00"), resp.getTotal());
+        assertEquals(new BigDecimal(PRICE_200), resp.getSubtotal());
+        assertEquals(new BigDecimal(PRICE_200), resp.getTotal());
     }
 
     @Test
     void addItemIncrementsQuantityWhenProductAlreadyInCart() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(productSvcClient.fetchProduct(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 10));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+        when(productSvcClient.fetchProduct(PRODUCT_ID, TOKEN)).thenReturn(product(PRODUCT_ID, PHONE, PRICE_100, 10));
 
         AddCartItemRequest req = new AddCartItemRequest();
-        req.setProductId(1L);
+        req.setProductId(PRODUCT_ID);
         req.setQuantity(3);
 
-        CartResponse resp = svc.addItem(42L, req, TOKEN);
+        CartResponse resp = svc.addItem(USER_ID, req, TOKEN);
 
         assertEquals(1, resp.getItems().size());
         assertEquals(5, resp.getItems().get(0).getQuantity());
@@ -90,37 +98,37 @@ class CartSvcTest {
 
     @Test
     void updateItemQuantityChangesExistingLine() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(productSvcClient.fetchProduct(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 10));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+        when(productSvcClient.fetchProduct(PRODUCT_ID, TOKEN)).thenReturn(product(PRODUCT_ID, PHONE, PRICE_100, 10));
 
         UpdateCartItemRequest req = new UpdateCartItemRequest();
         req.setQuantity(5);
 
-        CartResponse resp = svc.updateItemQuantity(42L, 1L, req, TOKEN);
+        CartResponse resp = svc.updateItemQuantity(USER_ID, PRODUCT_ID, req, TOKEN);
 
         assertEquals(5, resp.getItems().get(0).getQuantity());
     }
 
     @Test
     void updateItemQuantityRejectsProductNotInCart() {
-        Cart cart = new Cart(42L);
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
+        Cart cart = new Cart(USER_ID);
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
 
         UpdateCartItemRequest req = new UpdateCartItemRequest();
         req.setQuantity(5);
 
-        assertThrows(IllegalArgumentException.class, () -> svc.updateItemQuantity(42L, 99L, req, TOKEN));
+        assertThrows(IllegalArgumentException.class, () -> svc.updateItemQuantity(USER_ID, 99L, req, TOKEN));
     }
 
     @Test
     void removeItemRemovesTheLine() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
 
-        CartResponse resp = svc.removeItem(42L, 1L, TOKEN);
+        CartResponse resp = svc.removeItem(USER_ID, PRODUCT_ID, TOKEN);
 
         assertTrue(resp.getItems().isEmpty());
         verifyNoInteractions(productSvcClient);
@@ -128,13 +136,13 @@ class CartSvcTest {
 
     @Test
     void cartShowsUnavailableItemGracefullyWhenProductLookupFails() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(productSvcClient.fetchProduct(1L, TOKEN))
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+        when(productSvcClient.fetchProduct(PRODUCT_ID, TOKEN))
                 .thenThrow(new com.catalogix.order.exception.ProductUnavailableException("Product not found: 1"));
 
-        CartResponse resp = svc.getOrCreateCart(42L, TOKEN);
+        CartResponse resp = svc.getOrCreateCart(USER_ID, TOKEN);
 
         assertEquals(1, resp.getItems().size());
         assertEquals("This product is no longer available", resp.getItems().get(0).getProductName());
@@ -143,71 +151,71 @@ class CartSvcTest {
 
     @Test
     void applyCouponRejectsInvalidCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 1));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(couponSvc.validate("BAD")).thenThrow(new CouponInvalidException("Coupon code not found: BAD"));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 1));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+        when(couponSvc.validate(BAD_COUPON)).thenThrow(new CouponInvalidException("Coupon code not found: " + BAD_COUPON));
 
         ApplyCouponRequest req = new ApplyCouponRequest();
-        req.setCode("BAD");
+        req.setCode(BAD_COUPON);
 
-        assertThrows(CouponInvalidException.class, () -> svc.applyCoupon(42L, req, TOKEN));
+        assertThrows(CouponInvalidException.class, () -> svc.applyCoupon(USER_ID, req, TOKEN));
         assertNull(cart.getCouponCode());
     }
 
     @Test
     void applyCouponAppliesDiscountToCartTotal() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(productSvcClient.fetchProduct(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 10));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
+        when(productSvcClient.fetchProduct(PRODUCT_ID, TOKEN)).thenReturn(product(PRODUCT_ID, PHONE, PRICE_100, 10));
 
         Coupon coupon = new Coupon();
-        coupon.setCode("SAVE10");
+        coupon.setCode(COUPON_SAVE10);
         coupon.setDiscountType(DiscountType.PERCENTAGE);
         coupon.setDiscountValue(BigDecimal.TEN);
-        when(couponSvc.validate("SAVE10")).thenReturn(coupon);
-        when(couponSvc.calculateDiscount(coupon, new BigDecimal("200.00"))).thenReturn(new BigDecimal("20.00"));
+        when(couponSvc.validate(COUPON_SAVE10)).thenReturn(coupon);
+        when(couponSvc.calculateDiscount(coupon, new BigDecimal(PRICE_200))).thenReturn(new BigDecimal("20.00"));
 
         ApplyCouponRequest req = new ApplyCouponRequest();
-        req.setCode("SAVE10");
+        req.setCode(COUPON_SAVE10);
 
-        CartResponse resp = svc.applyCoupon(42L, req, TOKEN);
+        CartResponse resp = svc.applyCoupon(USER_ID, req, TOKEN);
 
-        assertEquals("SAVE10", resp.getCouponCode());
+        assertEquals(COUPON_SAVE10, resp.getCouponCode());
         assertEquals(new BigDecimal("20.00"), resp.getDiscountAmount());
         assertEquals(new BigDecimal("180.00"), resp.getTotal());
     }
 
     @Test
     void toOrderRequestRejectsEmptyCart() {
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(new Cart(42L)));
-        assertThrows(IllegalArgumentException.class, () -> svc.toOrderRequest(42L));
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(new Cart(USER_ID)));
+        assertThrows(IllegalArgumentException.class, () -> svc.toOrderRequest(USER_ID));
     }
 
     @Test
     void toOrderRequestCarriesItemsAndCouponCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        cart.setCouponCode(COUPON_SAVE10);
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
 
-        CreateOrderRequest req = svc.toOrderRequest(42L);
+        CreateOrderRequest req = svc.toOrderRequest(USER_ID);
 
         assertEquals(1, req.getItems().size());
-        assertEquals(1L, req.getItems().get(0).getProductId());
+        assertEquals(PRODUCT_ID, req.getItems().get(0).getProductId());
         assertEquals(2, req.getItems().get(0).getQuantity());
-        assertEquals("SAVE10", req.getCouponCode());
+        assertEquals(COUPON_SAVE10, req.getCouponCode());
     }
 
     @Test
     void clearEmptiesItemsAndCouponCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
+        Cart cart = new Cart(USER_ID);
+        cart.addItem(new CartItem(PRODUCT_ID, 2));
+        cart.setCouponCode(COUPON_SAVE10);
+        when(repo.findByUserId(USER_ID)).thenReturn(Optional.of(cart));
 
-        svc.clear(42L);
+        svc.clear(USER_ID);
 
         assertTrue(cart.getItems().isEmpty());
         assertNull(cart.getCouponCode());

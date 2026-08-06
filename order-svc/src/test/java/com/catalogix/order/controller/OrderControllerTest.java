@@ -43,6 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.ASSIGNABLE_TYPE,
                 classes = {JwtAuthFilter.class, RateLimiterFilter.class}))
+@SuppressWarnings("null")
 class OrderControllerTest {
 
     private static final String EMAIL = "buyer@example.com";
@@ -73,7 +74,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void createReturnsCreatedWhenNewOrder() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), isNull(), eq(EMAIL)))
                 .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), true));
@@ -92,7 +92,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void createReturnsOkNotCreatedWhenIdempotencyKeyMatchesExistingOrder() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), eq("key-abc"), eq(EMAIL)))
                 .thenReturn(new OrderSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), false));
@@ -110,7 +109,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void createReturnsConflictWhenProductUnavailable() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), isNull(), eq(EMAIL)))
                 .thenThrow(new ProductUnavailableException("Insufficient stock for product 1"));
@@ -126,7 +124,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void createRecoversFromIdempotencyKeyRaceByReturningWinningOrder() throws Exception {
         when(svc.createOrder(eq(42L), any(CreateOrderRequest.class), eq("Bearer token"), eq("key-abc"), eq(EMAIL)))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
@@ -156,7 +153,7 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
+    
     void getOneReturnsForbiddenWhenNotOwner() throws Exception {
         when(svc.getOrder(1L, 99L, "USER"))
                 .thenThrow(new ForbiddenException("You may only view or manage your own orders"));
@@ -167,7 +164,6 @@ class OrderControllerTest {
 
     // POST /orders/{id}/pay
     @Test
-    @SuppressWarnings("null")
     void payReturnsOkWithConfirmedOrderOnSuccess() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod("MOCK_CARD");
@@ -192,7 +188,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void payReturnsConflictWhenOrderNotAwaitingPayment() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod("MOCK_CARD");
@@ -212,7 +207,6 @@ class OrderControllerTest {
 
     // PATCH /orders/{id}/status
     @Test
-    @SuppressWarnings("null")
     void updateStatusAllowsAdmin() throws Exception {
         UpdateOrderStatusRequest req = new UpdateOrderStatusRequest();
         req.setStatus(OrderStatus.SHIPPED);
@@ -227,7 +221,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void updateStatusRejectsNonAdmin() throws Exception {
         UpdateOrderStatusRequest req = new UpdateOrderStatusRequest();
         req.setStatus(OrderStatus.SHIPPED);
@@ -240,7 +233,6 @@ class OrderControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void cancelReturnsOk() throws Exception {
         when(svc.cancelOrder(1L, 42L, "USER", "Bearer token", EMAIL)).thenReturn(sampleResponse(OrderStatus.CANCELLED));
 

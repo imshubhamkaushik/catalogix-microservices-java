@@ -46,7 +46,18 @@ public class EmailSvc {
         this.fromAddress = fromAddress;
     }
 
-    @Transactional
+    // noRollbackFor is the actual fix here: MailException is the expected
+    // failure path (see class Javadoc — rethrowing is what drives the AMQP
+    // retry), not a reason to discard the audit row this method just wrote.
+    // Spring's default @Transactional rolls back on ANY unchecked exception
+    // before the method returns — without this annotation, the repo.save()
+    // in the catch block below would be silently undone every single time,
+    // making the "audit trail of every attempt" claim in the class Javadoc
+    // false for every FAILED attempt. (The unit test for this class predates
+    // the fix and can't catch the bug either way — it builds EmailSvc
+    // directly with `new EmailSvc(...)`, bypassing Spring's transactional
+    // proxy entirely, so it never observes real commit/rollback behavior.)
+    @Transactional(noRollbackFor = MailException.class)
     public NotificationResponse send(String to, String subject, String body) {
         Notification entry = new Notification(to, subject, body);
 

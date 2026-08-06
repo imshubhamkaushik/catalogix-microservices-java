@@ -31,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.ASSIGNABLE_TYPE,
                 classes = {JwtAuthFilter.class, RateLimiterFilter.class}))
+@SuppressWarnings("null")
 class CouponControllerTest {
 
     @Autowired

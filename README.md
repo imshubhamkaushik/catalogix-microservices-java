@@ -1,5 +1,15 @@
 # Catalogix
 
+> **Architecture note:** this README's diagram and service list below
+> describe the original 4-service design (user-svc / product-svc / order-svc
+> / notification-svc). That design was later split further — cart, coupons,
+> payment, and inventory each became their own service, and order-svc became
+> a saga-orchestrating checkout-svc — see **[ARCHITECTURE.md](./ARCHITECTURE.md)**
+> for the current 9-service map, including which parts of this README below
+> are now out of date. The rest of this document (setup, auth design,
+> reliability patterns, etc.) is still accurate unless ARCHITECTURE.md says
+> otherwise.
+
 A small microservices-based product catalogue: register, log in, browse/manage products, and place orders.
 
 ```

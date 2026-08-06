@@ -66,7 +66,7 @@ http.interceptors.response.use(
         return http(config);
       } catch {
         window.dispatchEvent(new Event("catalogix:unauthorized"));
-        return Promise.reject(err);
+        throw err;
       }
     }
 
@@ -74,7 +74,7 @@ http.interceptors.response.use(
       window.dispatchEvent(new Event("catalogix:unauthorized"));
     }
 
-    return Promise.reject(err);
+    throw err;
   }
 );
 
@@ -229,9 +229,12 @@ export const removeCartCoupon = async () => {
 
 // Converts the cart into an order (PENDING_PAYMENT, stock reserved) and
 // clears the cart on success — the order still needs payOrder() to complete.
+// Lives at /orders/checkout, not /cart/checkout: checkout-svc is the
+// orchestrator that actually places the order (talking to catalog-svc,
+// inventory-svc, promotions-svc), cart-svc just supplies the contents.
 export const checkoutCart = async (idempotencyKey) => {
   const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
-  const res = await http.post(`${CART_API_BASE}/checkout`, {}, { headers });
+  const res = await http.post(`${ORDER_API_BASE}/checkout`, {}, { headers });
   return res.data;
 };
 

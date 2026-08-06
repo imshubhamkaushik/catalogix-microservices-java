@@ -8,6 +8,7 @@ import com.catalogix.order.repository.CouponRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -19,21 +20,26 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+@SuppressWarnings("null")
 class CouponSvcTest {
 
     @Mock private CouponRepository repo;
 
+    @InjectMocks
     private CouponSvc svc;
+
+    private static final String COUPON_TEST10 = "TEST10";
+    private static final String DISCOUNT_10 = "10";
+    private static final String SUBTOTAL_200 = "200.00";
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new CouponSvc(repo);
     }
 
     private Coupon coupon(DiscountType type, String value, Integer maxUses, int usedCount, Instant expiresAt, boolean active) {
         Coupon c = new Coupon();
-        c.setCode("TEST10");
+        c.setCode(COUPON_TEST10);
         c.setDiscountType(type);
         c.setDiscountValue(new BigDecimal(value));
         c.setMaxUses(maxUses);
@@ -45,10 +51,10 @@ class CouponSvcTest {
 
     @Test
     void validateReturnsCouponWhenRedeemable() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 0, null, true);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 0, null, true);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
 
-        assertEquals(c, svc.validate("TEST10"));
+        assertEquals(c, svc.validate(COUPON_TEST10));
     }
 
     @Test
@@ -59,53 +65,53 @@ class CouponSvcTest {
 
     @Test
     void validateRejectsInactiveCoupon() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 0, null, false);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
-        assertThrows(CouponInvalidException.class, () -> svc.validate("TEST10"));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 0, null, false);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
+        assertThrows(CouponInvalidException.class, () -> svc.validate(COUPON_TEST10));
     }
 
     @Test
     void validateRejectsExpiredCoupon() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 0, Instant.now().minusSeconds(60), true);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
-        assertThrows(CouponInvalidException.class, () -> svc.validate("TEST10"));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 0, Instant.now().minusSeconds(60), true);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
+        assertThrows(CouponInvalidException.class, () -> svc.validate(COUPON_TEST10));
     }
 
     @Test
     void validateRejectsExhaustedCoupon() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", 5, 5, null, true);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
-        assertThrows(CouponInvalidException.class, () -> svc.validate("TEST10"));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, 5, 5, null, true);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
+        assertThrows(CouponInvalidException.class, () -> svc.validate(COUPON_TEST10));
     }
 
     @Test
     void validateAllowsCouponBelowMaxUses() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", 5, 4, null, true);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
-        assertDoesNotThrow(() -> svc.validate("TEST10"));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, 5, 4, null, true);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
+        assertDoesNotThrow(() -> svc.validate(COUPON_TEST10));
     }
 
     @Test
     void calculateDiscountForPercentage() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 0, null, true);
-        assertEquals(new BigDecimal("20.00"), svc.calculateDiscount(c, new BigDecimal("200.00")));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 0, null, true);
+        assertEquals(new BigDecimal("20.00"), svc.calculateDiscount(c, new BigDecimal(SUBTOTAL_200)));
     }
 
     @Test
     void calculateDiscountForFixedAmount() {
         Coupon c = coupon(DiscountType.FIXED_AMOUNT, "50", null, 0, null, true);
-        assertEquals(new BigDecimal("50.00"), svc.calculateDiscount(c, new BigDecimal("200.00")));
+        assertEquals(new BigDecimal("50.00"), svc.calculateDiscount(c, new BigDecimal(SUBTOTAL_200)));
     }
 
     @Test
     void calculateDiscountNeverExceedsSubtotal() {
         Coupon c = coupon(DiscountType.FIXED_AMOUNT, "500", null, 0, null, true);
-        assertEquals(new BigDecimal("200.00"), svc.calculateDiscount(c, new BigDecimal("200.00")));
+        assertEquals(new BigDecimal(SUBTOTAL_200), svc.calculateDiscount(c, new BigDecimal(SUBTOTAL_200)));
     }
 
     @Test
     void recordUsageIncrementsUsedCount() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 3, null, true);
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 3, null, true);
         svc.recordUsage(c);
         assertEquals(4, c.getUsedCount());
         verify(repo).save(c);
@@ -113,10 +119,10 @@ class CouponSvcTest {
 
     @Test
     void releaseUsageDecrementsUsedCountButNeverBelowZero() {
-        Coupon c = coupon(DiscountType.PERCENTAGE, "10", null, 0, null, true);
-        when(repo.findByCodeIgnoreCase("TEST10")).thenReturn(Optional.of(c));
+        Coupon c = coupon(DiscountType.PERCENTAGE, DISCOUNT_10, null, 0, null, true);
+        when(repo.findByCodeIgnoreCase(COUPON_TEST10)).thenReturn(Optional.of(c));
 
-        svc.releaseUsage("TEST10");
+        svc.releaseUsage(COUPON_TEST10);
 
         assertEquals(0, c.getUsedCount());
         verify(repo).save(c);
@@ -136,7 +142,6 @@ class CouponSvcTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void createUppercasesTheCode() {
         when(repo.findByCodeIgnoreCase("save10")).thenReturn(Optional.empty());
         when(repo.save(any(Coupon.class))).thenAnswer(inv -> inv.getArgument(0));
