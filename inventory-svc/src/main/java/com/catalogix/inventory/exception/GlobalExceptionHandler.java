@@ -2,40 +2,76 @@ package com.catalogix.inventory.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+// Response shape mirrors user-svc/catalog-svc/checkout-svc/notification-svc
+// ({"message", "timestamp", "status"[, "errors"]}) rather than the bare
+// {"error": ...} this used to return, for consistency across every service
+// in the system (this one isn't gateway-exposed, but callers that do log or
+// surface these bodies should get the same shape everywhere).
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    private static final String MESSAGE = "message";
+    private static final String TIMESTAMP = "timestamp";
+    private static final String STATUS = "status";
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
+        List<String> errors = new ArrayList<>();
+        for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
+            errors.add(fe.getField() + ": " + fe.getDefaultMessage());
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, "Validation failed");
+        body.put("errors", errors);
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(body);
+    }
+
     @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<Map<String, String>> handleInsufficientStock(InsufficientStockException ex) {
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+    public ResponseEntity<Map<String, Object>> handleInsufficientStock(InsufficientStockException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.CONFLICT.value());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     @ExceptionHandler(StockItemNotFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNotFound(StockItemNotFoundException ex) {
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    public ResponseEntity<Map<String, Object>> handleNotFound(StockItemNotFoundException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.NOT_FOUND.value());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
-        return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
-    }
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors().forEach(fe -> errors.put(fe.getField(), fe.getDefaultMessage()));
-        return ResponseEntity.badRequest().body(errors);
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(body);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleAll(Exception ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("error", "Internal server error"));
+    public ResponseEntity<Map<String, Object>> handleAll(Exception ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, "Internal server error");
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.INTERNAL_SERVER_ERROR.value());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
 }

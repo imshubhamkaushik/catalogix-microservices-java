@@ -59,7 +59,7 @@ services:
   # services by reading six sets of logs independently doesn't scale the way
   # it did when this was four services. View traces at http://localhost:16686.
   jaeger:
-    image: jaegertracing/all-in-one:1.62
+    image: jaegertracing/all-in-one:latest
     restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -204,6 +204,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:

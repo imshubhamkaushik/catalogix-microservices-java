@@ -9,7 +9,8 @@ RUN npm run build
 # Stage 2: Serve via Nginx (non-root, port 80)
 FROM nginx:1.29.8-alpine
 RUN apk update && apk upgrade --no-cache \
-    && sed -i '/^user /d' /etc/nginx/nginx.conf \
+    && sed -i '/^user[[:space:]]/d' /etc/nginx/nginx.conf \
+    && sed -i 's|^pid[[:space:]].*;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \
     && chown -R 1000:1000 \
        /var/cache/nginx \
        /var/log/nginx \

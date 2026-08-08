@@ -20,8 +20,13 @@
         <module>payment-svc</module>
         <module>checkout-svc</module>
         <module>notification-svc</module>
-        <module>order-svc</module>
-        <module>product-svc</module>
+        <!-- order-svc and product-svc are pre-split leftovers, fully superseded
+             by checkout-svc/cart-svc/promotions-svc/payment-svc and
+             catalog-svc/inventory-svc respectively. They are not part of
+             docker-compose.yaml and are intentionally excluded from the build
+             so `mvn test` only builds/tests the services that are actually
+             deployed. The directories are left in place for reference; delete
+             them outright if you don't need the history. -->
     </modules>
 
     <!-- Global Properties -->

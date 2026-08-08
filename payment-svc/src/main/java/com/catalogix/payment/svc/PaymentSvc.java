@@ -32,10 +32,9 @@ public class PaymentSvc {
     // saved just below is exactly what an audit trail is for. Without this,
     // Spring's default behavior rolls back the entire method on any
     // unchecked exception — which would silently discard the very save()
-    // this method makes right before throwing. (This is the fix for a real
-    // bug the audit found in notification-svc's EmailSvc, which has the
-    // identical shape and does NOT have this annotation — worth porting
-    // the same fix back there.)
+    // this method makes right before throwing. (notification-svc's EmailSvc
+    // has the identical shape and already carries the same annotation for
+    // the same reason — see its Javadoc.)
     @Transactional(noRollbackFor = DeclinedException.class)
     public PaymentResponse process(ProcessPaymentRequest req, Long requestedByUserId) {
         boolean declined = "0000".equals(req.getCardLast4());

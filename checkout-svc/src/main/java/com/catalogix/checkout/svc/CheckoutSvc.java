@@ -96,9 +96,15 @@ public class CheckoutSvc {
     public OrderCreationResult createOrder(
             Long userId, CreateOrderRequest req, String bearerToken, String idempotencyKey
     ) {
+        Optional<OrderCreationResult> existing = existingOrder(userId, idempotencyKey);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
         List<CartClient.ItemLine> lines = req.getItems().stream()
                 .map(i -> new CartClient.ItemLine(i.getProductId(), i.getQuantity()))
                 .toList();
+
         return placeOrder(userId, lines, req.getCouponCode(), bearerToken, idempotencyKey);
     }
 
@@ -106,32 +112,41 @@ public class CheckoutSvc {
     // places the order the same way, then clears the cart. ----
     @Transactional
     public OrderCreationResult checkoutFromCart(Long userId, String bearerToken, String idempotencyKey) {
+        Optional<OrderCreationResult> existing = existingOrder(userId, idempotencyKey);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
         CartClient.Handoff handoff = cartClient.handoff(bearerToken);
+        if (handoff == null) {
+            throw new IllegalStateException("cart-svc returned a null checkout handoff");
+        }
+
         OrderCreationResult result = placeOrder(userId, handoff.items(), handoff.couponCode(), bearerToken, idempotencyKey);
 
         if (result.wasNew()) {
             try {
                 cartClient.clear(bearerToken);
             } catch (RuntimeException e) {
-                // Non-critical: the order is real and already committed. The
-                // user just sees stale cart contents until their next cart
-                // mutation refreshes it — a display inconsistency, not a
-                // lost or duplicated order.
                 log.warn("Order {} placed but clearing the cart failed: {}", result.order().getId(), e.getMessage());
             }
         }
         return result;
     }
 
+
+
+    private Optional<OrderCreationResult> existingOrder(Long userId, String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return Optional.empty();
+        }
+        return repo.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
+                .map(order -> new OrderCreationResult(toResponse(order), false));
+    }
+
     private OrderCreationResult placeOrder(
             Long userId, List<CartClient.ItemLine> items, String couponCode, String bearerToken, String idempotencyKey
     ) {
-        if (idempotencyKey != null) {
-            Optional<Order> existing = repo.findByUserIdAndIdempotencyKey(userId, idempotencyKey);
-            if (existing.isPresent()) {
-                return new OrderCreationResult(toResponse(existing.get()), false);
-            }
-        }
 
         List<ReservedItem> reserved = new ArrayList<>();
         String committedCouponCode = null;
