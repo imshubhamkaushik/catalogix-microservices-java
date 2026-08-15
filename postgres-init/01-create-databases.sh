@@ -18,7 +18,7 @@
 # uses, not just as a convention.
 set -e
 
-for db in catalogix_users catalogix_catalog catalogix_inventory catalogix_cart catalogix_promotions catalogix_payment catalogix_checkout catalogix_notification; do
+for db in catalogix_users catalogix_catalog catalogix_inventory catalogix_cart catalogix_promotions catalogix_payment catalogix_checkout catalogix_notification catalogix_reviews; do
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
     SELECT 'CREATE DATABASE $db OWNER $POSTGRES_USER'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec

@@ -70,11 +70,12 @@ public class CheckoutSvc {
     private final PromotionsClient promotionsClient;
     private final PaymentClient paymentClient;
     private final CartClient cartClient;
+    private final AddressClient addressClient;
     private final ApplicationEventPublisher eventPublisher;
 
     public CheckoutSvc(OrderRepository repo, CompensationOutboxRepository outboxRepo, CatalogClient catalogClient,
                         InventoryClient inventoryClient, PromotionsClient promotionsClient,
-                        PaymentClient paymentClient, CartClient cartClient,
+                        PaymentClient paymentClient, CartClient cartClient, AddressClient addressClient,
                         ApplicationEventPublisher eventPublisher) {
         this.repo = repo;
         this.outboxRepo = outboxRepo;
@@ -83,6 +84,7 @@ public class CheckoutSvc {
         this.promotionsClient = promotionsClient;
         this.paymentClient = paymentClient;
         this.cartClient = cartClient;
+        this.addressClient = addressClient;
         this.eventPublisher = eventPublisher;
     }
 
@@ -105,13 +107,13 @@ public class CheckoutSvc {
                 .map(i -> new CartClient.ItemLine(i.getProductId(), i.getQuantity()))
                 .toList();
 
-        return placeOrder(userId, lines, req.getCouponCode(), bearerToken, idempotencyKey);
+        return placeOrder(userId, lines, req.getCouponCode(), req.getAddressId(), bearerToken, idempotencyKey);
     }
 
     // ---- Cart-driven checkout: pulls the cart's contents from cart-svc,
     // places the order the same way, then clears the cart. ----
     @Transactional
-    public OrderCreationResult checkoutFromCart(Long userId, String bearerToken, String idempotencyKey) {
+    public OrderCreationResult checkoutFromCart(Long userId, Long addressId, String bearerToken, String idempotencyKey) {
         Optional<OrderCreationResult> existing = existingOrder(userId, idempotencyKey);
         if (existing.isPresent()) {
             return existing.get();
@@ -122,7 +124,8 @@ public class CheckoutSvc {
             throw new IllegalStateException("cart-svc returned a null checkout handoff");
         }
 
-        OrderCreationResult result = placeOrder(userId, handoff.items(), handoff.couponCode(), bearerToken, idempotencyKey);
+        OrderCreationResult result = placeOrder(
+                userId, handoff.items(), handoff.couponCode(), addressId, bearerToken, idempotencyKey);
 
         if (result.wasNew()) {
             try {
@@ -145,7 +148,8 @@ public class CheckoutSvc {
     }
 
     private OrderCreationResult placeOrder(
-            Long userId, List<CartClient.ItemLine> items, String couponCode, String bearerToken, String idempotencyKey
+            Long userId, List<CartClient.ItemLine> items, String couponCode, Long addressId,
+            String bearerToken, String idempotencyKey
     ) {
 
         List<ReservedItem> reserved = new ArrayList<>();
@@ -155,7 +159,7 @@ public class CheckoutSvc {
             BigDecimal subtotal = BigDecimal.ZERO;
             for (CartClient.ItemLine line : items) {
                 CatalogClient.ProductDto product = catalogClient.fetch(line.productId(), bearerToken);
-                inventoryClient.adjust(line.productId(), -line.quantity(), bearerToken);
+                inventoryClient.adjust(line.productId(), -line.quantity());
                 reserved.add(new ReservedItem(product.id(), product.name(), product.price(), line.quantity()));
                 subtotal = subtotal.add(product.price().multiply(BigDecimal.valueOf(line.quantity())));
             }
@@ -179,6 +183,18 @@ public class CheckoutSvc {
                 order.setDiscountAmount(discount);
             }
             order.setTotalAmount(subtotal.subtract(discount));
+
+            if (addressId != null) {
+                AddressClient.AddressDto address = addressClient.fetch(addressId, bearerToken);
+                order.setShippingLabel(address.label());
+                order.setShippingLine1(address.line1());
+                order.setShippingLine2(address.line2());
+                order.setShippingCity(address.city());
+                order.setShippingState(address.state());
+                order.setShippingPincode(address.pincode());
+                order.setShippingPhone(address.phone());
+            }
+            order.addStatusEvent(OrderStatus.PENDING_PAYMENT, "Order placed");
 
             Order saved = repo.save(order);
             return new OrderCreationResult(toResponse(saved), true);
@@ -207,13 +223,15 @@ public class CheckoutSvc {
                     "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
         }
 
-        PaymentClient.PaymentOutcome payment = paymentClient.process(orderId, order.getTotalAmount(), req, bearerToken);
+        PaymentClient.PaymentOutcome payment = paymentClient.process(orderId, userId, order.getTotalAmount(), req);
 
         if (payment.succeeded()) {
             order.setStatus(OrderStatus.CONFIRMED);
+            order.addStatusEvent(OrderStatus.CONFIRMED, "Payment confirmed");
         } else {
             releaseOrderSideEffects(order, bearerToken, "payment-failed-order-" + orderId);
             order.setStatus(OrderStatus.CANCELLED);
+            order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
         }
 
         Order saved = repo.save(order);
@@ -233,6 +251,11 @@ public class CheckoutSvc {
                     "Cannot move order " + orderId + " from " + order.getStatus() + " to " + newStatus);
         }
         order.setStatus(newStatus);
+        order.addStatusEvent(newStatus, switch (newStatus) {
+            case SHIPPED -> "Order shipped";
+            case DELIVERED -> "Order delivered";
+            default -> "Status updated to " + newStatus;
+        });
         return toResponse(repo.save(order));
     }
 
@@ -251,10 +274,26 @@ public class CheckoutSvc {
     }
 
     @Transactional(readOnly = true)
+    public boolean isVerifiedPurchase(Long userId, Long productId) {
+        return repo.existsDeliveredOrderWithProduct(userId, productId);
+    }
+
+    @Transactional(readOnly = true)
     public OrderResponse getOrder(Long id, Long userId, String role) {
         Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
         assertCanAccess(order, userId, role);
         return toResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public OrderTrackingResponse getTracking(Long id, Long userId, String role) {
+        Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
+        assertCanAccess(order, userId, role);
+        List<TrackingEventResponse> events = order.getStatusEvents().stream()
+                .sorted(java.util.Comparator.comparing(OrderStatusEvent::getCreatedAt))
+                .map(e -> new TrackingEventResponse(e.getStatus(), e.getNote(), e.getCreatedAt()))
+                .toList();
+        return new OrderTrackingResponse(order.getId(), order.getStatus(), events);
     }
 
     @Transactional
@@ -272,6 +311,8 @@ public class CheckoutSvc {
 
         releaseOrderSideEffects(order, bearerToken, "cancel-order-" + id);
         order.setStatus(OrderStatus.CANCELLED);
+        boolean isOwnCancellation = order.getUserId() != null && order.getUserId().equals(userId);
+        order.addStatusEvent(OrderStatus.CANCELLED, isOwnCancellation ? "Cancelled by customer" : "Cancelled by admin");
 
         Order saved = repo.save(order);
         eventPublisher.publishEvent(new OrderCancelledEvent(saved.getId(), userEmail));
@@ -292,7 +333,7 @@ public class CheckoutSvc {
     private void compensateWithReason(List<ReservedItem> reserved, String couponCode, String bearerToken, String reason) {
         for (ReservedItem r : reserved) {
             try {
-                inventoryClient.adjust(r.productId(), r.quantity(), bearerToken);
+                inventoryClient.adjust(r.productId(), r.quantity());
             } catch (RuntimeException compensationError) {
                 log.warn("Live stock-release failed for product {} ({}), queuing to outbox: {}",
                         r.productId(), reason, compensationError.getMessage());
@@ -329,8 +370,14 @@ public class CheckoutSvc {
                 .map(i -> new OrderItemResponse(
                         i.getProductId(), i.getProductName(), i.getQuantity(), i.getUnitPrice(), i.getSubtotal()))
                 .toList();
+        ShippingAddressSummary shippingAddress = order.getShippingLine1() == null ? null
+                : new ShippingAddressSummary(
+                        order.getShippingLabel(), order.getShippingLine1(), order.getShippingLine2(),
+                        order.getShippingCity(), order.getShippingState(),
+                        order.getShippingPincode(), order.getShippingPhone());
         return new OrderResponse(
                 order.getId(), order.getUserId(), order.getStatus(), order.getTotalAmount(),
-                order.getCreatedAt(), items, order.getAppliedCouponCode(), order.getDiscountAmount());
+                order.getCreatedAt(), items, order.getAppliedCouponCode(), order.getDiscountAmount(),
+                shippingAddress);
     }
 }

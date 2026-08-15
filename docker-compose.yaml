@@ -111,12 +111,15 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       INVENTORY_SVC_URL: http://inventory-svc:8085
+      REVIEW_SVC_URL: http://review-svc:8089
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8082:8082"
     depends_on:
       postgres:
         condition: service_healthy
+      review-svc:
+        condition: service_started
     networks: [catalogix]
 
   # "How many are left" — split out of product-svc's old Product entity.
@@ -234,6 +237,7 @@ services:
       PROMOTIONS_SVC_URL: http://promotions-svc:8087
       PAYMENT_SVC_URL: http://payment-svc:8088
       CART_SVC_URL: http://cart-svc:8086
+      USER_SVC_URL: http://user-svc:8081
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
@@ -260,6 +264,8 @@ services:
       payment-svc:
         condition: service_started
       cart-svc:
+        condition: service_started
+      user-svc:
         condition: service_started
     networks: [catalogix]
 
@@ -292,6 +298,44 @@ services:
         condition: service_started
     networks: [catalogix]
 
+  # Product reviews and star ratings, with a Verified Purchase badge backed
+  # by a live call to checkout-svc's order history (see OrderClient — it
+  # degrades to "unverified" rather than failing the review if checkout-svc
+  # is unreachable). catalog-svc, in turn, calls this service's summary
+  # endpoint to show a rating on product listings (see catalog-svc's
+  # ReviewClient) — same synchronous-composition pattern catalog-svc
+  # already uses for live stock, not a new architectural style.
+  #
+  # NOTE on depends_on: deliberately does NOT list checkout-svc here, even
+  # though CHECKOUT_SVC_URL below points at it. checkout-svc already
+  # depends_on catalog-svc, and catalog-svc (further down) depends_on this
+  # service — so review-svc -> checkout-svc would close a cycle
+  # (checkout-svc -> catalog-svc -> review-svc -> checkout-svc), which
+  # Compose rejects outright at startup. Since none of these containers have
+  # healthchecks anyway (distroless, no shell — see the note near
+  # frontend-svc), depends_on here only sequences container *start*, not
+  # readiness, so dropping this one edge costs nothing beyond what
+  # OrderClient's circuit breaker already handles.
+  review-svc:
+    build:
+      context: .
+      dockerfile: review-svc/Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_reviews
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      JWT_SECRET: ${JWT_SECRET}
+      CHECKOUT_SVC_URL: http://checkout-svc:8083
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    ports:
+      - "8089:8089"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [catalogix]
+
   # frontend-svc and gateway both run on nginx:alpine (real HEALTHCHECK, has
   # wget) — every Java service above is distroless with no shell, so a
   # container-level healthcheck isn't practical for them; they rely on
@@ -308,6 +352,7 @@ services:
       - catalog-svc
       - checkout-svc
       - cart-svc
+      - review-svc
     networks: [catalogix]
 
   gateway:

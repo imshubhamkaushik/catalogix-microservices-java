@@ -9,12 +9,15 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 
 /**
- * Verifies JWTs issued by user-svc. product-svc never issues its own tokens,
- * only validates the ones it's handed — hence no generateToken() here.
+ * Verifies JWTs issued by user-svc, and also mints short-lived "system"
+ * tokens (see generateSystemToken) for catalog-svc's own calls to
+ * inventory-svc's /adjust endpoint, which no longer accepts regular user
+ * tokens — see InventoryClient for why.
  *
- * MUST be configured with the same JWT_SECRET as user-svc and order-svc.
+ * MUST be configured with the same JWT_SECRET as user-svc and every other service.
  */
 @Service
 public class JwtService {
@@ -23,6 +26,11 @@ public class JwtService {
 
     private static final String EXAMPLE_PLACEHOLDER =
             "change-this-to-a-long-random-string-at-least-32-chars";
+
+    // Sentinel subject/role for internally-minted tokens — never a real user id.
+    private static final String SYSTEM_SUBJECT = "0";
+    private static final String SYSTEM_ROLE = "SYSTEM";
+    private static final long SYSTEM_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
     public JwtService(@Value("${JWT_SECRET}") String secret) {
         if (secret == null || secret.length() < 32) {
@@ -46,5 +54,19 @@ public class JwtService {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    /** Mints a short-lived token identifying this call as coming from the system itself, not a user. */
+    public String generateSystemToken() {
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + SYSTEM_TOKEN_TTL_MS);
+        return Jwts.builder()
+                .subject(SYSTEM_SUBJECT)
+                .claim("email", "system@internal")
+                .claim("role", SYSTEM_ROLE)
+                .issuedAt(now)
+                .expiration(expiry)
+                .signWith(key)
+                .compact();
     }
 }

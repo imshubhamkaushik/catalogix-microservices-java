@@ -68,12 +68,39 @@ class ProductControllerTest {
     @Test
     void listReturnsPagedProducts() throws Exception {
         PagedResponse<ProductResponse> page = new PagedResponse<>(List.of(sampleResponse()), 0, 20, 1, 1);
-        when(svc.search(isNull(), isNull(), any(Pageable.class), isNull())).thenReturn(page);
+        when(svc.search(isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class), isNull()))
+                .thenReturn(page);
 
         mvc.perform(get("/products"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", org.hamcrest.Matchers.hasSize(1)))
                 .andExpect(jsonPath("$.content[0].name").value("Phone"));
+    }
+
+    // Added with search/filter/sort: every query param actually reaches the
+    // service layer, combined, in one request.
+    @Test
+    void listPassesSearchFilterAndSortParamsThrough() throws Exception {
+        PagedResponse<ProductResponse> page = new PagedResponse<>(List.of(sampleResponse()), 0, 20, 1, 1);
+        when(svc.search(
+                eq("phone"), eq("ELECTRONICS"), eq(new BigDecimal("50")), eq(new BigDecimal("500")),
+                eq(com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH), any(Pageable.class), isNull()))
+                .thenReturn(page);
+
+        mvc.perform(get("/products")
+                        .param("search", "phone")
+                        .param("category", "ELECTRONICS")
+                        .param("minPrice", "50")
+                        .param("maxPrice", "500")
+                        .param("sortBy", "PRICE_LOW_TO_HIGH"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content", org.hamcrest.Matchers.hasSize(1)));
+    }
+
+    @Test
+    void listRejectsAnUnknownSortByValue() throws Exception {
+        mvc.perform(get("/products").param("sortBy", "NOT_A_REAL_OPTION"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -165,9 +192,11 @@ class ProductControllerTest {
     void adjustStockReturnsUpdatedProduct() throws Exception {
         ProductResponse restocked = new ProductResponse(1L, "Phone", "A phone", new BigDecimal("100.00"),
                 "GENERAL", 15, 42L, Instant.now());
-        when(svc.adjustStock(eq(1L), eq(5), eq("Bearer token"))).thenReturn(restocked);
+        when(svc.adjustStock(eq(1L), eq(5), eq(42L), eq("USER"), eq("Bearer token"))).thenReturn(restocked);
 
         mvc.perform(patch("/products/1/stock")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(new StockAdjustmentRequest(5))))
@@ -177,19 +206,39 @@ class ProductControllerTest {
 
     @Test
     void adjustStockReturnsNotFoundWhenProductDoesNotExist() throws Exception {
-        when(svc.adjustStock(eq(99L), eq(5), eq("Bearer token")))
+        when(svc.adjustStock(eq(99L), eq(5), eq(42L), eq("USER"), eq("Bearer token")))
                 .thenThrow(new ProductNotFoundException(99L));
 
         mvc.perform(patch("/products/99/stock")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(new StockAdjustmentRequest(5))))
                 .andExpect(status().isNotFound());
     }
 
+    // Added with the ownership-check fix: a non-owner, non-admin caller
+    // must now be rejected instead of being able to adjust any product's stock.
+    @Test
+    void adjustStockReturnsForbiddenForNonOwnerNonAdmin() throws Exception {
+        when(svc.adjustStock(eq(1L), eq(5), eq(7L), eq("USER"), eq("Bearer token")))
+                .thenThrow(new ForbiddenException("Only the product's owner or an admin may adjust its stock"));
+
+        mvc.perform(patch("/products/1/stock")
+                .requestAttr("userId", 7L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(new StockAdjustmentRequest(5))))
+                .andExpect(status().isForbidden());
+    }
+
     @Test
     void adjustStockRejectsMissingDelta() throws Exception {
         mvc.perform(patch("/products/1/stock")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{}"))

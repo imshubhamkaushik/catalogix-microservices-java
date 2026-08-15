@@ -15,20 +15,29 @@ public class OrderResponse {
     private List<OrderItemResponse> items;
     private String appliedCouponCode;
     private BigDecimal discountAmount;
+    private ShippingAddressSummary shippingAddress;
 
     public OrderResponse() {
     }
 
     // Kept for existing callers that don't care about coupons (defaults to no
-    // discount); prefer the 8-arg constructor for real use.
+    // discount); prefer the 9-arg constructor for real use.
     public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
                           Instant createdAt, List<OrderItemResponse> items) {
-        this(id, userId, status, totalAmount, createdAt, items, null, BigDecimal.ZERO);
+        this(id, userId, status, totalAmount, createdAt, items, null, BigDecimal.ZERO, null);
+    }
+
+    // Kept for callers from before shippingAddress existed.
+    public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
+                          Instant createdAt, List<OrderItemResponse> items,
+                          String appliedCouponCode, BigDecimal discountAmount) {
+        this(id, userId, status, totalAmount, createdAt, items, appliedCouponCode, discountAmount, null);
     }
 
     public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
                           Instant createdAt, List<OrderItemResponse> items,
-                          String appliedCouponCode, BigDecimal discountAmount) {
+                          String appliedCouponCode, BigDecimal discountAmount,
+                          ShippingAddressSummary shippingAddress) {
         this.id = id;
         this.userId = userId;
         this.status = status;
@@ -37,6 +46,7 @@ public class OrderResponse {
         this.items = items;
         this.appliedCouponCode = appliedCouponCode;
         this.discountAmount = discountAmount;
+        this.shippingAddress = shippingAddress;
     }
 
     public Long getId() {
@@ -93,5 +103,12 @@ public class OrderResponse {
     }
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
+    }
+
+    public ShippingAddressSummary getShippingAddress() {
+        return shippingAddress;
+    }
+    public void setShippingAddress(ShippingAddressSummary shippingAddress) {
+        this.shippingAddress = shippingAddress;
     }
 }

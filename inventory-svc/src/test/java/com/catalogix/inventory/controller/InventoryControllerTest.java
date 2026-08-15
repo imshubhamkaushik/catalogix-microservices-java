@@ -26,8 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // Auth is exercised via requestAttr(...) (simulating what JwtAuthFilter would set) rather
 // than via a real token, so JwtAuthFilter/RateLimiterFilter are excluded from this slice —
 // they'd otherwise need a real JwtService bean (JWT_SECRET etc.) just to construct.
-// This is an internal, non-gateway-routed service (see InventoryController's Javadoc),
-// so there's no admin/role check to exercise here — every caller is another service.
+// This is an internal, non-gateway-routed service (see InventoryController's Javadoc).
+// adjust() specifically requires userRole=SYSTEM (see adjustRejectsNonSystemCaller below);
+// GET/init have no role check, since read/init aren't privileged operations.
 @WebMvcTest(
         controllers = InventoryController.class,
         excludeFilters = @ComponentScan.Filter(
@@ -105,6 +106,7 @@ class InventoryControllerTest {
         when(svc.adjust(1L, -2)).thenReturn(new StockResponse(1L, 8));
 
         mvc.perform(patch("/inventory/1/adjust")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -118,6 +120,7 @@ class InventoryControllerTest {
         when(svc.adjust(1L, -100)).thenThrow(new InsufficientStockException(1L, 8, 100));
 
         mvc.perform(patch("/inventory/1/adjust")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isConflict());
@@ -130,8 +133,24 @@ class InventoryControllerTest {
         when(svc.adjust(99L, -1)).thenThrow(new StockItemNotFoundException(99L));
 
         mvc.perform(patch("/inventory/99/adjust")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isNotFound());
+    }
+
+    // Added with the SYSTEM-role fix: a regular user token (or any role
+    // other than SYSTEM) must now be rejected, since adjust() is meant to
+    // be reachable only via checkout-svc/catalog-svc's own minted tokens.
+    @Test
+    void adjustRejectsNonSystemCaller() throws Exception {
+        AdjustStockRequest req = new AdjustStockRequest();
+        req.setDelta(-2);
+
+        mvc.perform(patch("/inventory/1/adjust")
+                .requestAttr("userRole", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
     }
 }

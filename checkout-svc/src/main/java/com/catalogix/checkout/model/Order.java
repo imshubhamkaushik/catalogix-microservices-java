@@ -44,6 +44,41 @@ public class Order {
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<OrderItem> items = new ArrayList<>();
 
+    // Status timeline — see OrderStatusEvent. LAZY: only the dedicated
+    // tracking endpoint needs this, unlike items above (which every order
+    // response includes), so ordinary list/get calls don't pay for the join.
+    @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<OrderStatusEvent> statusEvents = new ArrayList<>();
+
+    // Shipping address is a SNAPSHOT taken from user-svc's address book at
+    // the moment the order was placed (see CheckoutSvc#placeOrder /
+    // AddressClient) — not a live foreign key. Editing or deleting that
+    // address afterwards must never change what an already-placed order
+    // shows as its delivery address, same as Amazon/Flipkart's own "address
+    // used for this order" behavior. All nullable: orders placed without an
+    // addressId (or before this feature existed) simply have no shipping
+    // snapshot.
+    @Column(name = "shipping_label", length = 40)
+    private String shippingLabel;
+
+    @Column(name = "shipping_line1", length = 200)
+    private String shippingLine1;
+
+    @Column(name = "shipping_line2", length = 200)
+    private String shippingLine2;
+
+    @Column(name = "shipping_city", length = 100)
+    private String shippingCity;
+
+    @Column(name = "shipping_state", length = 100)
+    private String shippingState;
+
+    @Column(name = "shipping_pincode", length = 12)
+    private String shippingPincode;
+
+    @Column(name = "shipping_phone", length = 20)
+    private String shippingPhone;
+
     public Order() {
     }
 
@@ -115,4 +150,40 @@ public class Order {
         items.add(item);
         item.setOrder(this);
     }
+
+    public List<OrderStatusEvent> getStatusEvents() {
+        return statusEvents;
+    }
+    public void setStatusEvents(List<OrderStatusEvent> statusEvents) {
+        this.statusEvents = statusEvents;
+    }
+
+    // Convenience method mirroring addItem — appends a timeline entry and
+    // keeps both sides of the association in sync in one call.
+    public void addStatusEvent(OrderStatus status, String note) {
+        OrderStatusEvent event = new OrderStatusEvent(status, note);
+        statusEvents.add(event);
+        event.setOrder(this);
+    }
+
+    public String getShippingLabel() { return shippingLabel; }
+    public void setShippingLabel(String shippingLabel) { this.shippingLabel = shippingLabel; }
+
+    public String getShippingLine1() { return shippingLine1; }
+    public void setShippingLine1(String shippingLine1) { this.shippingLine1 = shippingLine1; }
+
+    public String getShippingLine2() { return shippingLine2; }
+    public void setShippingLine2(String shippingLine2) { this.shippingLine2 = shippingLine2; }
+
+    public String getShippingCity() { return shippingCity; }
+    public void setShippingCity(String shippingCity) { this.shippingCity = shippingCity; }
+
+    public String getShippingState() { return shippingState; }
+    public void setShippingState(String shippingState) { this.shippingState = shippingState; }
+
+    public String getShippingPincode() { return shippingPincode; }
+    public void setShippingPincode(String shippingPincode) { this.shippingPincode = shippingPincode; }
+
+    public String getShippingPhone() { return shippingPhone; }
+    public void setShippingPhone(String shippingPhone) { this.shippingPhone = shippingPhone; }
 }

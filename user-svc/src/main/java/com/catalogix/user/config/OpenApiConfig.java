@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 // Docs available at /swagger-ui.html once the app is running.
 @OpenAPIDefinition(info = @Info(
         title = "Catalogix — user-svc",
-        description = "Registration, login, token refresh, and the admin user directory.",
+        description = "Registration, login, token refresh, the admin user directory, and each user's own saved address book.",
         version = "v1"))
 @SecurityScheme(
         name = "bearerAuth",

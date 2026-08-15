@@ -1,9 +1,11 @@
 package com.catalogix.catalog.svc;
 
 import com.catalogix.catalog.client.InventoryClient;
+import com.catalogix.catalog.client.ReviewClient;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
+import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.exception.ProductNotFoundException;
 import com.catalogix.catalog.model.Product;
@@ -24,6 +26,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -31,6 +34,7 @@ class ProductSvcTest {
 
     @Mock private ProductRepository repo;
     @Mock private InventoryClient inventoryClient;
+    @Mock private ReviewClient reviewClient;
 
     private ProductSvc svc;
 
@@ -39,7 +43,13 @@ class ProductSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new ProductSvc(repo, inventoryClient);
+        svc = new ProductSvc(repo, inventoryClient, reviewClient);
+        // Default for every test that doesn't care about ratings — without
+        // this, any test exercising toResponse/findById (i.e. almost all of
+        // them) would NPE on the unstubbed fetchSummary() call, since
+        // ProductSvc unconditionally merges a rating into every response.
+        when(reviewClient.fetchSummary(anyLong(), anyString()))
+                .thenReturn(new ReviewClient.Summary(null, 0));
     }
 
     private Product product(Long id, String name, String price, String category, Long ownerId) {
@@ -54,10 +64,10 @@ class ProductSvcTest {
     void searchMergesLiveStockIntoEachResult() {
         Pageable pageable = PageRequest.of(0, 20);
         Product p = product(1L, "Phone", "100.00", "ELECTRONICS", 42L);
-        when(repo.search(null, null, pageable)).thenReturn(new PageImpl<>(List.of(p), pageable, 1));
+        when(repo.search(null, null, null, null, pageable)).thenReturn(new PageImpl<>(List.of(p), pageable, 1));
         when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(7);
 
-        PagedResponse<ProductResponse> result = svc.search(null, null, pageable, TOKEN);
+        PagedResponse<ProductResponse> result = svc.search(null, null, null, null, null, pageable, TOKEN);
 
         assertEquals(1, result.getContent().size());
         assertEquals(7, result.getContent().get(0).getStockQuantity());
@@ -67,21 +77,48 @@ class ProductSvcTest {
     @Test
     void searchTrimsBlankFiltersToNull() {
         Pageable pageable = PageRequest.of(0, 20);
-        when(repo.search(null, null, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+        when(repo.search(null, null, null, null, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        svc.search("   ", "  ", pageable, TOKEN);
+        svc.search("   ", "  ", null, null, null, pageable, TOKEN);
 
-        verify(repo).search(null, null, pageable);
+        verify(repo).search(null, null, null, null, pageable);
     }
 
     @Test
     void searchPassesThroughTrimmedFilters() {
         Pageable pageable = PageRequest.of(0, 20);
-        when(repo.search("phone", "electronics", pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+        when(repo.search("phone", "electronics", null, null, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
-        svc.search(" phone ", " electronics ", pageable, TOKEN);
+        svc.search(" phone ", " electronics ", null, null, null, pageable, TOKEN);
 
-        verify(repo).search("phone", "electronics", pageable);
+        verify(repo).search("phone", "electronics", null, null, pageable);
+    }
+
+    @Test
+    void searchPassesThroughThePriceRange() {
+        Pageable pageable = PageRequest.of(0, 20);
+        BigDecimal min = new BigDecimal("50.00");
+        BigDecimal max = new BigDecimal("150.00");
+        when(repo.search(null, null, min, max, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        svc.search(null, null, min, max, null, pageable, TOKEN);
+
+        verify(repo).search(null, null, min, max, pageable);
+    }
+
+    // Added with search/filter/sort: sortBy, when present, replaces the
+    // Pageable's own sort entirely rather than combining with it — see
+    // ProductSvc#search's Javadoc-style comment on why.
+    @Test
+    void searchBuildsAPriceAscendingSortWhenSortByIsGiven() {
+        Pageable requested = PageRequest.of(0, 20); // no explicit sort — the default
+        Pageable expectedEffective = PageRequest.of(0, 20, com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH.toSort());
+        when(repo.search(null, null, null, null, expectedEffective)).thenReturn(new PageImpl<>(List.of(), expectedEffective, 0));
+
+        svc.search(null, null, null, null,
+                com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH, requested, TOKEN);
+
+        verify(repo).search(null, null, null, null, expectedEffective);
     }
 
     // ---- create ----
@@ -200,22 +237,53 @@ class ProductSvcTest {
 
     @Test
     void adjustStockThrowsWhenProductDoesNotExist() {
-        when(repo.existsById(99L)).thenReturn(false);
+        when(repo.findById(99L)).thenReturn(Optional.empty());
 
-        assertThrows(ProductNotFoundException.class, () -> svc.adjustStock(99L, 5, TOKEN));
+        assertThrows(ProductNotFoundException.class, () -> svc.adjustStock(99L, 5, 42L, "USER", TOKEN));
+        verifyNoInteractions(inventoryClient);
+    }
+
+    // Added with the ownership-check fix: adjustStock used to skip this
+    // entirely, letting any authenticated user adjust any product's stock.
+    @Test
+    void adjustStockRejectsNonOwnerNonAdmin() {
+        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
+
+        assertThrows(ForbiddenException.class, () -> svc.adjustStock(1L, 5, 7L, "USER", TOKEN));
         verifyNoInteractions(inventoryClient);
     }
 
     @Test
-    void adjustStockMergesTheNewQuantityIntoTheResponse() {
-        when(repo.existsById(1L)).thenReturn(true);
-        when(inventoryClient.adjust(1L, 5, TOKEN)).thenReturn(15);
+    void adjustStockAllowsOwner() {
         when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
+        when(inventoryClient.adjust(1L, 5)).thenReturn(15);
+        when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
+
+        ProductResponse resp = svc.adjustStock(1L, 5, 42L, "USER", TOKEN);
+
+        assertEquals(15, resp.getStockQuantity());
+    }
+
+    @Test
+    void adjustStockAllowsAdminEvenWhenNotOwner() {
+        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
+        when(inventoryClient.adjust(1L, 5)).thenReturn(15);
+        when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
+
+        ProductResponse resp = svc.adjustStock(1L, 5, 7L, "ADMIN", TOKEN);
+
+        assertEquals(15, resp.getStockQuantity());
+    }
+
+    @Test
+    void adjustStockMergesTheNewQuantityIntoTheResponse() {
+        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
+        when(inventoryClient.adjust(1L, 5)).thenReturn(15);
         // findById's own internal fetchQuantity call — the value adjustStock
         // then overwrites with the freshly-adjusted quantity from adjust().
         when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
 
-        ProductResponse resp = svc.adjustStock(1L, 5, TOKEN);
+        ProductResponse resp = svc.adjustStock(1L, 5, 42L, "USER", TOKEN);
 
         assertEquals(15, resp.getStockQuantity());
     }

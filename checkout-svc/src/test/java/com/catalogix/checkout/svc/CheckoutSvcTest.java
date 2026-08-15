@@ -1,5 +1,6 @@
 package com.catalogix.checkout.svc;
 
+import com.catalogix.checkout.client.AddressClient;
 import com.catalogix.checkout.client.CartClient;
 import com.catalogix.checkout.client.CatalogClient;
 import com.catalogix.checkout.client.InventoryClient;
@@ -17,11 +18,13 @@ import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.Order;
 import com.catalogix.checkout.model.OrderItem;
 import com.catalogix.checkout.model.OrderStatus;
+import com.catalogix.checkout.model.OrderStatusEvent;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
 import com.catalogix.checkout.repository.OrderRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.context.ApplicationEventPublisher;
@@ -51,6 +54,7 @@ class CheckoutSvcTest {
     @Mock private PromotionsClient promotionsClient;
     @Mock private PaymentClient paymentClient;
     @Mock private CartClient cartClient;
+    @Mock private AddressClient addressClient;
     @Mock private ApplicationEventPublisher eventPublisher;
 
     private CheckoutSvc svc;
@@ -62,7 +66,7 @@ class CheckoutSvcTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         svc = new CheckoutSvc(repo, outboxRepo, catalogClient, inventoryClient,
-                promotionsClient, paymentClient, cartClient, eventPublisher);
+                promotionsClient, paymentClient, cartClient, addressClient, eventPublisher);
         when(repo.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
             if (o.getId() == null) o.setId(1L);
@@ -72,6 +76,15 @@ class CheckoutSvcTest {
 
     private CatalogClient.ProductDto product(Long id, String name, String price) {
         return new CatalogClient.ProductDto(id, name, new BigDecimal(price));
+    }
+
+    // The most recently appended tracking-timeline entry — tests assert
+    // against the real Order object's own association rather than a mock,
+    // since Order.addStatusEvent is plain in-memory list mutation, not
+    // something CheckoutSvc calls out to a collaborator for.
+    private OrderStatusEvent lastEvent(Order order) {
+        List<OrderStatusEvent> events = order.getStatusEvents();
+        return events.get(events.size() - 1);
     }
 
     private CreateOrderRequest requestFor(Long productId, int qty) {
@@ -94,9 +107,15 @@ class CheckoutSvcTest {
         assertTrue(result.wasNew());
         assertEquals(OrderStatus.PENDING_PAYMENT, result.order().getStatus());
         assertEquals(new BigDecimal("200.00"), result.order().getTotalAmount());
-        verify(inventoryClient).adjust(1L, -2, TOKEN);
+        verify(inventoryClient).adjust(1L, -2);
         // Confirmation event fires on successful *payment*, not creation — see payOrder tests.
         verifyNoInteractions(eventPublisher);
+
+        ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
+        verify(repo).save(saved.capture());
+        assertEquals(1, saved.getValue().getStatusEvents().size());
+        assertEquals(OrderStatus.PENDING_PAYMENT, lastEvent(saved.getValue()).getStatus());
+        assertEquals("Order placed", lastEvent(saved.getValue()).getNote());
     }
 
     @Test
@@ -115,6 +134,49 @@ class CheckoutSvcTest {
         assertEquals(new BigDecimal("180.00"), result.order().getTotalAmount());
     }
 
+    // ---- address snapshot ----
+
+    @Test
+    void createOrderSnapshotsTheAddressWhenAddressIdIsGiven() {
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(addressClient.fetch(7L, TOKEN)).thenReturn(new AddressClient.AddressDto(
+                "Home", "221B Baker Street", null, "Chandigarh", "Punjab", "160001", "+919812345678"));
+
+        CreateOrderRequest req = requestFor(1L, 2);
+        req.setAddressId(7L);
+
+        CheckoutSvc.OrderCreationResult result = svc.createOrder(42L, req, TOKEN, null);
+
+        assertEquals("Chandigarh", result.order().getShippingAddress().city());
+        assertEquals("160001", result.order().getShippingAddress().pincode());
+    }
+
+    @Test
+    void createOrderSkipsAddressLookupWhenNoAddressIdIsGiven() {
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+
+        CheckoutSvc.OrderCreationResult result = svc.createOrder(42L, requestFor(1L, 2), TOKEN, null);
+
+        assertNull(result.order().getShippingAddress());
+        verifyNoInteractions(addressClient);
+    }
+
+    @Test
+    void createOrderCompensatesReservedStockWhenTheAddressLookupFails() {
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(addressClient.fetch(99L, TOKEN))
+                .thenThrow(new com.catalogix.checkout.exception.AddressUnavailableException("not found"));
+
+        CreateOrderRequest req = requestFor(1L, 2);
+        req.setAddressId(99L);
+
+        assertThrows(com.catalogix.checkout.exception.AddressUnavailableException.class,
+                () -> svc.createOrder(42L, req, TOKEN, null));
+        // Stock reserved before the address lookup failed must be released,
+        // same as any other mid-saga failure — see compensate().
+        verify(inventoryClient).adjust(1L, 2);
+    }
+
     @Test
     void createOrderCompensatesReservedStockWhenCouponIsInvalid() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
@@ -127,8 +189,8 @@ class CheckoutSvcTest {
         assertThrows(CouponInvalidException.class, () -> svc.createOrder(42L, req, TOKEN, null));
 
         // The stock reserved before the coupon check failed must be released.
-        verify(inventoryClient).adjust(1L, -2, TOKEN);
-        verify(inventoryClient).adjust(1L, 2, TOKEN);
+        verify(inventoryClient).adjust(1L, -2);
+        verify(inventoryClient).adjust(1L, 2);
         verify(repo, never()).save(any());
     }
 
@@ -136,7 +198,7 @@ class CheckoutSvcTest {
     void createOrderThrowsAndDoesNotSaveWhenStockInsufficient() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
         doThrow(new ProductUnavailableException("Insufficient stock for product 1"))
-                .when(inventoryClient).adjust(eq(1L), eq(-5), eq(TOKEN));
+                .when(inventoryClient).adjust(eq(1L), eq(-5));
 
         assertThrows(ProductUnavailableException.class,
                 () -> svc.createOrder(42L, requestFor(1L, 5), TOKEN, null));
@@ -168,7 +230,7 @@ class CheckoutSvcTest {
         when(cartClient.handoff(TOKEN)).thenReturn(handoff);
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
 
-        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, TOKEN, null);
+        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, null, TOKEN, null);
 
         assertTrue(result.wasNew());
         assertEquals(new BigDecimal("200.00"), result.order().getTotalAmount());
@@ -187,7 +249,7 @@ class CheckoutSvcTest {
         // contents end up unused once the existing order is found.
         when(cartClient.handoff(TOKEN)).thenReturn(new CartClient.Handoff(List.of(), null));
 
-        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, TOKEN, "key-123");
+        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, null, TOKEN, "key-123");
 
         assertFalse(result.wasNew());
         verify(cartClient, never()).clear(TOKEN);
@@ -204,12 +266,28 @@ class CheckoutSvcTest {
         // Clearing the cart is best-effort: the order is already committed by
         // this point, so a failure here must not surface as an error to the
         // caller — see CheckoutSvc.checkoutFromCart's Javadoc.
-        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, TOKEN, null);
+        CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, null, TOKEN, null);
 
         assertTrue(result.wasNew());
     }
 
     // ---- payOrder ----
+
+    // ---- isVerifiedPurchase ----
+
+    @Test
+    void isVerifiedPurchaseDelegatesToTheRepositoryQuery() {
+        when(repo.existsDeliveredOrderWithProduct(42L, 1L)).thenReturn(true);
+
+        assertTrue(svc.isVerifiedPurchase(42L, 1L));
+    }
+
+    @Test
+    void isVerifiedPurchaseIsFalseWhenNoDeliveredOrderExists() {
+        when(repo.existsDeliveredOrderWithProduct(42L, 99L)).thenReturn(false);
+
+        assertFalse(svc.isVerifiedPurchase(42L, 99L));
+    }
 
     private Order pendingPaymentOrder() {
         Order order = new Order();
@@ -226,7 +304,7 @@ class CheckoutSvcTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod("MOCK_CARD");
         req.setCardLast4("4242");
-        when(paymentClient.process(eq(5L), eq(new BigDecimal("200.00")), eq(req), eq(TOKEN)))
+        when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF"));
 
         CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
@@ -235,6 +313,8 @@ class CheckoutSvcTest {
         assertTrue(result.paymentSucceeded());
         verify(eventPublisher).publishEvent(any(OrderConfirmedEvent.class));
         verifyNoInteractions(inventoryClient);
+        assertEquals(OrderStatus.CONFIRMED, lastEvent(order).getStatus());
+        assertEquals("Payment confirmed", lastEvent(order).getNote());
     }
 
     @Test
@@ -244,15 +324,17 @@ class CheckoutSvcTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod("MOCK_CARD");
         req.setCardLast4("0000"); // magic decline value
-        when(paymentClient.process(eq(5L), any(), eq(req), eq(TOKEN)))
+        when(paymentClient.process(eq(5L), any(), any(), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(false, null));
 
         CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, result.order().getStatus());
         assertFalse(result.paymentSucceeded());
-        verify(inventoryClient).adjust(1L, 2, TOKEN); // stock released
+        verify(inventoryClient).adjust(1L, 2); // stock released
         verify(eventPublisher, never()).publishEvent(any(OrderConfirmedEvent.class));
+        assertEquals(OrderStatus.CANCELLED, lastEvent(order).getStatus());
+        assertEquals("Payment declined", lastEvent(order).getNote());
     }
 
     @Test
@@ -263,7 +345,7 @@ class CheckoutSvcTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod("MOCK_CARD");
         req.setCardLast4("0000");
-        when(paymentClient.process(eq(5L), any(), eq(req), eq(TOKEN)))
+        when(paymentClient.process(eq(5L), any(), any(), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(false, null));
 
         svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
@@ -293,6 +375,18 @@ class CheckoutSvcTest {
 
         var resp = svc.updateStatus(5L, OrderStatus.SHIPPED);
         assertEquals(OrderStatus.SHIPPED, resp.getStatus());
+        assertEquals(OrderStatus.SHIPPED, lastEvent(order).getStatus());
+        assertEquals("Order shipped", lastEvent(order).getNote());
+    }
+
+    @Test
+    void updateStatusRecordsADeliveredEventOnDelivery() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.SHIPPED);
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        svc.updateStatus(5L, OrderStatus.DELIVERED);
+        assertEquals("Order delivered", lastEvent(order).getNote());
     }
 
     @Test
@@ -316,9 +410,22 @@ class CheckoutSvcTest {
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
-        verify(inventoryClient).adjust(1L, 2, TOKEN);
+        verify(inventoryClient).adjust(1L, 2);
         verify(promotionsClient).release("SAVE10", TOKEN);
         verify(eventPublisher).publishEvent(any(OrderCancelledEvent.class));
+        assertEquals("Cancelled by customer", lastEvent(order).getNote());
+    }
+
+    @Test
+    void cancelOrderNotesAdminCancellationSeparatelyFromCustomerCancellation() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.CONFIRMED);
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        // Admin (userId 999) cancelling someone else's order (userId 42).
+        svc.cancelOrder(5L, 999L, "ADMIN", TOKEN, EMAIL);
+
+        assertEquals("Cancelled by admin", lastEvent(order).getNote());
     }
 
     @Test
@@ -350,7 +457,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         doThrow(new ProductUnavailableException("unreachable"))
-                .when(inventoryClient).adjust(eq(1L), eq(2), eq(TOKEN));
+                .when(inventoryClient).adjust(eq(1L), eq(2));
 
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 

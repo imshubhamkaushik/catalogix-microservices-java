@@ -155,7 +155,7 @@ class OrderControllerTest {
     @Test
     @SuppressWarnings("null")
     void checkoutCreatesOrderFromCart() throws Exception {
-        when(svc.checkoutFromCart(eq(42L), eq(TOKEN), isNull()))
+        when(svc.checkoutFromCart(eq(42L), isNull(), eq(TOKEN), isNull()))
                 .thenReturn(new CheckoutSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), true));
 
         mvc.perform(post("/orders/checkout")
@@ -166,10 +166,32 @@ class OrderControllerTest {
                 .andExpect(jsonPath("$.id").value(1L));
     }
 
+    // Added with the address-snapshot feature: a body with addressId must
+    // reach CheckoutSvc — the endpoint's body used to not exist at all, so
+    // this is the one truly new request shape on this path.
+    @Test
+    @SuppressWarnings("null")
+    void checkoutPassesTheAddressIdThroughWhenGiven() throws Exception {
+        when(svc.checkoutFromCart(eq(42L), eq(7L), eq(TOKEN), isNull()))
+                .thenReturn(new CheckoutSvc.OrderCreationResult(sampleResponse(OrderStatus.PENDING_PAYMENT), true));
+
+        CheckoutFromCartRequest body = new CheckoutFromCartRequest();
+        body.setAddressId(7L);
+
+        mvc.perform(post("/orders/checkout")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(body)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1L));
+    }
+
     @Test
     @SuppressWarnings("null")
     void checkoutRecoversFromIdempotencyKeyRaceByReturningWinningOrder() throws Exception {
-        when(svc.checkoutFromCart(eq(42L), eq(TOKEN), eq("key-abc")))
+        when(svc.checkoutFromCart(eq(42L), isNull(), eq(TOKEN), eq("key-abc")))
                 .thenThrow(new DataIntegrityViolationException("duplicate key"));
         when(svc.findExistingByIdempotencyKey(42L, "key-abc"))
                 .thenReturn(Optional.of(sampleResponse(OrderStatus.PENDING_PAYMENT)));
@@ -203,6 +225,65 @@ class OrderControllerTest {
 
         mvc.perform(get("/orders/1").requestAttr("userId", 99L).requestAttr("userRole", "USER"))
                 .andExpect(status().isForbidden());
+    }
+
+    // ---- GET /orders/{id}/tracking ----
+
+    @Test
+    @SuppressWarnings("null")
+    void trackingReturnsTheOrdersStatusTimeline() throws Exception {
+        OrderTrackingResponse tracking = new OrderTrackingResponse(1L, OrderStatus.SHIPPED, List.of(
+                new TrackingEventResponse(OrderStatus.PENDING_PAYMENT, "Order placed", Instant.now()),
+                new TrackingEventResponse(OrderStatus.CONFIRMED, "Payment confirmed", Instant.now()),
+                new TrackingEventResponse(OrderStatus.SHIPPED, "Order shipped", Instant.now())));
+        when(svc.getTracking(1L, 42L, "USER")).thenReturn(tracking);
+
+        mvc.perform(get("/orders/1/tracking").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentStatus").value("SHIPPED"))
+                .andExpect(jsonPath("$.events", hasSize(3)))
+                .andExpect(jsonPath("$.events[0].status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.events[2].note").value("Order shipped"));
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void trackingReturnsForbiddenWhenNotOwner() throws Exception {
+        when(svc.getTracking(1L, 99L, "USER"))
+                .thenThrow(new ForbiddenException("You may only view or manage your own orders"));
+
+        mvc.perform(get("/orders/1/tracking").requestAttr("userId", 99L).requestAttr("userRole", "USER"))
+                .andExpect(status().isForbidden());
+    }
+
+    // ---- GET /orders/verified-purchase ----
+
+    @Test
+    void verifiedPurchaseReturnsTrueWhenTheUserHasADeliveredOrder() throws Exception {
+        when(svc.isVerifiedPurchase(42L, 1L)).thenReturn(true);
+
+        mvc.perform(get("/orders/verified-purchase")
+                        .param("productId", "1")
+                        .requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified").value(true));
+    }
+
+    @Test
+    void verifiedPurchaseReturnsFalseWhenThereIsNone() throws Exception {
+        when(svc.isVerifiedPurchase(42L, 99L)).thenReturn(false);
+
+        mvc.perform(get("/orders/verified-purchase")
+                        .param("productId", "99")
+                        .requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.verified").value(false));
+    }
+
+    @Test
+    void verifiedPurchaseRejectsAMissingProductId() throws Exception {
+        mvc.perform(get("/orders/verified-purchase").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isBadRequest());
     }
 
     // ---- POST /orders/{id}/pay ----

@@ -1,10 +1,13 @@
 package com.catalogix.checkout.controller;
 
+import com.catalogix.checkout.dto.CheckoutFromCartRequest;
 import com.catalogix.checkout.dto.CreateOrderRequest;
 import com.catalogix.checkout.dto.OrderResponse;
+import com.catalogix.checkout.dto.OrderTrackingResponse;
 import com.catalogix.checkout.dto.PagedResponse;
 import com.catalogix.checkout.dto.PayOrderRequest;
 import com.catalogix.checkout.dto.UpdateOrderStatusRequest;
+import com.catalogix.checkout.dto.VerifiedPurchaseResponse;
 import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.svc.CheckoutSvc;
 
@@ -59,15 +62,19 @@ public class OrderController {
     // race recovery as create() above — the original design was missing
     // this on the cart-checkout path specifically, so a concurrent
     // double-click could surface a raw 500 instead of the existing order.
+    // Body is optional — a null/absent addressId just means the order gets
+    // no shipping-address snapshot, same as before this field existed.
     @PostMapping("/checkout")
     public ResponseEntity<OrderResponse> checkout(
             @RequestAttribute("userId") Long userId,
             @RequestAttribute("bearerToken") String bearerToken,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) CheckoutFromCartRequest req
     ) {
+        Long addressId = req != null ? req.getAddressId() : null;
         CheckoutSvc.OrderCreationResult result = withIdempotencyRaceRecovery(
                 userId, idempotencyKey,
-                () -> svc.checkoutFromCart(userId, bearerToken, idempotencyKey));
+                () -> svc.checkoutFromCart(userId, addressId, bearerToken, idempotencyKey));
         return respond(result);
     }
 
@@ -114,6 +121,32 @@ public class OrderController {
             @RequestAttribute("userRole") String role
     ) {
         return ResponseEntity.ok(svc.getOrder(id, userId, role));
+    }
+
+    // Amazon/Flipkart-style tracking timeline — same ownership rule as
+    // getOne (owner or admin), just a different shape: the status history
+    // instead of the full order.
+    @GetMapping("/{id}/tracking")
+    public ResponseEntity<OrderTrackingResponse> getTracking(
+            @PathVariable Long id,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("userRole") String role
+    ) {
+        return ResponseEntity.ok(svc.getTracking(id, userId, role));
+    }
+
+    // Called by review-svc (forwarding the caller's own token — checking
+    // your own purchase history isn't a privileged lookup) to decide whether
+    // a review earns the "Verified Purchase" badge. Deliberately scoped to
+    // the calling user's own orders only — there is no productId+userId
+    // variant for checking someone ELSE's purchase history, since nothing
+    // in this app has a legitimate reason to ask that question.
+    @GetMapping("/verified-purchase")
+    public ResponseEntity<VerifiedPurchaseResponse> verifiedPurchase(
+            @RequestAttribute("userId") Long userId,
+            @RequestParam Long productId
+    ) {
+        return ResponseEntity.ok(new VerifiedPurchaseResponse(svc.isVerifiedPurchase(userId, productId)));
     }
 
     @PostMapping("/{id}/pay")

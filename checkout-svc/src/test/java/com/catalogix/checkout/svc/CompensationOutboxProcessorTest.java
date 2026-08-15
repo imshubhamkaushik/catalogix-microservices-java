@@ -43,7 +43,7 @@ class CompensationOutboxProcessorTest {
         processor.processPending();
 
         assertEquals(OutboxStatus.COMPLETED, entry.getStatus());
-        verify(inventoryClient).adjust(1L, 2, "Bearer system-token");
+        verify(inventoryClient).adjust(1L, 2);
         verifyNoInteractions(promotionsClient);
         verify(outboxRepo).save(entry);
     }
@@ -77,7 +77,7 @@ class CompensationOutboxProcessorTest {
         entry.setAttempts(1);
         when(outboxRepo.claimPendingBatch()).thenReturn(List.of(entry));
         doThrow(new RuntimeException("inventory-svc unreachable"))
-                .when(inventoryClient).adjust(1L, 2, "Bearer system-token");
+                .when(inventoryClient).adjust(1L, 2);
 
         processor.processPending();
 
@@ -93,7 +93,7 @@ class CompensationOutboxProcessorTest {
         entry.setAttempts(4); // one more failure reaches the 5-attempt ceiling
         when(outboxRepo.claimPendingBatch()).thenReturn(List.of(entry));
         doThrow(new RuntimeException("inventory-svc unreachable"))
-                .when(inventoryClient).adjust(1L, 2, "Bearer system-token");
+                .when(inventoryClient).adjust(1L, 2);
 
         processor.processPending();
 
@@ -107,7 +107,7 @@ class CompensationOutboxProcessorTest {
         CompensationOutbox succeeding = CompensationOutbox.releaseCoupon("SAVE10", "cancel-order-6");
         when(outboxRepo.claimPendingBatch()).thenReturn(List.of(failing, succeeding));
         doThrow(new RuntimeException("inventory-svc unreachable"))
-                .when(inventoryClient).adjust(1L, 2, "Bearer system-token");
+                .when(inventoryClient).adjust(1L, 2);
 
         processor.processPending();
 

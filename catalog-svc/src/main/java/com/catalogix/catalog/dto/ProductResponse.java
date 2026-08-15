@@ -12,6 +12,11 @@ public class ProductResponse {
     private Integer stockQuantity;
     private Long ownerId;
     private Instant createdAt;
+    // Set post-construction by ProductSvc via ReviewClient — same idiom
+    // adjustStock already uses for stockQuantity above. null averageRating
+    // (with reviewCount 0) means no reviews yet, not a 0-star rating.
+    private BigDecimal averageRating;
+    private long reviewCount;
 
     public ProductResponse() {
     }
@@ -94,5 +99,21 @@ public class ProductResponse {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public BigDecimal getAverageRating() {
+        return averageRating;
+    }
+
+    public void setAverageRating(BigDecimal averageRating) {
+        this.averageRating = averageRating;
+    }
+
+    public long getReviewCount() {
+        return reviewCount;
+    }
+
+    public void setReviewCount(long reviewCount) {
+        this.reviewCount = reviewCount;
     }
 }

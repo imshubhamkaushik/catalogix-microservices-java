@@ -11,6 +11,14 @@ public class ProcessPaymentRequest {
     @NotNull(message = "orderId is required")
     private Long orderId;
 
+    // The real end user checkout-svc is acting on behalf of. Populated
+    // explicitly because checkout-svc now calls this endpoint with a system
+    // token (see checkout-svc's PaymentClient) whose own subject is a
+    // sentinel, not a real user id — this field is what keeps the audit
+    // trail (Payment.requestedByUserId) meaningful.
+    @NotNull(message = "requestedByUserId is required")
+    private Long requestedByUserId;
+
     @NotNull(message = "amount is required")
     @DecimalMin(value = "0.0", inclusive = false, message = "amount must be positive")
     private BigDecimal amount;
@@ -25,6 +33,9 @@ public class ProcessPaymentRequest {
 
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
+
+    public Long getRequestedByUserId() { return requestedByUserId; }
+    public void setRequestedByUserId(Long requestedByUserId) { this.requestedByUserId = requestedByUserId; }
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }

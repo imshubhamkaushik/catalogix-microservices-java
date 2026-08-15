@@ -32,7 +32,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // than via a real token, so JwtAuthFilter/RateLimiterFilter are excluded from this slice —
 // they'd otherwise need a real JwtService bean (JWT_SECRET etc.) just to construct.
 // No gateway route exists for this service (see PaymentController's Javadoc) — the only
-// caller is checkout-svc, forwarding the end user's own token.
+// caller is checkout-svc, which now mints a SYSTEM-role token per call (see checkout-svc's
+// PaymentClient) rather than forwarding the end user's own token.
 @WebMvcTest(
         controllers = PaymentController.class,
         excludeFilters = @ComponentScan.Filter(
@@ -52,6 +53,7 @@ class PaymentControllerTest {
     private ProcessPaymentRequest sampleRequest(String cardLast4) {
         ProcessPaymentRequest req = new ProcessPaymentRequest();
         req.setOrderId(5L);
+        req.setRequestedByUserId(42L);
         req.setAmount(new BigDecimal("200.00"));
         req.setMethod("MOCK_CARD");
         req.setCardLast4(cardLast4);
@@ -66,7 +68,7 @@ class PaymentControllerTest {
         when(svc.process(any(ProcessPaymentRequest.class), eq(42L))).thenReturn(resp);
 
         mvc.perform(post("/payments")
-                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest("4242"))))
                 .andExpect(status().isCreated())
@@ -85,10 +87,22 @@ class PaymentControllerTest {
                 .thenThrow(new DeclinedException("Card declined"));
 
         mvc.perform(post("/payments")
-                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest("0000"))))
                 .andExpect(status().isPaymentRequired());
+    }
+
+    // Added with the SYSTEM-role fix: any caller other than checkout-svc's
+    // own minted token must now be rejected outright, before svc.process()
+    // is ever reached — this used to be reachable by any authenticated user.
+    @Test
+    void processRejectsNonSystemCaller() throws Exception {
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest("4242"))))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -97,7 +111,19 @@ class PaymentControllerTest {
         req.setOrderId(null);
 
         mvc.perform(post("/payments")
-                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void processRejectsMissingRequestedByUserId() throws Exception {
+        ProcessPaymentRequest req = sampleRequest("4242");
+        req.setRequestedByUserId(null);
+
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
@@ -109,7 +135,7 @@ class PaymentControllerTest {
         req.setAmount(BigDecimal.ZERO);
 
         mvc.perform(post("/payments")
-                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
@@ -121,7 +147,7 @@ class PaymentControllerTest {
         req.setMethod("");
 
         mvc.perform(post("/payments")
-                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());

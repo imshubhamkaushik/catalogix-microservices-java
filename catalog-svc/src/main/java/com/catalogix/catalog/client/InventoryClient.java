@@ -1,6 +1,7 @@
 package com.catalogix.catalog.client;
 
 import com.catalogix.catalog.exception.InsufficientStockException;
+import com.catalogix.catalog.security.JwtService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -15,22 +16,29 @@ import org.springframework.web.client.RestTemplate;
  * for this split. checkout-svc, notably, does NOT go through this service
  * or this client for stock reservation — it calls inventory-svc directly.
  *
- * Every call forwards the caller's own bearer token: inventory-svc's
- * JwtAuthFilter requires one on every request, and this service has no
- * system-token-minting capability of its own (only checkout-svc's
- * background outbox processor does) — nor should it need one, since every
- * call here happens on a request thread that already has a real user's token.
+ * fetchQuantity/init forward the caller's own bearer token (read/init are
+ * low-risk). adjust() is different: mutating stock directly used to be
+ * reachable by ANY authenticated user via the caller's own forwarded token,
+ * which was the mechanism behind a real authorization gap (any user could
+ * drain or inflate any other user's stock). adjust() now mints its own
+ * short-lived system token instead — inventory-svc's /adjust endpoint only
+ * accepts SYSTEM-role tokens, so authorization is enforced once, up front,
+ * in ProductSvc#adjustStock (owner-or-admin check) rather than being
+ * re-derivable from whatever token happens to be on the request thread.
  */
 @Component
 public class InventoryClient {
 
     private final RestTemplate restTemplate;
     private final String inventorySvcUrl;
+    private final JwtService jwtService;
 
     public InventoryClient(RestTemplate restTemplate,
-                            @Value("${INVENTORY_SVC_URL}") String inventorySvcUrl) {
+                            @Value("${INVENTORY_SVC_URL}") String inventorySvcUrl,
+                            JwtService jwtService) {
         this.restTemplate = restTemplate;
         this.inventorySvcUrl = inventorySvcUrl;
+        this.jwtService = jwtService;
     }
 
     @CircuitBreaker(name = "inventorySvc", fallbackMethod = "fetchFallback")
@@ -55,8 +63,8 @@ public class InventoryClient {
                 new HttpEntity<>(body, headers), StockDto.class);
     }
 
-    public Integer adjust(Long productId, int delta, String bearerToken) {
-        HttpHeaders headers = authHeaders(bearerToken);
+    public Integer adjust(Long productId, int delta) {
+        HttpHeaders headers = authHeaders("Bearer " + jwtService.generateSystemToken());
         var body = new java.util.HashMap<String, Object>();
         body.put("delta", delta);
         try {

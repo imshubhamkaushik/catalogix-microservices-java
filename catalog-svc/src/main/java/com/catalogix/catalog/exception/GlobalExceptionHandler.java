@@ -6,6 +6,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.*;
 import java.time.Instant;
@@ -27,6 +28,29 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, "Validation failed");
         body.put("errors", errors);
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    // Added alongside GET /products' new query params (minPrice, maxPrice,
+    // sortBy): without this, an unparseable value — a non-numeric
+    // minPrice, or a sortBy that isn't one of ProductSortOption's real
+    // values — would fall through to the generic handleAll() below and
+    // come back as a confusing 500, even though it's really the client
+    // sending a bad request. Spring resolves query params BEFORE the
+    // controller method runs, so this is the only place to catch it.
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String message;
+        if (ex.getRequiredType() != null && ex.getRequiredType().isEnum()) {
+            message = "Invalid value for '" + ex.getName() + "': " + ex.getValue()
+                    + ". Valid values: " + Arrays.toString(ex.getRequiredType().getEnumConstants());
+        } else {
+            message = "Invalid value for '" + ex.getName() + "': " + ex.getValue();
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, message);
         body.put(TIMESTAMP, Instant.now().toString());
         body.put(STATUS, HttpStatus.BAD_REQUEST.value());
         return ResponseEntity.badRequest().body(body);

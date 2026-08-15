@@ -1,9 +1,11 @@
 package com.catalogix.catalog.svc;
 
 import com.catalogix.catalog.client.InventoryClient;
+import com.catalogix.catalog.client.ReviewClient;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
+import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.exception.ProductNotFoundException;
 import com.catalogix.catalog.model.Product;
@@ -11,11 +13,13 @@ import com.catalogix.catalog.repository.ProductRepository;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 
 @Service
@@ -23,17 +27,29 @@ public class ProductSvc {
 
     private final ProductRepository repo;
     private final InventoryClient inventoryClient;
+    private final ReviewClient reviewClient;
 
-    public ProductSvc(ProductRepository repo, InventoryClient inventoryClient) {
+    public ProductSvc(ProductRepository repo, InventoryClient inventoryClient, ReviewClient reviewClient) {
         this.repo = repo;
         this.inventoryClient = inventoryClient;
+        this.reviewClient = reviewClient;
     }
 
     @Transactional(readOnly = true)
-    public PagedResponse<ProductResponse> search(String search, String category, Pageable pageable, String bearerToken) {
+    public PagedResponse<ProductResponse> search(String search, String category, BigDecimal minPrice,
+                                                   BigDecimal maxPrice, ProductSortOption sortBy,
+                                                   Pageable pageable, String bearerToken) {
         String normalizedSearch = StringUtils.hasText(search) ? search.trim() : null;
         String normalizedCategory = StringUtils.hasText(category) ? category.trim() : null;
-        Page<Product> page = repo.search(normalizedSearch, normalizedCategory, pageable);
+        // A caller-supplied sortBy takes over ordering entirely rather than
+        // combining with whatever Pageable's own ?sort= carried — mixing
+        // the two would mean the friendly enum sometimes wins and sometimes
+        // doesn't depending on param order, which is more confusing than
+        // just "sortBy always wins when present".
+        Pageable effectivePageable = sortBy != null
+                ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), sortBy.toSort())
+                : pageable;
+        Page<Product> page = repo.search(normalizedSearch, normalizedCategory, minPrice, maxPrice, effectivePageable);
         // NOTE: fetches stock per-row (N+1) rather than one batched call — a
         // real deployment at meaningful result-set size would want a batch
         // GET /inventory?productIds=... endpoint here. Left as a known
@@ -71,8 +87,12 @@ public class ProductSvc {
     public Optional<ProductResponse> findById(long id, String bearerToken) {
         return cacheCore(id).map(core -> {
             Integer stock = inventoryClient.fetchQuantity(id, bearerToken);
-            return new ProductResponse(core.id(), core.name(), core.description(), core.price(),
+            ProductResponse response = new ProductResponse(core.id(), core.name(), core.description(), core.price(),
                     core.category(), stock, core.ownerId(), core.createdAt());
+            ReviewClient.Summary rating = reviewClient.fetchSummary(id, bearerToken);
+            response.setAverageRating(rating.averageRating());
+            response.setReviewCount(rating.reviewCount());
+            return response;
         });
     }
 
@@ -101,12 +121,25 @@ public class ProductSvc {
         return true;
     }
 
+    // SECURITY FIX: this previously had no ownership/role check at all — any
+    // authenticated user could adjust ANY product's stock, not just their
+    // own. Now mirrors the owner-or-admin check deleteById already had.
+    // The actual inventory-svc call now goes through a system-minted token
+    // (see InventoryClient#adjust) rather than the caller's own bearer
+    // token — inventory-svc's /adjust endpoint no longer accepts regular
+    // user tokens at all, so authorization for this whole operation is
+    // fully enforced right here, once, before we ever reach inventory-svc.
     @Transactional(readOnly = true)
-    public ProductResponse adjustStock(long id, int delta, String bearerToken) {
-        if (!repo.existsById(id)) {
-            throw new ProductNotFoundException(id);
+    public ProductResponse adjustStock(long id, int delta, Long requesterId, String requesterRole, String bearerToken) {
+        Product product = repo.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
+
+        boolean isOwner = product.getOwnerId() != null && product.getOwnerId().equals(requesterId);
+        boolean isAdmin = "ADMIN".equalsIgnoreCase(requesterRole);
+        if (!isOwner && !isAdmin) {
+            throw new ForbiddenException("Only the product's owner or an admin may adjust its stock");
         }
-        Integer newQuantity = inventoryClient.adjust(id, delta, bearerToken);
+
+        Integer newQuantity = inventoryClient.adjust(id, delta);
         return findById(id, bearerToken)
                 .map(r -> { r.setStockQuantity(newQuantity); return r; })
                 .orElseThrow(() -> new ProductNotFoundException(id));
@@ -118,7 +151,11 @@ public class ProductSvc {
 
     private ProductResponse toResponse(Product p, String bearerToken) {
         Integer stock = inventoryClient.fetchQuantity(p.getId(), bearerToken);
-        return new ProductResponse(p.getId(), p.getName(), p.getDescription(), p.getPrice(),
+        ProductResponse response = new ProductResponse(p.getId(), p.getName(), p.getDescription(), p.getPrice(),
                 p.getCategory(), stock, p.getOwnerId(), p.getCreatedAt());
+        ReviewClient.Summary rating = reviewClient.fetchSummary(p.getId(), bearerToken);
+        response.setAverageRating(rating.averageRating());
+        response.setReviewCount(rating.reviewCount());
+        return response;
     }
 }

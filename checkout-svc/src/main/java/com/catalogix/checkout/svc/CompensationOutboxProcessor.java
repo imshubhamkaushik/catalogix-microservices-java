@@ -52,10 +52,12 @@ public class CompensationOutboxProcessor {
             // Minted fresh per entry rather than once for the whole batch:
             // cheap (local signing, no network call) and closes the edge
             // case where a slow batch outlives a single token's TTL.
+            // Still needed for the promotions-svc call below; inventoryClient
+            // now mints its own system token internally (see InventoryClient).
             String bearerToken = "Bearer " + jwtService.generateSystemToken();
             try {
                 switch (entry.getType()) {
-                    case RELEASE_STOCK -> inventoryClient.adjust(entry.getProductId(), entry.getDelta(), bearerToken);
+                    case RELEASE_STOCK -> inventoryClient.adjust(entry.getProductId(), entry.getDelta());
                     case RELEASE_COUPON -> promotionsClient.release(entry.getCouponCode(), bearerToken);
                 }
                 entry.setStatus(OutboxStatus.COMPLETED);

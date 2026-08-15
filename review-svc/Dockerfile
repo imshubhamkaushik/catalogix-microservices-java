@@ -1,0 +1,20 @@
+# Multi-stage Dockerfile for review-svc
+# ---------- Stage 1: Build ----------
+FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
+WORKDIR /app
+
+COPY pom.xml ./pom.xml
+RUN mvn -B -N install
+
+COPY review-svc/pom.xml review-svc/pom.xml
+COPY review-svc/src review-svc/src
+RUN mvn -B clean package -DskipTests -f review-svc/pom.xml
+
+# ---------- Stage 2: App ----------
+FROM gcr.io/distroless/java21-debian13:nonroot AS app
+WORKDIR /app
+
+COPY --from=build /app/review-svc/target/review-svc.jar review-svc.jar
+EXPOSE 8089
+
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/review-svc.jar"]

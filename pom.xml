@@ -20,6 +20,7 @@
         <module>payment-svc</module>
         <module>checkout-svc</module>
         <module>notification-svc</module>
+        <module>review-svc</module>
         <!-- order-svc and product-svc are pre-split leftovers, fully superseded
              by checkout-svc/cart-svc/promotions-svc/payment-svc and
              catalog-svc/inventory-svc respectively. They are not part of
