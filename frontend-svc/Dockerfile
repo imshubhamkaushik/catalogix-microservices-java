@@ -20,7 +20,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/build /usr/share/nginx/html
 RUN chown -R 1000:1000 /usr/share/nginx/html
 USER 1000
-EXPOSE 80
+EXPOSE 8080
 HEALTHCHECK --interval=20s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO /dev/null http://localhost:80/ || exit 1
+    CMD wget -qO /dev/null http://127.0.0.1:8080/ || exit 1
 CMD ["nginx", "-g", "daemon off;"]

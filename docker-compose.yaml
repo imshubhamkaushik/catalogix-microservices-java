@@ -346,7 +346,7 @@ services:
       context: ./frontend-svc
     restart: unless-stopped
     expose:
-      - "80"
+      - "8080"
     depends_on:
       - user-svc
       - catalog-svc
