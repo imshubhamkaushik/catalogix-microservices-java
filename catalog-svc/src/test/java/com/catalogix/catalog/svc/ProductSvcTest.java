@@ -5,7 +5,6 @@ import com.catalogix.catalog.client.ReviewClient;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
-import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.exception.ProductNotFoundException;
 import com.catalogix.catalog.model.Product;
@@ -27,7 +26,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class ProductSvcTest {
