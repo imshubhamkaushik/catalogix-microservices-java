@@ -1,11 +1,11 @@
 package com.catalogix.inventory.dto;
 
-public class StockResponse {
+public class InventoryResponse {
     private Long productId;
     private int quantity;
 
-    public StockResponse() {}
-    public StockResponse(Long productId, int quantity) {
+    public InventoryResponse() {}
+    public InventoryResponse(Long productId, int quantity) {
         this.productId = productId;
         this.quantity = quantity;
     }

@@ -1,7 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
-import { getProducts, createProduct, deleteProduct, addCartItem } from "../api";
+import {
+  getProducts, createProduct, deleteProduct, addCartItem,
+  getWishlist, addWishlistItem, removeWishlistItem,
+} from "../api";
 import { useAuth } from "../context/AuthContext";
+import RatingStars from "./RatingStars";
+import ProductDetail from "./ProductDetail";
 
 const PAGE_SIZE = 10;
 
@@ -59,6 +64,47 @@ StockBadge.propTypes = {
   quantity: PropTypes.number,
 };
 
+const HeartIcon = ({ filled }) => (
+  <svg viewBox="0 0 16 16" width="13" height="13" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.3">
+    <path d="M8 13.5s-5.5-3.42-5.5-7.2C2.5 4.2 4.1 2.7 6 2.7c1 0 1.9.5 2 1.4.1-.9 1-1.4 2-1.4 1.9 0 3.5 1.5 3.5 3.6 0 3.78-5.5 7.2-5.5 7.2z" />
+  </svg>
+);
+HeartIcon.propTypes = { filled: PropTypes.bool };
+
+// Toggles a product in/out of the current user's wishlist. saved/onToggle
+// are lifted to the parent (Products) rather than owning their own fetch,
+// so the whole page shares one wishlist snapshot instead of each row
+// re-fetching it independently.
+function WishlistButton({ saved, onToggle }) {
+  const [busy, setBusy] = useState(false);
+
+  const handleClick = async () => {
+    setBusy(true);
+    try {
+      await onToggle();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      className={`wishlist-btn${saved ? " wishlist-btn-active" : ""}`}
+      onClick={handleClick}
+      disabled={busy}
+      title={saved ? "Remove from wishlist" : "Save to wishlist"}
+      type="button"
+    >
+      <HeartIcon filled={saved} />
+    </button>
+  );
+}
+
+WishlistButton.propTypes = {
+  saved: PropTypes.bool.isRequired,
+  onToggle: PropTypes.func.isRequired,
+};
+
 // Per-row quantity + add-to-cart control. Checkout (and the mock payment
 // step) happens on the Orders page now that orders go through a proper
 // PENDING_PAYMENT -> pay -> CONFIRMED lifecycle — this just adds to the
@@ -94,6 +140,7 @@ function AddToCartControl({ product, onAdded, onError }) {
       />
       <button
         className="btn-small btn-primary-small"
+        type="button"
         onClick={handleAdd}
         disabled={outOfStock || adding}
       >
@@ -131,10 +178,44 @@ export default function Products() {
   // Search / filter / pagination (server-side)
   const [search, setSearch]     = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [sortBy, setSortBy]     = useState("");
   const [page, setPage]         = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const debounceRef = useRef(null);
+
+  // Which product ids are currently on the signed-in user's wishlist —
+  // fetched once on mount so every row's heart can render its saved state
+  // without each row making its own request.
+  const [wishlistIds, setWishlistIds] = useState(new Set());
+  const [activeProduct, setActiveProduct] = useState(null);
+
+  useEffect(() => {
+    getWishlist()
+      .then((items) => setWishlistIds(new Set(items.map((i) => i.productId))))
+      .catch(() => {}); // non-critical — hearts just default to "not saved" if this fails
+  }, []);
+
+  const toggleWishlist = async (product) => {
+    const isSaved = wishlistIds.has(product.id);
+    try {
+      if (isSaved) {
+        await removeWishlistItem(product.id);
+        setWishlistIds((prev) => {
+          const next = new Set(prev);
+          next.delete(product.id);
+          return next;
+        });
+      } else {
+        await addWishlistItem(product.id);
+        setWishlistIds((prev) => new Set(prev).add(product.id));
+      }
+    } catch {
+      setError(isSaved ? "Failed to remove from wishlist." : "Failed to save to wishlist.");
+    }
+  };
 
   const fetchProducts = useCallback(async (opts = {}) => {
     setLoading(true);
@@ -143,6 +224,9 @@ export default function Products() {
       const data = await getProducts({
         search: opts.search ?? search,
         category: opts.categoryFilter ?? categoryFilter,
+        minPrice: (opts.minPrice ?? minPrice) || undefined,
+        maxPrice: (opts.maxPrice ?? maxPrice) || undefined,
+        sortBy: (opts.sortBy ?? sortBy) || undefined,
         page: opts.page ?? page,
         size: PAGE_SIZE,
         sort: "id,desc",
@@ -156,11 +240,14 @@ export default function Products() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search, categoryFilter]);
+  }, [page, search, categoryFilter, minPrice, maxPrice, sortBy]);
 
   useEffect(() => { fetchProducts(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Debounce search/category changes, then reset to page 0 and refetch.
+  // Debounce search/category/price changes, then reset to page 0 and refetch.
+  // sortBy is NOT debounced below — a dropdown selection should refetch
+  // immediately, there's no rapid-typing to coalesce the way there is for
+  // the text/number fields.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -169,7 +256,13 @@ export default function Products() {
     }, 350);
     return () => clearTimeout(debounceRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, categoryFilter]);
+  }, [search, categoryFilter, minPrice, maxPrice]);
+
+  const handleSortChange = (value) => {
+    setSortBy(value);
+    setPage(0);
+    fetchProducts({ page: 0, sortBy: value });
+  };
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -328,6 +421,35 @@ export default function Products() {
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
             />
+            <div className="price-range-inputs">
+              <input
+                className="field-input price-range-input"
+                type="number"
+                min="0"
+                placeholder="Min ₹"
+                value={minPrice}
+                onChange={(e) => setMinPrice(e.target.value)}
+              />
+              <span className="price-range-sep">–</span>
+              <input
+                className="field-input price-range-input"
+                type="number"
+                min="0"
+                placeholder="Max ₹"
+                value={maxPrice}
+                onChange={(e) => setMaxPrice(e.target.value)}
+              />
+            </div>
+            <select
+              className="sort-select"
+              value={sortBy}
+              onChange={(e) => handleSortChange(e.target.value)}
+            >
+              <option value="">Sort: newest first</option>
+              <option value="PRICE_LOW_TO_HIGH">Price: low to high</option>
+              <option value="PRICE_HIGH_TO_LOW">Price: high to low</option>
+              <option value="NAME_A_TO_Z">Name: A to Z</option>
+            </select>
           </div>
         </div>
 
@@ -343,10 +465,12 @@ export default function Products() {
           <div className="empty-state">
             <div className="empty-icon"><ProductIcon /></div>
             <p className="empty-title">
-              {search || categoryFilter ? "No products match your filters" : "No products yet"}
+              {search || categoryFilter || minPrice || maxPrice
+                ? "No products match your filters" : "No products yet"}
             </p>
             <p className="empty-sub">
-              {search || categoryFilter ? "Try different search terms." : "Add your first product using the form above."}
+              {search || categoryFilter || minPrice || maxPrice
+                ? "Try different search terms or a wider price range." : "Add your first product using the form above."}
             </p>
           </div>
         )}
@@ -357,23 +481,70 @@ export default function Products() {
             <div className="item-list">
               {products.map((product) => {
                 const canManage = isAdmin || product.ownerId === currentUser?.id;
+
                 return (
                   <div key={product.id} className="item-row">
-                    <div className="product-icon-wrap"><ProductIcon /></div>
+                    <div className="product-icon-wrap">
+                      <ProductIcon />
+                    </div>
+
                     <div className="item-meta">
-                      <div className="item-name">{product.name}</div>
+                      <button
+                        className="item-name item-name-button"
+                        type="button"
+                        onClick={() => setActiveProduct(product)}
+                        title="View details and reviews"
+                        aria-label={`View details and reviews for ${product.name}`}
+                      >
+                        {product.name}
+                      </button>
+
                       <div className="item-sub">
                         {product.description || `ID #${product.id}`}
-                        <span className="badge badge-category">{product.category}</span>
+                        <span className="badge badge-category">
+                          {product.category}
+                        </span>
                       </div>
+
+                      <RatingStars
+                        averageRating={product.averageRating}
+                        reviewCount={product.reviewCount}
+                      />
                     </div>
+
                     <div className="item-actions item-actions-product">
                       <StockBadge quantity={product.stockQuantity} />
-                      <span className="price-tag">{formatPrice(product.price)}</span>
-                      <AddToCartControl product={product} onAdded={handleAdded} onError={setError} />
+
+                      <span className="price-tag">
+                        {formatPrice(product.price)}
+                      </span>
+
+                      <WishlistButton
+                        saved={wishlistIds.has(product.id)}
+                        onToggle={() => toggleWishlist(product)}
+                      />
+
+                      <AddToCartControl
+                        product={product}
+                        onAdded={handleAdded}
+                        onError={setError}
+                      />
+
                       {canManage && (
-                        <button className="icon-btn" onClick={() => handleDelete(product)} title="Remove product">
-                          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                        <button
+                          className="icon-btn"
+                          type="button"
+                          onClick={() => handleDelete(product)}
+                          title="Remove product"
+                          aria-label={`Remove ${product.name}`}
+                        >
+                          <svg
+                            viewBox="0 0 16 16"
+                            width="12"
+                            height="12"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
                             <path d="M11 1.5v1h3.5a.5.5 0 010 1H13v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9H1.5a.5.5 0 010-1H5v-1A1.5 1.5 0 016.5 0h3A1.5 1.5 0 0111 1.5zm-5 0v1h4v-1a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5zM5.5 5.5a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6z" />
                           </svg>
                         </button>
@@ -389,6 +560,7 @@ export default function Products() {
               <div className="pagination">
                 <button
                   className="btn-small"
+                  type="button"
                   onClick={() => setPage((p) => Math.max(0, p - 1))}
                   disabled={page === 0}
                 >
@@ -399,6 +571,7 @@ export default function Products() {
                 </span>
                 <button
                   className="btn-small"
+                  type="button"
                   onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                   disabled={page >= totalPages - 1}
                 >
@@ -409,6 +582,10 @@ export default function Products() {
           </>
         )}
       </div>
+
+      {activeProduct && (
+        <ProductDetail product={activeProduct} onClose={() => setActiveProduct(null)} />
+      )}
     </div>
   );
 }

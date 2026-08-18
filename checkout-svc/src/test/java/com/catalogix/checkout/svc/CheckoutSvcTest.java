@@ -7,11 +7,13 @@ import com.catalogix.checkout.client.InventoryClient;
 import com.catalogix.checkout.client.PaymentClient;
 import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.dto.CreateOrderRequest;
+import com.catalogix.checkout.dto.InvoiceResponse;
 import com.catalogix.checkout.dto.OrderItemRequest;
 import com.catalogix.checkout.dto.PayOrderRequest;
 import com.catalogix.checkout.event.OrderCancelledEvent;
 import com.catalogix.checkout.event.OrderConfirmedEvent;
 import com.catalogix.checkout.exception.CouponInvalidException;
+import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.exception.InvalidOrderStateException;
 import com.catalogix.checkout.exception.ProductUnavailableException;
 import com.catalogix.checkout.model.CompensationOutbox;
@@ -19,6 +21,7 @@ import com.catalogix.checkout.model.Order;
 import com.catalogix.checkout.model.OrderItem;
 import com.catalogix.checkout.model.OrderStatus;
 import com.catalogix.checkout.model.OrderStatusEvent;
+import com.catalogix.checkout.model.PaymentMethod;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
 import com.catalogix.checkout.repository.OrderRepository;
 
@@ -87,6 +90,82 @@ class CheckoutSvcTest {
         return events.get(events.size() - 1);
     }
 
+    // ---- getInvoice ----
+
+    private Order paidOrder() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentMethod(PaymentMethod.CARD);
+        order.setPaymentReference("MOCK-CARD-abc");
+        order.setCustomerEmail("buyer@example.com");
+        return order;
+    }
+
+    @Test
+    void getInvoiceThrowsForAnOrderThatWasNeverPaid() {
+        Order order = pendingPaymentOrder(); // no paymentMethod set
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        assertThrows(InvalidOrderStateException.class, () -> svc.getInvoice(5L, 42L, "USER"));
+    }
+
+    @Test
+    void getInvoiceRejectsNonOwnerNonAdmin() {
+        Order order = paidOrder();
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        assertThrows(ForbiddenException.class, () -> svc.getInvoice(5L, 999L, "USER"));
+    }
+
+    @Test
+    void getInvoiceTaxableValuePlusTaxAlwaysEqualsTheOriginalTotal() {
+        Order order = paidOrder(); // total = 200.00
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        InvoiceResponse invoice = svc.getInvoice(5L, 42L, "USER");
+
+        assertEquals(0, invoice.getTaxableValue().add(invoice.getTaxAmount())
+                .compareTo(invoice.getTotalAmount()));
+        assertEquals(0, new BigDecimal("200.00").compareTo(invoice.getTotalAmount()));
+    }
+
+    @Test
+    void getInvoiceIncludesLineItemsAndSellerInfo() {
+        Order order = paidOrder();
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        InvoiceResponse invoice = svc.getInvoice(5L, 42L, "USER");
+
+        assertEquals("INV-00000005", invoice.getInvoiceNumber());
+        assertEquals("buyer@example.com", invoice.getCustomerEmail());
+        assertEquals(1, invoice.getItems().size());
+        assertEquals("Phone", invoice.getItems().get(0).productName());
+        assertEquals(0, new BigDecimal("200.00").compareTo(invoice.getItemsSubtotal()));
+        assertEquals(PaymentMethod.CARD, invoice.getPaymentMethod());
+        assertEquals("MOCK-CARD-abc", invoice.getPaymentReference());
+        assertNotNull(invoice.getSellerName());
+    }
+
+    @Test
+    void getInvoiceCarriesOverAnAppliedDiscount() {
+        Order order = paidOrder();
+        order.setAppliedCouponCode("SAVE10");
+        order.setDiscountAmount(new BigDecimal("20.00"));
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        InvoiceResponse invoice = svc.getInvoice(5L, 42L, "USER");
+
+        assertEquals(0, new BigDecimal("20.00").compareTo(invoice.getDiscountAmount()));
+    }
+
+    @Test
+    void getInvoiceAllowsAdminToViewAnyOrdersInvoice() {
+        Order order = paidOrder();
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        assertDoesNotThrow(() -> svc.getInvoice(5L, 999L, "ADMIN"));
+    }
+
     private CreateOrderRequest requestFor(Long productId, int qty) {
         OrderItemRequest item = new OrderItemRequest();
         item.setProductId(productId);
@@ -121,7 +200,7 @@ class CheckoutSvcTest {
     @Test
     void createOrderAppliesValidCouponDiscount() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        when(promotionsClient.commit(eq("SAVE10"), eq(new BigDecimal("200.00")), eq(TOKEN)))
+        when(promotionsClient.commit("SAVE10", new BigDecimal("200.00"), TOKEN))
                 .thenReturn(new PromotionsClient.DiscountDto("SAVE10", new BigDecimal("20.00")));
 
         CreateOrderRequest req = requestFor(1L, 2);
@@ -198,10 +277,12 @@ class CheckoutSvcTest {
     void createOrderThrowsAndDoesNotSaveWhenStockInsufficient() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
         doThrow(new ProductUnavailableException("Insufficient stock for product 1"))
-                .when(inventoryClient).adjust(eq(1L), eq(-5));
+                .when(inventoryClient).adjust(1L, -5);
+
+        CreateOrderRequest request = requestFor(1L, 5);
 
         assertThrows(ProductUnavailableException.class,
-                () -> svc.createOrder(42L, requestFor(1L, 5), TOKEN, null));
+                () -> svc.createOrder(42L, request, TOKEN, null));
         verify(repo, never()).save(any());
     }
 
@@ -302,10 +383,10 @@ class CheckoutSvcTest {
         Order order = pendingPaymentOrder();
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("4242");
         when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
-                .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF"));
+                .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF", "SUCCEEDED"));
 
         CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
 
@@ -317,15 +398,34 @@ class CheckoutSvcTest {
         assertEquals("Payment confirmed", lastEvent(order).getNote());
     }
 
+    // Added with multiple payment methods: COD confirms the order (same as
+    // CARD/UPI success) but the tracking note must say so honestly — no
+    // money actually moved yet.
+    @Test
+    void payOrderConfirmsWithPayOnDeliveryNoteForCod() {
+        Order order = pendingPaymentOrder();
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.COD);
+        when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
+                .thenReturn(new PaymentClient.PaymentOutcome(true, null, "COD_PENDING"));
+
+        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
+
+        assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
+        assertTrue(result.paymentSucceeded());
+        assertEquals("Order confirmed — pay on delivery", lastEvent(order).getNote());
+    }
+
     @Test
     void payOrderCancelsAndReleasesStockOnDecline() {
         Order order = pendingPaymentOrder();
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000"); // magic decline value
         when(paymentClient.process(eq(5L), any(), any(), eq(req)))
-                .thenReturn(new PaymentClient.PaymentOutcome(false, null));
+                .thenReturn(new PaymentClient.PaymentOutcome(false, null, null));
 
         CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
 
@@ -343,10 +443,10 @@ class CheckoutSvcTest {
         order.setAppliedCouponCode("SAVE10");
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000");
         when(paymentClient.process(eq(5L), any(), any(), eq(req)))
-                .thenReturn(new PaymentClient.PaymentOutcome(false, null));
+                .thenReturn(new PaymentClient.PaymentOutcome(false, null, null));
 
         svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
 
@@ -359,7 +459,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
 
         assertThrows(InvalidOrderStateException.class, () -> svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL));
         verifyNoInteractions(paymentClient);
@@ -457,7 +557,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         when(repo.findById(5L)).thenReturn(Optional.of(order));
         doThrow(new ProductUnavailableException("unreachable"))
-                .when(inventoryClient).adjust(eq(1L), eq(2));
+                .when(inventoryClient).adjust(1L, 2);
 
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 

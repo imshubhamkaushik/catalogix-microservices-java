@@ -5,6 +5,7 @@ import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.exception.InvalidOrderStateException;
 import com.catalogix.checkout.exception.ProductUnavailableException;
 import com.catalogix.checkout.model.OrderStatus;
+import com.catalogix.checkout.model.PaymentMethod;
 import com.catalogix.checkout.security.JwtAuthFilter;
 import com.catalogix.checkout.security.RateLimiterFilter;
 import com.catalogix.checkout.svc.CheckoutSvc;
@@ -256,6 +257,47 @@ class OrderControllerTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ---- GET /orders/{id}/invoice ----
+
+    @Test
+    @SuppressWarnings("null")
+    void invoiceReturnsTheFullBreakdown() throws Exception {
+        InvoiceResponse invoice = new InvoiceResponse();
+        invoice.setInvoiceNumber("INV-00000001");
+        invoice.setOrderId(1L);
+        invoice.setTotalAmount(new BigDecimal("200.00"));
+        invoice.setTaxableValue(new BigDecimal("169.49"));
+        invoice.setTaxAmount(new BigDecimal("30.51"));
+        invoice.setPaymentMethod(com.catalogix.checkout.model.PaymentMethod.CARD);
+        when(svc.getInvoice(1L, 42L, "USER")).thenReturn(invoice);
+
+        mvc.perform(get("/orders/1/invoice").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.invoiceNumber").value("INV-00000001"))
+                .andExpect(jsonPath("$.totalAmount").value(200.00));
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void invoiceReturnsForbiddenWhenNotOwner() throws Exception {
+        when(svc.getInvoice(1L, 99L, "USER"))
+                .thenThrow(new ForbiddenException("You may only view or manage your own orders"));
+
+        mvc.perform(get("/orders/1/invoice").requestAttr("userId", 99L).requestAttr("userRole", "USER"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void invoiceReturnsConflictForAnUnpaidOrder() throws Exception {
+        when(svc.getInvoice(1L, 42L, "USER"))
+                .thenThrow(new com.catalogix.checkout.exception.InvalidOrderStateException(
+                        "No invoice available for order 1 — it was never paid for"));
+
+        mvc.perform(get("/orders/1/invoice").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
+                .andExpect(status().isConflict());
+    }
+
     // ---- GET /orders/verified-purchase ----
 
     @Test
@@ -292,7 +334,7 @@ class OrderControllerTest {
     @SuppressWarnings("null")
     void payReturnsOkWithConfirmedOrderOnSuccess() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("4242");
 
         OrderResponse confirmed = sampleResponse(OrderStatus.CONFIRMED);
@@ -315,7 +357,7 @@ class OrderControllerTest {
     @SuppressWarnings("null")
     void payReturnsOkWithFailedPaymentStatusOnDecline() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000");
 
         OrderResponse cancelled = sampleResponse(OrderStatus.CANCELLED);
@@ -342,7 +384,7 @@ class OrderControllerTest {
     @SuppressWarnings("null")
     void payReturnsConflictWhenOrderNotAwaitingPayment() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
 
         when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL)))
                 .thenThrow(new InvalidOrderStateException("Order 1 is not awaiting payment"));

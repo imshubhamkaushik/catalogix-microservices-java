@@ -49,7 +49,9 @@ public class Review {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
-    public Review() {}
+    public Review() {
+        // JPA only
+    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

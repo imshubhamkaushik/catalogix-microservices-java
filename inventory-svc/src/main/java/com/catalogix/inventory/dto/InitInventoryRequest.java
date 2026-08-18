@@ -3,7 +3,7 @@ package com.catalogix.inventory.dto;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
-public class InitStockRequest {
+public class InitInventoryRequest {
     @NotNull
     private Long productId;
 

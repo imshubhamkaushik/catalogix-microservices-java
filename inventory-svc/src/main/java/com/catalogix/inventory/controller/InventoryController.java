@@ -1,8 +1,8 @@
 package com.catalogix.inventory.controller;
 
-import com.catalogix.inventory.dto.AdjustStockRequest;
-import com.catalogix.inventory.dto.InitStockRequest;
-import com.catalogix.inventory.dto.StockResponse;
+import com.catalogix.inventory.dto.AdjustInventoryRequest;
+import com.catalogix.inventory.dto.InitInventoryRequest;
+import com.catalogix.inventory.dto.InventoryResponse;
 import com.catalogix.inventory.exception.ForbiddenException;
 import com.catalogix.inventory.svc.InventorySvc;
 import jakarta.validation.Valid;
@@ -39,20 +39,20 @@ public class InventoryController {
     }
 
     @GetMapping("/{productId}")
-    public StockResponse get(@PathVariable Long productId) {
+    public InventoryResponse get(@PathVariable Long productId) {
         return svc.get(productId);
     }
 
     @PostMapping
-    public ResponseEntity<StockResponse> init(@Valid @RequestBody InitStockRequest req) {
-        StockResponse resp = svc.init(req.getProductId(), req.getQuantity());
+    public ResponseEntity<InventoryResponse> init(@Valid @RequestBody InitInventoryRequest req) {
+        InventoryResponse resp = svc.init(req.getProductId(), req.getQuantity());
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }
 
     @PatchMapping("/{productId}/adjust")
-    public StockResponse adjust(
+    public InventoryResponse adjust(
             @PathVariable Long productId,
-            @RequestBody AdjustStockRequest req,
+            @RequestBody AdjustInventoryRequest req,
             @RequestAttribute("userRole") String role
     ) {
         if (!"SYSTEM".equalsIgnoreCase(role)) {

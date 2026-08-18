@@ -42,6 +42,22 @@ public class GlobalExceptionHandler {
     // query param — checkout-svc's catch-all Exception handler below would
     // otherwise turn a simple missing-param request into a confusing 500,
     // same class of gap already fixed in catalog-svc for its sortBy param.
+    // Added alongside multiple payment methods: PayOrderRequest.method is
+    // now an enum (PaymentMethod), and Jackson rejects an unrecognized
+    // value (or malformed JSON generally) with this exception during body
+    // deserialization, before @Valid ever runs — same class of gap already
+    // fixed for query params (see handleTypeMismatch/handleMissingParam
+    // above), now covered for request bodies too.
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleUnreadable(
+            org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, "Malformed request body");
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.BAD_REQUEST.value());
+        return ResponseEntity.badRequest().body(body);
+    }
+
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<Map<String, Object>> handleMissingParam(MissingServletRequestParameterException ex) {
         Map<String, Object> body = new HashMap<>();
@@ -112,6 +128,36 @@ public class GlobalExceptionHandler {
         body.put(TIMESTAMP, Instant.now().toString());
         body.put(STATUS, HttpStatus.CONFLICT.value());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(com.catalogix.checkout.exception.ReturnRequestNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleReturnNotFound(
+            com.catalogix.checkout.exception.ReturnRequestNotFoundException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.NOT_FOUND.value());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(com.catalogix.checkout.exception.InvalidReturnException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidReturn(
+            com.catalogix.checkout.exception.InvalidReturnException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.CONFLICT.value());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(com.catalogix.checkout.exception.RefundFailedException.class)
+    public ResponseEntity<Map<String, Object>> handleRefundFailed(
+            com.catalogix.checkout.exception.RefundFailedException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, Instant.now().toString());
+        body.put(STATUS, HttpStatus.BAD_GATEWAY.value());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(body);
     }
 
     @ExceptionHandler(Exception.class)

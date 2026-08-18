@@ -14,31 +14,31 @@ import java.time.Instant;
  * product (see InventorySvc#initialize and catalog-svc's InventoryClient).
  */
 @Entity
-@Table(name = "inventory")
-public class Inventory {
+@Table(name = "inventory_items")
+public class InventoryItem {
 
     @Id
     @Column(name = "product_id")
     private Long productId;
 
-    @Column(name = "stock_quantity", nullable = false)
-    private Integer stockQuantity = 0;
+    @Column(name = "quantity", nullable = false)
+    private Integer quantity = 0;
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
-    public Inventory() {}
+    public InventoryItem() {}
 
-    public Inventory(Long productId, Integer stockQuantity) {
+    public InventoryItem(Long productId, Integer quantity) {
         this.productId = productId;
-        this.stockQuantity = stockQuantity;
+        this.quantity = quantity;
     }
 
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
 
-    public Integer getStockQuantity() { return stockQuantity; }
-    public void setStockQuantity(Integer stockQuantity) { this.stockQuantity = stockQuantity; }
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }

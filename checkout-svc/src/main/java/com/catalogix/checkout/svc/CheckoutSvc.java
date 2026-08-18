@@ -227,7 +227,18 @@ public class CheckoutSvc {
 
         if (payment.succeeded()) {
             order.setStatus(OrderStatus.CONFIRMED);
-            order.addStatusEvent(OrderStatus.CONFIRMED, "Payment confirmed");
+            order.setPaymentMethod(req.getMethod());
+            order.setPaymentReference(payment.reference());
+            order.setCustomerEmail(userEmail);
+            // COD never actually captured anything — the note should say
+            // so, not claim a payment happened that didn't (see
+            // PaymentSvc#processCod on the payment-svc side for why
+            // COD_PENDING still counts as payment.succeeded() here: the
+            // order IS confirmed the moment COD is chosen, same as real
+            // storefronts, even though no money has moved yet).
+            boolean isCod = "COD_PENDING".equals(payment.status());
+            order.addStatusEvent(OrderStatus.CONFIRMED,
+                    isCod ? "Order confirmed — pay on delivery" : "Payment confirmed");
         } else {
             releaseOrderSideEffects(order, bearerToken, "payment-failed-order-" + orderId);
             order.setStatus(OrderStatus.CANCELLED);
@@ -294,6 +305,64 @@ public class CheckoutSvc {
                 .map(e -> new TrackingEventResponse(e.getStatus(), e.getNote(), e.getCreatedAt()))
                 .toList();
         return new OrderTrackingResponse(order.getId(), order.getStatus(), events);
+    }
+
+    // Fixed, illustrative mock values — this app doesn't have a real seller
+    // registry or tax engine. taxRatePercent (18%) is a common Indian GST
+    // slab, chosen because it's the most plausible default for this app's
+    // apparent market, not because it's correct for every product category
+    // a real GST invoice would need to distinguish.
+    private static final String SELLER_NAME = "Catalogix Retail Pvt. Ltd.";
+    private static final String SELLER_ADDRESS = "3rd Floor, Tech Park One, Chandigarh, Punjab 160101, India";
+    private static final BigDecimal TAX_RATE_PERCENT = new BigDecimal("18.00");
+
+    @Transactional(readOnly = true)
+    public InvoiceResponse getInvoice(Long id, Long userId, String role) {
+        Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
+        assertCanAccess(order, userId, role);
+
+        if (order.getPaymentMethod() == null) {
+            throw new InvalidOrderStateException(
+                    "No invoice available for order " + id + " — it was never paid for");
+        }
+
+        List<InvoiceLineResponse> lines = order.getItems().stream()
+                .map(i -> new InvoiceLineResponse(i.getProductName(), i.getQuantity(), i.getUnitPrice(), i.getSubtotal()))
+                .toList();
+        BigDecimal itemsSubtotal = lines.stream().map(InvoiceLineResponse::subtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // totalAmount is what payment-svc actually captured — treated as
+        // tax-INCLUSIVE and reverse-derived into taxableValue + taxAmount
+        // (rather than computed independently and added on top) specifically
+        // so the two always sum back to exactly totalAmount, with no
+        // rounding gap between what this invoice shows and what was charged.
+        BigDecimal totalAmount = order.getTotalAmount();
+        BigDecimal taxDivisor = BigDecimal.ONE.add(TAX_RATE_PERCENT.divide(new BigDecimal("100")));
+        BigDecimal taxableValue = totalAmount.divide(taxDivisor, 2, java.math.RoundingMode.HALF_UP);
+        BigDecimal taxAmount = totalAmount.subtract(taxableValue);
+
+        InvoiceResponse invoice = new InvoiceResponse();
+        invoice.setInvoiceNumber("INV-" + String.format("%08d", order.getId()));
+        invoice.setOrderId(order.getId());
+        invoice.setOrderDate(order.getCreatedAt());
+        invoice.setSellerName(SELLER_NAME);
+        invoice.setSellerAddress(SELLER_ADDRESS);
+        invoice.setCustomerEmail(order.getCustomerEmail());
+        invoice.setBillingAddress(order.getShippingLine1() == null ? null
+                : new ShippingAddressSummary(order.getShippingLabel(), order.getShippingLine1(),
+                        order.getShippingLine2(), order.getShippingCity(), order.getShippingState(),
+                        order.getShippingPincode(), order.getShippingPhone()));
+        invoice.setItems(lines);
+        invoice.setItemsSubtotal(itemsSubtotal);
+        invoice.setDiscountAmount(order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO);
+        invoice.setTaxableValue(taxableValue);
+        invoice.setTaxRatePercent(TAX_RATE_PERCENT);
+        invoice.setTaxAmount(taxAmount);
+        invoice.setTotalAmount(totalAmount);
+        invoice.setPaymentMethod(order.getPaymentMethod());
+        invoice.setPaymentReference(order.getPaymentReference());
+        return invoice;
     }
 
     @Transactional

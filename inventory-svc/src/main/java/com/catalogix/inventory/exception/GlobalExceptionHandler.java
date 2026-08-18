@@ -39,8 +39,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<Map<String, Object>> handleInsufficientStock(InsufficientStockException ex) {
+    @ExceptionHandler(InsufficientInventoryException.class)
+    public ResponseEntity<Map<String, Object>> handleInsufficientStock(InsufficientInventoryException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
         body.put(TIMESTAMP, Instant.now().toString());
@@ -57,8 +57,8 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
-    @ExceptionHandler(StockItemNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleNotFound(StockItemNotFoundException ex) {
+    @ExceptionHandler(InventoryItemNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(InventoryItemNotFoundException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
         body.put(TIMESTAMP, Instant.now().toString());

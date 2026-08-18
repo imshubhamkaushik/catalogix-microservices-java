@@ -30,13 +30,13 @@ export default function HomePage() {
             scoped to your signed-in account.
           </p>
           <div className="hero-actions">
-            <button className="btn-primary" onClick={() => navigate("/products")}>
+            <button className="btn-primary" type="button" onClick={() => navigate("/products")}>
               <svg viewBox="0 0 16 16" width="12" height="12" fill="#fff">
                 <path d="M0 1.5A.5.5 0 01.5 1H2a.5.5 0 01.485.379L2.89 3H14.5a.5.5 0 01.491.592l-1.5 8A.5.5 0 0113 12H4a.5.5 0 01-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 01-.5-.5zM5 12a2 2 0 100 4 2 2 0 000-4zm7 0a2 2 0 100 4 2 2 0 000-4z"/>
               </svg>
               Browse products
             </button>
-            <button className="btn-outline" onClick={() => navigate("/orders")}>
+            <button className="btn-outline" type="button" onClick={() => navigate("/orders")}>
               View my orders
             </button>
           </div>
@@ -55,7 +55,7 @@ export default function HomePage() {
               Search and filter the catalogue by category, list a new product,
               or restock/delete the ones you own.
             </p>
-            <button className="service-card-link" onClick={() => navigate("/products")}>
+            <button className="service-card-link" type="button" onClick={() => navigate("/products")}>
               Go to products
               <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
                 <path d="M4 8h8M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
@@ -74,7 +74,7 @@ export default function HomePage() {
               Build a cart from live inventory, place an order, and track or
               cancel your past orders.
             </p>
-            <button className="service-card-link" onClick={() => navigate("/orders")}>
+            <button className="service-card-link" type="button" onClick={() => navigate("/orders")}>
               Go to orders
               <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
                 <path d="M4 8h8M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
@@ -94,7 +94,7 @@ export default function HomePage() {
                 Admin-only directory of every registered account. Remove
                 accounts that shouldn't have access anymore.
               </p>
-              <button className="service-card-link" onClick={() => navigate("/users")}>
+              <button className="service-card-link" type="button" onClick={() => navigate("/users")}>
                 Go to users
                 <svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor">
                   <path d="M4 8h8M8 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>

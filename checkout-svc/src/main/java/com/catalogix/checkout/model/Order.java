@@ -79,7 +79,30 @@ public class Order {
     @Column(name = "shipping_phone", length = 20)
     private String shippingPhone;
 
+    // Set once, in payOrder(), the moment payment succeeds (or COD is
+    // confirmed) — never touched again. This is what a later return/refund
+    // request (see ReturnSvc) uses to decide HOW to reverse this order:
+    // CARD/UPI route through payment-svc's refund endpoint using
+    // paymentReference; COD never captured anything, so a return on a COD
+    // order skips payment-svc entirely — there's nothing to refund.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method", length = 20)
+    private PaymentMethod paymentMethod;
+
+    @Column(name = "payment_reference", length = 100)
+    private String paymentReference;
+
+    // Snapshotted at the same moment as paymentMethod/paymentReference
+    // (payOrder already has the caller's email in scope for the
+    // order-confirmed notification — reusing it here costs nothing extra).
+    // Exists for one purpose: the invoice endpoint (see CheckoutSvc#getInvoice)
+    // needs a customer identity to print, and Order otherwise only ever
+    // stores a bare userId.
+    @Column(name = "customer_email", length = 255)
+    private String customerEmail;
+
     public Order() {
+        // Required by JPA for entity instantiation.
     }
 
     public Long getId() {
@@ -186,4 +209,13 @@ public class Order {
 
     public String getShippingPhone() { return shippingPhone; }
     public void setShippingPhone(String shippingPhone) { this.shippingPhone = shippingPhone; }
+
+    public PaymentMethod getPaymentMethod() { return paymentMethod; }
+    public void setPaymentMethod(PaymentMethod paymentMethod) { this.paymentMethod = paymentMethod; }
+
+    public String getPaymentReference() { return paymentReference; }
+    public void setPaymentReference(String paymentReference) { this.paymentReference = paymentReference; }
+
+    public String getCustomerEmail() { return customerEmail; }
+    public void setCustomerEmail(String customerEmail) { this.customerEmail = customerEmail; }
 }

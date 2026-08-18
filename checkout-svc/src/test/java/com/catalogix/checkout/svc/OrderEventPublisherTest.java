@@ -14,7 +14,9 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 class OrderEventPublisherTest {
@@ -52,12 +54,23 @@ class OrderEventPublisherTest {
 
     @Test
     void aBrokerFailureDuringPublishIsSwallowedNotThrown() {
-        OrderConfirmedEvent event = new OrderConfirmedEvent(5L, "buyer@example.com", List.of(), BigDecimal.ZERO);
-        doThrow(new RuntimeException("broker unreachable"))
-                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class));
+        OrderConfirmedEvent event = new OrderConfirmedEvent(
+                5L,
+                "buyer@example.com",
+                List.of(),
+                BigDecimal.ZERO
+        );
 
-        // Must not propagate — a notification-relay failure should never surface as an
-        // application error (there's nothing meaningful for a caller to do about it here).
-        publisher.onOrderConfirmed(event);
+        doThrow(new RuntimeException("broker unreachable"))
+                .when(rabbitTemplate)
+                .convertAndSend(anyString(), anyString(), any(Object.class));
+
+        assertDoesNotThrow(() -> publisher.onOrderConfirmed(event));
+
+        verify(rabbitTemplate).convertAndSend(
+                RabbitMQConfig.EVENTS_EXCHANGE,
+                "order.confirmed",
+                event
+        );
     }
 }

@@ -1,38 +1,38 @@
 package com.catalogix.inventory.svc;
 
-import com.catalogix.inventory.dto.StockResponse;
-import com.catalogix.inventory.exception.InsufficientStockException;
-import com.catalogix.inventory.exception.StockItemNotFoundException;
-import com.catalogix.inventory.model.StockItem;
-import com.catalogix.inventory.repository.StockItemRepository;
+import com.catalogix.inventory.dto.InventoryResponse;
+import com.catalogix.inventory.exception.InsufficientInventoryException;
+import com.catalogix.inventory.exception.InventoryItemNotFoundException;
+import com.catalogix.inventory.model.InventoryItem;
+import com.catalogix.inventory.repository.InventoryItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class InventorySvc {
 
-    private final StockItemRepository repo;
+    private final InventoryItemRepository repo;
 
-    public InventorySvc(StockItemRepository repo) {
+    public InventorySvc(InventoryItemRepository repo) {
         this.repo = repo;
     }
 
     @Transactional(readOnly = true)
-    public StockResponse get(Long productId) {
-        StockItem item = repo.findById(productId)
-                .orElseThrow(() -> new StockItemNotFoundException(productId));
-        return new StockResponse(item.getProductId(), item.getQuantity());
+    public InventoryResponse get(Long productId) {
+        InventoryItem item = repo.findById(productId)
+                .orElseThrow(() -> new InventoryItemNotFoundException(productId));
+        return new InventoryResponse(item.getProductId(), item.getQuantity());
     }
 
     @Transactional
-    public StockResponse init(Long productId, int initialQuantity) {
+    public InventoryResponse init(Long productId, int initialQuantity) {
         if (repo.existsById(productId)) {
             // Idempotent: catalog-svc may retry product creation's follow-up
             // call after a timeout without knowing whether it landed.
             return get(productId);
         }
-        StockItem saved = repo.save(new StockItem(productId, initialQuantity));
-        return new StockResponse(saved.getProductId(), saved.getQuantity());
+        InventoryItem saved = repo.save(new InventoryItem(productId, initialQuantity));
+        return new InventoryResponse(saved.getProductId(), saved.getQuantity());
     }
 
     /**
@@ -43,16 +43,16 @@ public class InventorySvc {
      * stock has always had it and still does here.
      */
     @Transactional
-    public StockResponse adjust(Long productId, int delta) {
-        StockItem item = repo.findByProductIdForUpdate(productId)
-                .orElseThrow(() -> new StockItemNotFoundException(productId));
+    public InventoryResponse adjust(Long productId, int delta) {
+        InventoryItem item = repo.findByProductIdForUpdate(productId)
+                .orElseThrow(() -> new InventoryItemNotFoundException(productId));
 
         int newQuantity = item.getQuantity() + delta;
         if (newQuantity < 0) {
-            throw new InsufficientStockException(productId, item.getQuantity(), -delta);
+            throw new InsufficientInventoryException(productId, item.getQuantity(), -delta);
         }
         item.setQuantity(newQuantity);
-        StockItem saved = repo.save(item);
-        return new StockResponse(saved.getProductId(), saved.getQuantity());
+        InventoryItem saved = repo.save(item);
+        return new InventoryResponse(saved.getProductId(), saved.getQuantity());
     }
 }

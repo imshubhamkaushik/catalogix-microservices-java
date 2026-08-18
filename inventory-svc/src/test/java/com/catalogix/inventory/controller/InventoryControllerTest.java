@@ -1,10 +1,10 @@
 package com.catalogix.inventory.controller;
 
-import com.catalogix.inventory.dto.AdjustStockRequest;
-import com.catalogix.inventory.dto.InitStockRequest;
-import com.catalogix.inventory.dto.StockResponse;
-import com.catalogix.inventory.exception.InsufficientStockException;
-import com.catalogix.inventory.exception.StockItemNotFoundException;
+import com.catalogix.inventory.dto.AdjustInventoryRequest;
+import com.catalogix.inventory.dto.InitInventoryRequest;
+import com.catalogix.inventory.dto.InventoryResponse;
+import com.catalogix.inventory.exception.InsufficientInventoryException;
+import com.catalogix.inventory.exception.InventoryItemNotFoundException;
 import com.catalogix.inventory.security.JwtAuthFilter;
 import com.catalogix.inventory.security.RateLimiterFilter;
 import com.catalogix.inventory.svc.InventorySvc;
@@ -47,7 +47,7 @@ class InventoryControllerTest {
 
     @Test
     void getReturnsStockForKnownProduct() throws Exception {
-        when(svc.get(1L)).thenReturn(new StockResponse(1L, 10));
+        when(svc.get(1L)).thenReturn(new InventoryResponse(1L, 10));
 
         mvc.perform(get("/inventory/1"))
                 .andExpect(status().isOk())
@@ -56,7 +56,7 @@ class InventoryControllerTest {
 
     @Test
     void getReturnsNotFoundForUnknownProduct() throws Exception {
-        when(svc.get(99L)).thenThrow(new StockItemNotFoundException(99L));
+        when(svc.get(99L)).thenThrow(new InventoryItemNotFoundException(99L));
 
         mvc.perform(get("/inventory/99"))
                 .andExpect(status().isNotFound());
@@ -64,10 +64,10 @@ class InventoryControllerTest {
 
     @Test
     void initCreatesStockRecord() throws Exception {
-        InitStockRequest req = new InitStockRequest();
+        InitInventoryRequest req = new InitInventoryRequest();
         req.setProductId(1L);
         req.setQuantity(10);
-        when(svc.init(1L, 10)).thenReturn(new StockResponse(1L, 10));
+        when(svc.init(1L, 10)).thenReturn(new InventoryResponse(1L, 10));
 
         mvc.perform(post("/inventory")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -78,7 +78,7 @@ class InventoryControllerTest {
 
     @Test
     void initRejectsMissingProductId() throws Exception {
-        InitStockRequest req = new InitStockRequest();
+        InitInventoryRequest req = new InitInventoryRequest();
         req.setQuantity(10);
 
         mvc.perform(post("/inventory")
@@ -89,7 +89,7 @@ class InventoryControllerTest {
 
     @Test
     void initRejectsNegativeQuantity() throws Exception {
-        InitStockRequest req = new InitStockRequest();
+        InitInventoryRequest req = new InitInventoryRequest();
         req.setProductId(1L);
         req.setQuantity(-1);
 
@@ -101,9 +101,9 @@ class InventoryControllerTest {
 
     @Test
     void adjustReservesStockOnNegativeDelta() throws Exception {
-        AdjustStockRequest req = new AdjustStockRequest();
+        AdjustInventoryRequest req = new AdjustInventoryRequest();
         req.setDelta(-2);
-        when(svc.adjust(1L, -2)).thenReturn(new StockResponse(1L, 8));
+        when(svc.adjust(1L, -2)).thenReturn(new InventoryResponse(1L, 8));
 
         mvc.perform(patch("/inventory/1/adjust")
                 .requestAttr("userRole", "SYSTEM")
@@ -115,9 +115,9 @@ class InventoryControllerTest {
 
     @Test
     void adjustReturnsConflictWhenStockInsufficient() throws Exception {
-        AdjustStockRequest req = new AdjustStockRequest();
+        AdjustInventoryRequest req = new AdjustInventoryRequest();
         req.setDelta(-100);
-        when(svc.adjust(1L, -100)).thenThrow(new InsufficientStockException(1L, 8, 100));
+        when(svc.adjust(1L, -100)).thenThrow(new InsufficientInventoryException(1L, 8, 100));
 
         mvc.perform(patch("/inventory/1/adjust")
                 .requestAttr("userRole", "SYSTEM")
@@ -128,9 +128,9 @@ class InventoryControllerTest {
 
     @Test
     void adjustReturnsNotFoundForUnknownProduct() throws Exception {
-        AdjustStockRequest req = new AdjustStockRequest();
+        AdjustInventoryRequest req = new AdjustInventoryRequest();
         req.setDelta(-1);
-        when(svc.adjust(99L, -1)).thenThrow(new StockItemNotFoundException(99L));
+        when(svc.adjust(99L, -1)).thenThrow(new InventoryItemNotFoundException(99L));
 
         mvc.perform(patch("/inventory/99/adjust")
                 .requestAttr("userRole", "SYSTEM")
@@ -144,7 +144,7 @@ class InventoryControllerTest {
     // be reachable only via checkout-svc/catalog-svc's own minted tokens.
     @Test
     void adjustRejectsNonSystemCaller() throws Exception {
-        AdjustStockRequest req = new AdjustStockRequest();
+        AdjustInventoryRequest req = new AdjustInventoryRequest();
         req.setDelta(-2);
 
         mvc.perform(patch("/inventory/1/adjust")

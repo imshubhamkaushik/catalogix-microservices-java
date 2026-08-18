@@ -20,8 +20,7 @@ public class Notification {
     @Column(nullable = false)
     private String subject;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String body;
 
     @Enumerated(EnumType.STRING)

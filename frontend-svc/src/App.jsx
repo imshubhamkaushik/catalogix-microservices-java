@@ -4,7 +4,9 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import HomePage from "./components/HomePage";
 import Users from "./components/Users";
 import Products from "./components/Products";
+import Wishlist from "./components/Wishlist";
 import Orders from "./components/Orders";
+import Returns from "./components/Returns";
 import Coupons from "./components/Coupons";
 import Login from "./components/Login";
 import ForgotPassword from "./components/ForgotPassword";
@@ -32,6 +34,16 @@ const ProductsIcon = () => (
 const OrdersIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
     <path d="M1 2.5A.5.5 0 011.5 2H3a.5.5 0 01.485.379L3.89 4H14.5a.5.5 0 01.491.592l-1 5A.5.5 0 0113.5 10H5a.5.5 0 01-.491-.408L3.01 4.607 2.61 3H1.5a.5.5 0 01-.5-.5zM5 12a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z"/>
+  </svg>
+);
+const WishlistIcon = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+    <path d="M8 14.5s-6.5-4-6.5-8.5C1.5 3.3 3.4 1.5 5.7 1.5c1.2 0 2.3.6 2.3 1.7 0-1.1 1.1-1.7 2.3-1.7 2.3 0 4.2 1.8 4.2 4.5 0 4.5-6.5 8.5-6.5 8.5z"/>
+  </svg>
+);
+const ReturnsIcon = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+    <path d="M8 1a.5.5 0 01.5.5v1.55A5.5 5.5 0 1113.95 8.5.5.5 0 1113 8.4 4.5 4.5 0 108.5 3.55V5a.5.5 0 01-1 0V1.5A.5.5 0 018 1zM3.5 9.5a.5.5 0 01.5.5v1a1 1 0 001 1h6a1 1 0 001-1v-1a.5.5 0 011 0v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1a.5.5 0 01.5-.5z"/>
   </svg>
 );
 const LogoutIcon = () => (
@@ -67,6 +79,14 @@ function Layout() {
     navigate("/login", { replace: true });
   };
 
+  const isEmailVerified = user?.verified !== false;
+
+  const userStatusLabel = isEmailVerified ? "Signed in" : "Email not verified";
+
+  const userRoleSuffix = isAdmin ? " · admin" : "";
+
+  const activeDotClass = isEmailVerified ? "dot-green" : "dot-amber";
+
   return (
     <div className="app-shell">
       {/* Sidebar */}
@@ -75,7 +95,7 @@ function Layout() {
           <div className="logo-mark">
             <div className="logo-icon">
               <svg viewBox="0 0 16 16" width="14" height="14" fill="#fff">
-                <path d="M2 3h5v5H2zm7 0h5v5H9zM2 10h5v4H2zm7 0h5v4H9z"/>
+                <path d="M2 3h5v5H2zm7 0h5v5H9zM2 10h5v4H2zm7 0h5v4H9z" />
               </svg>
             </div>
             <span className="logo-text">Catalogix</span>
@@ -84,44 +104,88 @@ function Layout() {
 
         <nav className="sidebar-nav">
           <span className="nav-section-label">Pages</span>
-          <NavLink to="/" end className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
             <HomeIcon /> Home
           </NavLink>
 
-          <span className="nav-section-label" style={{ marginTop: 10 }}>Services</span>
-          <NavLink to="/products" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+          <span className="nav-section-label" style={{ marginTop: 10 }}>
+            Services
+          </span>
+          <NavLink
+            to="/products"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
             <ProductsIcon /> Products
           </NavLink>
-          <NavLink to="/orders" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+          <NavLink
+            to="/wishlist"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
+            <WishlistIcon /> Wishlist
+          </NavLink>
+          <NavLink
+            to="/orders"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
             <OrdersIcon /> Orders
           </NavLink>
+          <NavLink
+            to="/returns"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
+            <ReturnsIcon /> Returns
+          </NavLink>
           {isAdmin && (
-            <NavLink to="/users" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+            <NavLink
+              to="/users"
+              className={({ isActive }) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+            >
               <UsersIcon /> Users
             </NavLink>
           )}
           {isAdmin && (
-            <NavLink to="/coupons" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+            <NavLink
+              to="/coupons"
+              className={({ isActive }) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+            >
               <CouponsIcon /> Coupons
             </NavLink>
           )}
 
-          <span className="nav-section-label" style={{ marginTop: 10 }}>Account</span>
-          <NavLink to="/account" className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}>
+          <span className="nav-section-label" style={{ marginTop: 10 }}>
+            Account
+          </span>
+          <NavLink
+            to="/account"
+            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
+          >
             <AccountIcon /> Account
           </NavLink>
         </nav>
 
         <div className="sidebar-footer">
           <div className="active-user-pill">
-            <div className={`active-dot ${user?.verified === false ? "dot-amber" : "dot-green"}`} />
+            <div className={`active-dot ${activeDotClass}`} />
             <div className="active-user-info">
               <div className="active-user-label">
-                {user?.verified === false ? "Email not verified" : `Signed in${isAdmin ? " · admin" : ""}`}
+                {`${userStatusLabel}${isEmailVerified ? userRoleSuffix : ""}`}
               </div>
               <div className="active-user-name">{user?.name}</div>
             </div>
-            <button className="icon-btn logout-btn" onClick={handleLogout} title="Log out" type="button">
+            <button
+              className="icon-btn logout-btn"
+              onClick={handleLogout}
+              title="Log out"
+              type="button"
+            >
               <LogoutIcon />
             </button>
           </div>
@@ -133,7 +197,9 @@ function Layout() {
         <Routes>
           <Route index element={<HomePage />} />
           <Route path="products" element={<Products />} />
+          <Route path="wishlist" element={<Wishlist />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="returns" element={<Returns />} />
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}
           {isAdmin && <Route path="coupons" element={<Coupons />} />}

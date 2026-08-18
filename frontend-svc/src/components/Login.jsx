@@ -13,25 +13,38 @@ export default function Login() {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e) => {
+    const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setSubmitting(true);
+
     try {
       if (mode === "login") {
         await login(email.trim(), password);
       } else {
         await register(name.trim(), email.trim(), password);
       }
+
       navigate("/", { replace: true });
     } catch (err) {
       const msg = err.response?.data?.message
-        || (mode === "login" ? "Invalid email or password." : "Failed to register.");
+        || (mode === "login"
+          ? "Invalid email or password."
+          : "Failed to register.");
+
       setError(msg);
     } finally {
       setSubmitting(false);
     }
   };
+
+  let submitButtonText = "Create account";
+
+  if (submitting) {
+    submitButtonText = "Please wait…";
+  } else if (mode === "login") {
+    submitButtonText = "Log in";
+  }
 
   return (
     <div className="auth-page">
@@ -48,14 +61,20 @@ export default function Login() {
         <div className="auth-tabs">
           <button
             className={`auth-tab${mode === "login" ? " auth-tab-active" : ""}`}
-            onClick={() => { setMode("login"); setError(""); }}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
             type="button"
           >
             Log in
           </button>
           <button
             className={`auth-tab${mode === "register" ? " auth-tab-active" : ""}`}
-            onClick={() => { setMode("register"); setError(""); }}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
             type="button"
           >
             Register
@@ -67,7 +86,9 @@ export default function Login() {
         <form className="auth-form" onSubmit={handleSubmit}>
           {mode === "register" && (
             <div className="field-wrap">
-              <label className="field-label" htmlFor="auth-name">Full name</label>
+              <label className="field-label" htmlFor="auth-name">
+                Full name
+              </label>
               <input
                 id="auth-name"
                 className="field-input"
@@ -80,7 +101,9 @@ export default function Login() {
             </div>
           )}
           <div className="field-wrap">
-            <label className="field-label" htmlFor="auth-email">Email address</label>
+            <label className="field-label" htmlFor="auth-email">
+              Email address
+            </label>
             <input
               id="auth-email"
               className="field-input"
@@ -93,7 +116,9 @@ export default function Login() {
             />
           </div>
           <div className="field-wrap">
-            <label className="field-label" htmlFor="auth-password">Password</label>
+            <label className="field-label" htmlFor="auth-password">
+              Password
+            </label>
             <input
               id="auth-password"
               className="field-input"
@@ -106,13 +131,20 @@ export default function Login() {
               disabled={submitting}
             />
           </div>
-          <button className="form-submit auth-submit" type="submit" disabled={submitting}>
-            {submitting ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+          <button
+            className="form-submit auth-submit"
+            type="submit"
+            disabled={submitting}
+          >
+            {submitButtonText}
           </button>
         </form>
 
         {mode === "login" && (
-          <p className="auth-help-text" style={{ marginTop: 14, textAlign: "center" }}>
+          <p
+            className="auth-help-text"
+            style={{ marginTop: 14, textAlign: "center" }}
+          >
             <Link to="/forgot-password">Forgot your password?</Link>
           </p>
         )}

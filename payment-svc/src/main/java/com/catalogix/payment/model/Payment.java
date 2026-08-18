@@ -31,8 +31,9 @@ public class Payment {
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 50)
-    private String method;
+    private PaymentMethod method;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -47,7 +48,7 @@ public class Payment {
     public Payment() {
     }
 
-    public Payment(Long orderId, Long requestedByUserId, BigDecimal amount, String method,
+    public Payment(Long orderId, Long requestedByUserId, BigDecimal amount, PaymentMethod method,
                    PaymentStatus status, String reference) {
         this.orderId = orderId;
         this.requestedByUserId = requestedByUserId;
@@ -69,8 +70,8 @@ public class Payment {
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
 
-    public String getMethod() { return method; }
-    public void setMethod(String method) { this.method = method; }
+    public PaymentMethod getMethod() { return method; }
+    public void setMethod(PaymentMethod method) { this.method = method; }
 
     public PaymentStatus getStatus() { return status; }
     public void setStatus(PaymentStatus status) { this.status = status; }

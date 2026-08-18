@@ -2,7 +2,10 @@ package com.catalogix.payment.controller;
 
 import com.catalogix.payment.dto.PaymentResponse;
 import com.catalogix.payment.dto.ProcessPaymentRequest;
+import com.catalogix.payment.dto.ProcessRefundRequest;
+import com.catalogix.payment.dto.RefundResponse;
 import com.catalogix.payment.exception.DeclinedException;
+import com.catalogix.payment.model.PaymentMethod;
 import com.catalogix.payment.model.PaymentStatus;
 import com.catalogix.payment.security.JwtAuthFilter;
 import com.catalogix.payment.security.RateLimiterFilter;
@@ -55,7 +58,7 @@ class PaymentControllerTest {
         req.setOrderId(5L);
         req.setRequestedByUserId(42L);
         req.setAmount(new BigDecimal("200.00"));
-        req.setMethod("MOCK_CARD");
+        req.setMethod(PaymentMethod.CARD);
         req.setCardLast4(cardLast4);
         return req;
     }
@@ -63,7 +66,7 @@ class PaymentControllerTest {
     @Test
     @SuppressWarnings("null")
     void processReturnsCreatedOnSuccess() throws Exception {
-        PaymentResponse resp = new PaymentResponse(1L, 5L, new BigDecimal("200.00"), "MOCK_CARD",
+        PaymentResponse resp = new PaymentResponse(1L, 5L, new BigDecimal("200.00"), PaymentMethod.CARD,
                 PaymentStatus.SUCCEEDED, "MOCK-REF", Instant.now());
         when(svc.process(any(ProcessPaymentRequest.class), eq(42L))).thenReturn(resp);
 
@@ -74,6 +77,29 @@ class PaymentControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.reference").value("MOCK-REF"));
+    }
+
+    // Added with multiple payment methods: COD returns 201 with a
+    // COD_PENDING status, not a decline — there's no failure path for it at all.
+    @Test
+    @SuppressWarnings("null")
+    void processReturnsCreatedWithCodPendingForCod() throws Exception {
+        PaymentResponse resp = new PaymentResponse(1L, 5L, new BigDecimal("200.00"), PaymentMethod.COD,
+                PaymentStatus.COD_PENDING, null, Instant.now());
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L))).thenReturn(resp);
+
+        ProcessPaymentRequest req = new ProcessPaymentRequest();
+        req.setOrderId(5L);
+        req.setRequestedByUserId(42L);
+        req.setAmount(new BigDecimal("200.00"));
+        req.setMethod(PaymentMethod.COD);
+
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("COD_PENDING"));
     }
 
     @Test
@@ -141,12 +167,91 @@ class PaymentControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // Replaces the old processRejectsBlankMethod test — method is a real
+    // enum now, so "blank" isn't a meaningful case anymore; an unrecognized
+    // value is the equivalent failure mode, and exercises the
+    // HttpMessageNotReadableException handler added alongside this feature.
     @Test
-    void processRejectsBlankMethod() throws Exception {
-        ProcessPaymentRequest req = sampleRequest("4242");
-        req.setMethod("");
+    void processRejectsAnUnrecognizedMethodValue() throws Exception {
+        String badJson = """
+                {"orderId":5,"requestedByUserId":42,"amount":200.00,"method":"BITCOIN","cardLast4":"4242"}
+                """;
 
         mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(badJson))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void processRejectsAMissingMethod() throws Exception {
+        String json = """
+                {"orderId":5,"requestedByUserId":42,"amount":200.00}
+                """;
+
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ---- /payments/refund ----
+
+    @Test
+    @SuppressWarnings("null")
+    void refundReturnsCreated() throws Exception {
+        when(svc.refund(any(ProcessRefundRequest.class)))
+                .thenReturn(new RefundResponse(1L, 5L, new BigDecimal("100.00"), "MOCK-REFUND-abc", Instant.now()));
+
+        ProcessRefundRequest req = new ProcessRefundRequest();
+        req.setOrderId(5L);
+        req.setAmount(new BigDecimal("100.00"));
+
+        mvc.perform(post("/payments/refund")
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.reference").value("MOCK-REFUND-abc"));
+    }
+
+    @Test
+    void refundRejectsNonSystemCaller() throws Exception {
+        ProcessRefundRequest req = new ProcessRefundRequest();
+        req.setOrderId(5L);
+        req.setAmount(new BigDecimal("100.00"));
+
+        mvc.perform(post("/payments/refund")
+                .requestAttr("userRole", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void refundReturnsNotFoundWhenThereIsNoOriginalPayment() throws Exception {
+        when(svc.refund(any(ProcessRefundRequest.class)))
+                .thenThrow(new com.catalogix.payment.exception.NoSuchPaymentException(5L));
+
+        ProcessRefundRequest req = new ProcessRefundRequest();
+        req.setOrderId(5L);
+        req.setAmount(new BigDecimal("100.00"));
+
+        mvc.perform(post("/payments/refund")
+                .requestAttr("userRole", "SYSTEM")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void refundRejectsMissingAmount() throws Exception {
+        ProcessRefundRequest req = new ProcessRefundRequest();
+        req.setOrderId(5L);
+
+        mvc.perform(post("/payments/refund")
                 .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))

@@ -171,6 +171,7 @@ export default function Users() {
                     </span>
                     <button
                       className="icon-btn"
+                      type="button"
                       onClick={() => handleDelete(user)}
                       title="Remove user"
                     >

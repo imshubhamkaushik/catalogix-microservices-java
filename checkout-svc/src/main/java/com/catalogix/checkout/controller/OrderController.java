@@ -2,6 +2,7 @@ package com.catalogix.checkout.controller;
 
 import com.catalogix.checkout.dto.CheckoutFromCartRequest;
 import com.catalogix.checkout.dto.CreateOrderRequest;
+import com.catalogix.checkout.dto.InvoiceResponse;
 import com.catalogix.checkout.dto.OrderResponse;
 import com.catalogix.checkout.dto.OrderTrackingResponse;
 import com.catalogix.checkout.dto.PagedResponse;
@@ -133,6 +134,20 @@ public class OrderController {
             @RequestAttribute("userRole") String role
     ) {
         return ResponseEntity.ok(svc.getTracking(id, userId, role));
+    }
+
+    // Structured, print-ready invoice data — same ownership rule as getOne.
+    // Rendering it as an actual printable page/PDF is a frontend concern
+    // (window.print() on a formatted view is the standard, low-effort way
+    // to turn this into a downloadable PDF); this endpoint's job is just to
+    // hand over correct, complete data to render.
+    @GetMapping("/{id}/invoice")
+    public ResponseEntity<InvoiceResponse> getInvoice(
+            @PathVariable Long id,
+            @RequestAttribute("userId") Long userId,
+            @RequestAttribute("userRole") String role
+    ) {
+        return ResponseEntity.ok(svc.getInvoice(id, userId, role));
     }
 
     // Called by review-svc (forwarding the caller's own token — checking

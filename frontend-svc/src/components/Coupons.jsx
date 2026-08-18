@@ -194,7 +194,7 @@ export default function Coupons() {
                     {coupon.active ? "Active" : "Inactive"}
                   </span>
                   {coupon.active && (
-                    <button className="icon-btn" onClick={() => handleDeactivate(coupon)} title="Deactivate">
+                    <button className="icon-btn" type="button" onClick={() => handleDeactivate(coupon)} title="Deactivate">
                       <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
                         <path d="M8 15A7 7 0 108 1a7 7 0 000 14zm0 1A8 8 0 118 0a8 8 0 010 16z"/>
                         <path d="M4 8a.5.5 0 01.5-.5h7a.5.5 0 010 1h-7A.5.5 0 014 8z"/>

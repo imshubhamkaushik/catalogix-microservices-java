@@ -5,7 +5,7 @@ package com.catalogix.inventory.dto;
  * (compensation / cancellation). Same convention as the original
  * product-svc adjustStock(id, delta) it was extracted from.
  */
-public class AdjustStockRequest {
+public class AdjustInventoryRequest {
     private int delta;
 
     public int getDelta() { return delta; }

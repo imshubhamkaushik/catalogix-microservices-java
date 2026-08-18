@@ -12,6 +12,9 @@ import com.catalogix.catalog.repository.ProductRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.data.domain.PageImpl;
@@ -21,11 +24,13 @@ import org.springframework.data.domain.Pageable;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 class ProductSvcTest {
@@ -251,38 +256,35 @@ class ProductSvcTest {
         verifyNoInteractions(inventoryClient);
     }
 
-    @Test
-    void adjustStockAllowsOwner() {
-        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
-        when(inventoryClient.adjust(1L, 5)).thenReturn(15);
-        when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
-
-        ProductResponse resp = svc.adjustStock(1L, 5, 42L, "USER", TOKEN);
-
-        assertEquals(15, resp.getStockQuantity());
+    private static Stream<Arguments> authorizedStockAdjustments() {
+        return Stream.of(
+                Arguments.of(42L, "USER"),
+                Arguments.of(7L, "ADMIN")
+        );
     }
 
-    @Test
-    void adjustStockAllowsAdminEvenWhenNotOwner() {
-        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
+    @ParameterizedTest(name = "[{index}] userId={0}, role={1}")
+    @MethodSource("authorizedStockAdjustments")
+    void adjustStockAllowsAuthorizedUsersAndReturnsAdjustedQuantity(
+            Long userId,
+            String role
+    ) {
+        when(repo.findById(1L))
+                .thenReturn(Optional.of(
+                        product(1L, "Phone", "100.00", "GENERAL", 42L)
+                ));
+
         when(inventoryClient.adjust(1L, 5)).thenReturn(15);
+
+        // ProductSvc obtains the normal response first, then replaces its
+        // stock quantity with the freshly returned value from adjust().
         when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
 
-        ProductResponse resp = svc.adjustStock(1L, 5, 7L, "ADMIN", TOKEN);
+        ProductResponse response =
+                svc.adjustStock(1L, 5, userId, role, TOKEN);
 
-        assertEquals(15, resp.getStockQuantity());
+        assertEquals(15, response.getStockQuantity());
+        verify(inventoryClient).adjust(1L, 5);
     }
 
-    @Test
-    void adjustStockMergesTheNewQuantityIntoTheResponse() {
-        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "GENERAL", 42L)));
-        when(inventoryClient.adjust(1L, 5)).thenReturn(15);
-        // findById's own internal fetchQuantity call — the value adjustStock
-        // then overwrites with the freshly-adjusted quantity from adjust().
-        when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(999);
-
-        ProductResponse resp = svc.adjustStock(1L, 5, 42L, "USER", TOKEN);
-
-        assertEquals(15, resp.getStockQuantity());
-    }
 }

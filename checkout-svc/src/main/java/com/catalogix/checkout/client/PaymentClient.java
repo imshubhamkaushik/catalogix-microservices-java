@@ -40,7 +40,7 @@ public class PaymentClient {
         this.jwtService = jwtService;
     }
 
-    public record PaymentOutcome(boolean succeeded, String reference) {}
+    public record PaymentOutcome(boolean succeeded, String reference, String status) {}
 
     public PaymentOutcome process(Long orderId, Long requestedByUserId, BigDecimal amount, PayOrderRequest req) {
         HttpHeaders headers = new HttpHeaders();
@@ -53,15 +53,16 @@ public class PaymentClient {
         body.put("amount", amount);
         body.put("method", req.getMethod());
         body.put("cardLast4", req.getCardLast4());
+        body.put("upiId", req.getUpiId());
 
         try {
             var resp = restTemplate.exchange(paymentSvcUrl + "/payments", HttpMethod.POST,
                     new HttpEntity<>(body, headers), RawPayment.class);
             RawPayment p = resp.getBody();
-            return new PaymentOutcome(true, p != null ? p.reference : null);
+            return new PaymentOutcome(true, p != null ? p.reference : null, p != null ? p.status : null);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
-                return new PaymentOutcome(false, null);
+                return new PaymentOutcome(false, null, null);
             }
             throw e;
         }

@@ -1,5 +1,6 @@
 package com.catalogix.payment.dto;
 
+import com.catalogix.payment.model.PaymentMethod;
 import com.catalogix.payment.model.PaymentStatus;
 
 import java.math.BigDecimal;
@@ -9,14 +10,14 @@ public class PaymentResponse {
     private Long id;
     private Long orderId;
     private BigDecimal amount;
-    private String method;
+    private PaymentMethod method;
     private PaymentStatus status;
     private String reference;
     private Instant createdAt;
 
     public PaymentResponse() {}
 
-    public PaymentResponse(Long id, Long orderId, BigDecimal amount, String method,
+    public PaymentResponse(Long id, Long orderId, BigDecimal amount, PaymentMethod method,
                             PaymentStatus status, String reference, Instant createdAt) {
         this.id = id;
         this.orderId = orderId;
@@ -36,8 +37,8 @@ public class PaymentResponse {
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
 
-    public String getMethod() { return method; }
-    public void setMethod(String method) { this.method = method; }
+    public PaymentMethod getMethod() { return method; }
+    public void setMethod(PaymentMethod method) { this.method = method; }
 
     public PaymentStatus getStatus() { return status; }
     public void setStatus(PaymentStatus status) { this.status = status; }
