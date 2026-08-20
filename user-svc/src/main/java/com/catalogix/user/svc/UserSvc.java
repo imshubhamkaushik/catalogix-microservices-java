@@ -70,7 +70,7 @@ public class UserSvc {
             PasswordResetTokenRepository passwordResetRepo,
             TokenHasher tokenHasher,
             ApplicationEventPublisher eventPublisher,
-            @Value("${FRONTEND_BASE_URL:http://localhost:8080}") String frontendBaseUrl,
+            @Value("${FRONTEND_BASE_URL:http://localhost:11000}") String frontendBaseUrl,
             @Value("${ADMIN_EMAILS:}") String adminEmailsCsv
     ) {
         this.repo = repo;

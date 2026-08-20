@@ -15,6 +15,6 @@ FROM gcr.io/distroless/java21-debian13:nonroot AS app
 WORKDIR /app
 
 COPY --from=build /app/promotions-svc/target/promotions-svc.jar promotions-svc.jar
-EXPOSE 8087
+EXPOSE 11005
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/promotions-svc.jar"]

@@ -14,7 +14,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
 
 ```
                         ┌─────────────┐
-   browser  ───────────▶│   gateway   │  nginx reverse proxy + rate limiting, port 8080
+   browser  ───────────▶│   gateway   │  nginx reverse proxy + rate limiting, port 11000
                         └──────┬──────┘
               ┌────────────────┼────────────────┬───────────────┐
               ▼                ▼                 ▼               ▼
@@ -22,7 +22,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
               │                │                 │               │
         ┌─────▼─────┐   ┌──────▼──────┐   ┌──────▼──────┐  ┌─────▼──────┐
         │ user-svc  │   │ product-svc │   │  order-svc  │  │frontend-svc│
-        │  :8081    │   │   :8082     │◀──┤   :8083     │  │  (nginx)   │
+        │  :11001    │   │   :11002     │◀──┤   :11007     │  │  (nginx)   │
         └──┬───┬────┘   └──────┬──────┘   └────┬───┬────┘  └────────────┘
            │   │               │                │   │
            │   └───────┐  ┌────┘                │   │
@@ -32,7 +32,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
            │     └───────────┘                      │
            │                                         ▼
            │                                 ┌───────────────┐
-           └────────────────────────────────▶│notification-svc│  :8084
+           └────────────────────────────────▶│notification-svc│  :11008
                                               └───────┬───────┘
                                                       ▼
                                               ┌───────────────┐
@@ -47,7 +47,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
 - **frontend-svc** — React (Vite) SPA, served as static files by nginx
 - **gateway** — nginx reverse proxy + rate limiting; the single entry point browsers talk to
 
-Each service also exposes interactive API docs at `/swagger-ui.html` (e.g. `http://localhost:8081/swagger-ui.html` for user-svc).
+Each service also exposes interactive API docs at `/swagger-ui.html` (e.g. `http://localhost:11001/swagger-ui.html` for user-svc).
 
 ## Quick start
 
@@ -59,9 +59,9 @@ cp secrets/postgres_password.txt.example secrets/postgres_password.txt
 docker compose up --build
 ```
 
-Then open **http://localhost:8080**. Register an account, or register with an email listed in `ADMIN_EMAILS` to get an admin account (admins see everyone's orders and can manage the user directory).
+Then open **http://localhost:11000**. Register an account, or register with an email listed in `ADMIN_EMAILS` to get an admin account (admins see everyone's orders and can manage the user directory).
 
-Postgres is also published on `localhost:5432`, and each backend service on its own port (8081/8082/8083/8084) for direct access/debugging, if you want to inspect them without going through the gateway. Every email any service sends lands in **Mailpit** at `http://localhost:8025` — nothing is ever actually delivered anywhere, so this is where you'll see verification links, password reset links, and order confirmations.
+Postgres is also published on `localhost:5432`, and each backend service on its own port (11001/11002/11007/11008) for direct access/debugging, if you want to inspect them without going through the gateway. Every email any service sends lands in **Mailpit** at `http://localhost:8025` — nothing is ever actually delivered anywhere, so this is where you'll see verification links, password reset links, and order confirmations.
 
 ## What's in this version
 

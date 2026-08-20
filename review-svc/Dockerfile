@@ -15,6 +15,6 @@ FROM gcr.io/distroless/java21-debian13:nonroot AS app
 WORKDIR /app
 
 COPY --from=build /app/review-svc/target/review-svc.jar review-svc.jar
-EXPOSE 8089
+EXPOSE 11009
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/review-svc.jar"]

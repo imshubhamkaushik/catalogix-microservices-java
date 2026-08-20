@@ -15,6 +15,6 @@ FROM gcr.io/distroless/java21-debian13:nonroot AS app
 WORKDIR /app
 
 COPY --from=build /app/inventory-svc/target/inventory-svc.jar inventory-svc.jar
-EXPOSE 8085
+EXPOSE 11003
 
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/inventory-svc.jar"]

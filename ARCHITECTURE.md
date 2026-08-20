@@ -12,7 +12,7 @@ and turning order-svc into a proper saga orchestrator.
 
 ```
                                   ┌─────────────┐
-        browser ─────────────────▶│   gateway   │  nginx, rate-limited, port 8080
+        browser ─────────────────▶│   gateway   │  nginx, rate-limited, port 11000
                                   └──────┬──────┘
       ┌──────────┬──────────────┬───────┼────────┬─────────────┬──────────────┐
       ▼          ▼              ▼       ▼        ▼             ▼              ▼
@@ -20,22 +20,22 @@ and turning order-svc into a proper saga orchestrator.
       │          │              │       │        │             │
  ┌────▼────┐┌────▼─────┐  ┌─────▼─────┐┌▼───────┐┌▼───────────┐┌▼───────────┐
  │user-svc ││catalog-svc│  │checkout-svc││cart-svc││promotions- ││frontend-svc│
- │ :8081   ││  :8082    │  │  :8083    ││ :8086  ││svc  :8087  ││  (nginx)   │
+ │ :11001   ││  :11002    │  │  :11007    ││ :11004  ││svc  :11005  ││  (nginx)   │
  └────┬────┘└─────┬─────┘  └─────┬─────┘└───┬────┘└─────┬──────┘└────────────┘
       │           │               │          │           │
       │     ┌─────▼──────┐        │    ┌─────┴───────────┴────┐
       │     │inventory-  │◀───────┼────┤ (cart/checkout also  │
-      │     │svc  :8085  │        │    │  read catalog/       │
+      │     │svc  :11003  │        │    │  read catalog/       │
       │     └────────────┘        │    │  inventory/promotions│
       │                           ▼    │  directly, not shown │
       │                     ┌──────────┴┐ as arrows to avoid   │
       │                     │payment-svc│ a diagram of spaghetti)
-      │                     │  :8088    │ — not reachable via the
+      │                     │  :11006    │ — not reachable via the
       │                     └───────────┘  gateway; checkout-svc
       │                                    is its only caller
       ▼
  ┌──────────┐        events over RabbitMQ        ┌──────────────────┐
- │ RabbitMQ │◀───────────────────────────────────▶│ notification-svc │ :8084
+ │ RabbitMQ │◀───────────────────────────────────▶│ notification-svc │ :11008
  └──────────┘   (user-svc, checkout-svc publish;  └──────────────────┘
                  notification-svc consumes)
 

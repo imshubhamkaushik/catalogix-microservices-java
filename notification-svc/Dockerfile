@@ -18,7 +18,7 @@ WORKDIR /app
 
 # Copy only the JAR from build stage
 COPY --from=build /app/notification-svc/target/notification-svc.jar notification-svc.jar
-EXPOSE 8084
+EXPOSE 11008
 
 # Run the JAR
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/notification-svc.jar"]

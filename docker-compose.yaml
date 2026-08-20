@@ -88,7 +88,7 @@ services:
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8081:8081"
+      - "11001:11001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,11 +110,11 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
-      INVENTORY_SVC_URL: http://inventory-svc:8085
-      REVIEW_SVC_URL: http://review-svc:8089
+      INVENTORY_SVC_URL: http://inventory-svc:11003
+      REVIEW_SVC_URL: http://review-svc:11009
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8082:8082"
+      - "11002:11002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,7 +138,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8085:8085"
+      - "11003:11003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,12 +159,12 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
-      CATALOG_SVC_URL: http://catalog-svc:8082
-      INVENTORY_SVC_URL: http://inventory-svc:8085
-      PROMOTIONS_SVC_URL: http://promotions-svc:8087
+      CATALOG_SVC_URL: http://catalog-svc:11002
+      INVENTORY_SVC_URL: http://inventory-svc:11003
+      PROMOTIONS_SVC_URL: http://promotions-svc:11005
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8086:8086"
+      - "11004:11004"
     depends_on:
       postgres:
         condition: service_healthy
@@ -187,7 +187,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8087:8087"
+      - "11005:11005"
     depends_on:
       postgres:
         condition: service_healthy
@@ -211,7 +211,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8088:8088"
+      - "11006:11006"
     depends_on:
       postgres:
         condition: service_healthy
@@ -232,19 +232,19 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
-      CATALOG_SVC_URL: http://catalog-svc:8082
-      INVENTORY_SVC_URL: http://inventory-svc:8085
-      PROMOTIONS_SVC_URL: http://promotions-svc:8087
-      PAYMENT_SVC_URL: http://payment-svc:8088
-      CART_SVC_URL: http://cart-svc:8086
-      USER_SVC_URL: http://user-svc:8081
+      CATALOG_SVC_URL: http://catalog-svc:11002
+      INVENTORY_SVC_URL: http://inventory-svc:11003
+      PROMOTIONS_SVC_URL: http://promotions-svc:11005
+      PAYMENT_SVC_URL: http://payment-svc:11006
+      CART_SVC_URL: http://cart-svc:11004
+      USER_SVC_URL: http://user-svc:11001
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8083:8083"
+      - "11007:11007"
     depends_on:
       postgres:
         condition: service_healthy
@@ -288,7 +288,7 @@ services:
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8084:8084"
+      - "11008:11008"
     depends_on:
       postgres:
         condition: service_healthy
@@ -327,10 +327,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
-      CHECKOUT_SVC_URL: http://checkout-svc:8083
+      CHECKOUT_SVC_URL: http://checkout-svc:11007
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "8089:8089"
+      - "11009:11009"
     depends_on:
       postgres:
         condition: service_healthy
@@ -360,7 +360,7 @@ services:
       context: ./gateway
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "11000:80"
     depends_on:
       user-svc:
         condition: service_started

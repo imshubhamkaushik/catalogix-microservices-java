@@ -18,7 +18,7 @@ WORKDIR /app
 
 # Copy only the JAR from build stage
 COPY --from=build /app/checkout-svc/target/checkout-svc.jar checkout-svc.jar
-EXPOSE 8083
+EXPOSE 11007
 
 # Run the JAR
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/checkout-svc.jar"]
