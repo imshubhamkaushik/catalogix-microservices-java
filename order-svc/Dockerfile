@@ -18,7 +18,7 @@ WORKDIR /app
 
 # Copy only the JAR from build stage
 COPY --from=build /app/order-svc/target/order-svc.jar order-svc.jar
-EXPOSE 8083
+EXPOSE 11011
 
 # Run the JAR
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/order-svc.jar"]
