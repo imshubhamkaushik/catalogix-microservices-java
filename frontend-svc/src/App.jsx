@@ -13,6 +13,8 @@ import ForgotPassword from "./components/ForgotPassword";
 import ResetPassword from "./components/ResetPassword";
 import VerifyEmail from "./components/VerifyEmail";
 import Account from "./components/Account";
+import OutboxAdmin from "./components/OutboxAdmin";
+import NotificationLog from "./components/NotificationLog";
 import "./styles.css";
 
 // Icons
@@ -61,6 +63,16 @@ const AccountIcon = () => (
 const CouponsIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
     <path d="M1.5 4.5A1.5 1.5 0 013 3h10a1.5 1.5 0 011.5 1.5v1a.5.5 0 01-.5.5 1.5 1.5 0 000 3 .5.5 0 01.5.5v1A1.5 1.5 0 0113 12.5H3A1.5 1.5 0 011.5 11v-1a.5.5 0 01.5-.5 1.5 1.5 0 000-3 .5.5 0 01-.5-.5v-1zM6 5v1h1V5H6zm0 2.5v1h1v-1H6zM6 10v1h1v-1H6z"/>
+  </svg>
+);
+const OutboxIcon = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+    <path d="M2.5 3A1.5 1.5 0 001 4.5v.793l7 3.978 7-3.978V4.5A1.5 1.5 0 0013.5 3h-11zM15 6.383l-4.708 2.674L15 11.734v-5.35zm-.034 6.878L9.786 9.815 8 10.833l-1.786-1.018-5.18 3.446A1.5 1.5 0 002.5 14h11a1.5 1.5 0 001.466-.739zM1 11.734l4.708-2.677L1 6.383v5.35z"/>
+  </svg>
+);
+const NotificationLogIcon = () => (
+  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+    <path d="M8 16a2 2 0 002-2H6a2 2 0 002 2zM8 1.918l-.797.161A4.002 4.002 0 004 6c0 .628-.134 2.197-.459 3.742-.16.767-.376 1.566-.663 2.258h10.244c-.287-.692-.502-1.49-.663-2.258C12.134 8.197 12 6.628 12 6a4.002 4.002 0 00-3.203-3.92L8 1.917zM14.22 12c.223.447.481.801.78 1H1c.299-.199.557-.553.78-1C2.68 10.2 3 6.88 3 6c0-2.42 1.72-4.44 4.005-4.901a1 1 0 111.99 0A5.002 5.002 0 0113 6c0 .88.32 4.2 1.22 6z"/>
   </svg>
 );
 
@@ -159,6 +171,26 @@ function Layout() {
               <CouponsIcon /> Coupons
             </NavLink>
           )}
+          {isAdmin && (
+            <NavLink
+              to="/admin/outbox"
+              className={({ isActive }) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+            >
+              <OutboxIcon /> Outbox
+            </NavLink>
+          )}
+          {isAdmin && (
+            <NavLink
+              to="/notifications"
+              className={({ isActive }) =>
+                `nav-item${isActive ? " active" : ""}`
+              }
+            >
+              <NotificationLogIcon /> Notifications
+            </NavLink>
+          )}
 
           <span className="nav-section-label" style={{ marginTop: 10 }}>
             Account
@@ -203,6 +235,8 @@ function Layout() {
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}
           {isAdmin && <Route path="coupons" element={<Coupons />} />}
+          {isAdmin && <Route path="admin/outbox" element={<OutboxAdmin />} />}
+          {isAdmin && <Route path="notifications" element={<NotificationLog />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

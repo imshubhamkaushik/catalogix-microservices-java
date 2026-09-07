@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Orders from "./Orders";
@@ -236,7 +236,16 @@ describe("Orders page", () => {
     await waitFor(() => expect(api.getOrderInvoice).toHaveBeenCalledWith(11));
     expect(await screen.findByText("INV-00000011")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /close/i }));
+    const dialog = screen.getByRole("dialog", {
+      name: "Invoice INV-00000011",
+    });
+
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Close",
+        exact: true,
+      }),
+    );
     expect(screen.queryByText("INV-00000011")).not.toBeInTheDocument();
   });
 

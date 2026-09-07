@@ -1,23 +1,32 @@
 import axios from "axios";
-import { getStoredAccessToken, getStoredRefreshToken } from "./context/AuthContext";
+import { getStoredAccessToken } from "./context/AuthContext";
 
 // Base URL for backend APIs
-// - In Docker/K8s behind the gateway (see gateway/nginx.conf), keep this as ""
-//   (same-origin requests — the gateway proxies /users, /products, /orders).
-// - For local dev pointing at a separate backend, set VITE_API_BASE_URL in a .env file.
-//   Vite exposes env vars via import.meta.env, NOT process.env (that is Create React App syntax).
-const API_BASE = "";
+// - In Docker/K8s behind the gateway, use the /api prefix so SPA routes such as
+//   /products, /orders, /users can coexist with their API paths. The gateway
+//   strips /api before forwarding to the backend services.
+// - For local Vite dev, vite.config.mjs proxies /api to the gateway at
+//   http://localhost:11000, keeping the same API contract as the container build.
+const API_BASE = "/api";
 
 const USER_API_BASE = "/users";
 const PRODUCT_API_BASE = "/products";
 const ORDER_API_BASE = "/orders";
 
-const http = axios.create({ baseURL: API_BASE });
+// withCredentials: true on both instances — the refresh token now travels as
+// an httpOnly cookie (see UserController), not in the request/response body,
+// so the browser must be told to actually send/accept cookies on these
+// same-origin (through the gateway) requests. Axios does not do this by
+// default even for same-origin calls.
+const http = axios.create({ baseURL: API_BASE, withCredentials: true });
 
 // A separate plain instance for the refresh call itself — it must never go
 // through the interceptors below, or a failed refresh would try to refresh
 // itself and loop forever.
-const refreshClient = axios.create({ baseURL: API_BASE });
+const refreshClient = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true,
+});
 
 http.interceptors.request.use((config) => {
   const token = getStoredAccessToken();
@@ -37,10 +46,17 @@ let refreshPromise = null;
 function performRefresh() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
-      const refreshToken = getStoredRefreshToken();
-      if (!refreshToken) throw new Error("No refresh token available");
-      const res = await refreshClient.post(`${USER_API_BASE}/refresh`, { refreshToken });
-      window.dispatchEvent(new CustomEvent("catalogix:tokens-refreshed", { detail: res.data }));
+      // No body: the refresh token rides along automatically as the httpOnly
+      // catalogix_refresh_token cookie (withCredentials: true above). If
+      // there's no valid cookie, the backend returns 401 and the catch below
+      // fires the same forced-logout event as before.
+      const res = await refreshClient.post(`${USER_API_BASE}/refresh`);
+      // res.data is { accessToken, accessTokenExpiresInMs } — refreshToken is
+      // never in the body now; the rotated cookie is set directly by the
+      // Set-Cookie header, invisible to and unneeded by this code.
+      window.dispatchEvent(
+        new CustomEvent("catalogix:tokens-refreshed", { detail: res.data }),
+      );
       return res.data.accessToken;
     })().finally(() => {
       refreshPromise = null;
@@ -53,11 +69,17 @@ http.interceptors.response.use(
   (res) => res,
   async (err) => {
     const { config, response } = err;
-    const isAuthEndpoint = config?.url?.startsWith(`${USER_API_BASE}/login`)
-      || config?.url?.startsWith(`${USER_API_BASE}/register`)
-      || config?.url?.startsWith(`${USER_API_BASE}/refresh`);
+    const isAuthEndpoint =
+      config?.url?.startsWith(`${USER_API_BASE}/login`) ||
+      config?.url?.startsWith(`${USER_API_BASE}/register`) ||
+      config?.url?.startsWith(`${USER_API_BASE}/refresh`);
 
-    if (response?.status === 401 && config && !config._retry && !isAuthEndpoint) {
+    if (
+      response?.status === 401 &&
+      config &&
+      !config._retry &&
+      !isAuthEndpoint
+    ) {
       config._retry = true;
       try {
         const newAccessToken = await performRefresh();
@@ -75,23 +97,30 @@ http.interceptors.response.use(
     }
 
     throw err;
-  }
+  },
 );
 
 // -------- AUTH APIs --------
 
 export const login = async (email, password) => {
   const res = await http.post(`${USER_API_BASE}/login`, { email, password });
-  return res.data; // { accessToken, accessTokenExpiresInMs, refreshToken, user }
+  return res.data; // { accessToken, accessTokenExpiresInMs, user } — refreshToken
+  // arrives as an httpOnly Set-Cookie, never in this body.
 };
 
 export const register = async (name, email, password) => {
-  const res = await http.post(`${USER_API_BASE}/register`, { name, email, password });
-  return res.data; // { accessToken, accessTokenExpiresInMs, refreshToken, user }
+  const res = await http.post(`${USER_API_BASE}/register`, {
+    name,
+    email,
+    password,
+  });
+  return res.data; // { accessToken, accessTokenExpiresInMs, user } — same cookie note as login.
 };
 
-export const logout = async (refreshToken) => {
-  await http.post(`${USER_API_BASE}/logout`, { refreshToken });
+// No body: the cookie set by login/register/refresh is sent automatically
+// (withCredentials: true), and the backend reads + revokes + clears it.
+export const logout = async () => {
+  await http.post(`${USER_API_BASE}/logout`);
 };
 
 export const logoutEverywhere = async () => {
@@ -179,7 +208,9 @@ export const removeWishlistItem = async (productId) => {
 };
 
 export const moveWishlistItemToCart = async (productId, quantity = 1) => {
-  await http.post(`${WISHLIST_API_BASE}/${productId}/move-to-cart`, { quantity });
+  await http.post(`${WISHLIST_API_BASE}/${productId}/move-to-cart`, {
+    quantity,
+  });
 };
 
 // -------- REVIEW APIs --------
@@ -187,7 +218,9 @@ export const moveWishlistItemToCart = async (productId, quantity = 1) => {
 const REVIEW_API_BASE = "/reviews";
 
 export const getProductReviews = async (productId, params = {}) => {
-  const res = await http.get(`${REVIEW_API_BASE}/product/${productId}`, { params });
+  const res = await http.get(`${REVIEW_API_BASE}/product/${productId}`, {
+    params,
+  });
   return res.data; // { content, page, size, totalElements, totalPages }
 };
 
@@ -204,7 +237,11 @@ export const getMyReviews = async () => {
 // Create-or-update: submitting again for a product you already reviewed
 // edits the existing review rather than erroring.
 export const submitReview = async (productId, rating, title, body) => {
-  const res = await http.post(`${REVIEW_API_BASE}/product/${productId}`, { rating, title, body });
+  const res = await http.post(`${REVIEW_API_BASE}/product/${productId}`, {
+    rating,
+    title,
+    body,
+  });
   return res.data; // includes verifiedPurchase
 };
 
@@ -248,9 +285,20 @@ export const deleteAddress = async (id) => {
 // a duplicate — see order-svc's Idempotency-Key header handling.
 // addressId: optional — id of a saved address (see ADDRESS APIs above); if
 // given, its fields are snapshotted onto the order for shipping/invoicing.
-export const createOrder = async (items, idempotencyKey, couponCode, addressId) => {
-  const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
-  const res = await http.post(ORDER_API_BASE, { items, couponCode, addressId }, { headers });
+export const createOrder = async (
+  items,
+  idempotencyKey,
+  couponCode,
+  addressId,
+) => {
+  const headers = idempotencyKey
+    ? { "Idempotency-Key": idempotencyKey }
+    : undefined;
+  const res = await http.post(
+    ORDER_API_BASE,
+    { items, couponCode, addressId },
+    { headers },
+  );
   return res.data;
 };
 
@@ -282,7 +330,11 @@ export const cancelOrder = async (id) => {
 // method: "CARD" | "UPI" | "COD". cardLast4 "0000" always declines (mock);
 // upiId starting with "fail@" always declines (mock). Neither is needed for COD.
 export const payOrder = async (id, method, cardLast4, upiId) => {
-  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, { method, cardLast4, upiId });
+  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, {
+    method,
+    cardLast4,
+    upiId,
+  });
   return res.data; // { order, payment }
 };
 
@@ -298,7 +350,10 @@ const RETURN_API_BASE = "/returns";
 
 // items: [{ productId, quantity }] — only DELIVERED orders, within the return window.
 export const requestReturn = async (orderId, reason, items) => {
-  const res = await http.post(`${ORDER_API_BASE}/${orderId}/returns`, { reason, items });
+  const res = await http.post(`${ORDER_API_BASE}/${orderId}/returns`, {
+    reason,
+    items,
+  });
   return res.data;
 };
 
@@ -338,12 +393,17 @@ export const getCart = async () => {
 };
 
 export const addCartItem = async (productId, quantity) => {
-  const res = await http.post(`${CART_API_BASE}/items`, { productId, quantity });
+  const res = await http.post(`${CART_API_BASE}/items`, {
+    productId,
+    quantity,
+  });
   return res.data;
 };
 
 export const updateCartItemQuantity = async (productId, quantity) => {
-  const res = await http.patch(`${CART_API_BASE}/items/${productId}`, { quantity });
+  const res = await http.patch(`${CART_API_BASE}/items/${productId}`, {
+    quantity,
+  });
   return res.data;
 };
 
@@ -369,8 +429,14 @@ export const removeCartCoupon = async () => {
 // inventory-svc, promotions-svc), cart-svc just supplies the contents.
 // addressId: optional, same as createOrder's.
 export const checkoutCart = async (idempotencyKey, addressId) => {
-  const headers = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
-  const res = await http.post(`${ORDER_API_BASE}/checkout`, { addressId }, { headers });
+  const headers = idempotencyKey
+    ? { "Idempotency-Key": idempotencyKey }
+    : undefined;
+  const res = await http.post(
+    `${ORDER_API_BASE}/checkout`,
+    { addressId },
+    { headers },
+  );
   return res.data;
 };
 
@@ -391,4 +457,32 @@ export const createCoupon = async (coupon) => {
 export const deactivateCoupon = async (id) => {
   const res = await http.patch(`${COUPON_API_BASE}/${id}/deactivate`);
   return res.data;
+};
+
+// -------- OUTBOX ADMIN APIs (admin-only) --------
+// checkout-svc's compensation outbox — see CompensationOutboxProcessor.
+// Only PENDING and DEAD_LETTER entries are ever returned (COMPLETED ones
+// are the normal, uninteresting case and aren't surfaced here).
+
+const ADMIN_OUTBOX_API_BASE = "/admin/outbox";
+
+export const getOutboxEntries = async () => {
+  const res = await http.get(ADMIN_OUTBOX_API_BASE);
+  return res.data; // [{ id, type, productId, delta, couponCode, reason, status, attempts, lastError, createdAt, updatedAt }]
+};
+
+// Resets a DEAD_LETTER entry back to PENDING (attempts=0) so
+// CompensationOutboxProcessor picks it up again on its next scheduled run.
+export const retryOutboxEntry = async (id) => {
+  const res = await http.post(`${ADMIN_OUTBOX_API_BASE}/${id}/retry`);
+  return res.data;
+};
+
+// -------- NOTIFICATION LOG API (admin-only) --------
+
+const NOTIFICATION_API_BASE = "/notifications";
+
+export const getNotificationLog = async (params = {}) => {
+  const res = await http.get(NOTIFICATION_API_BASE, { params });
+  return res.data; // { content, page, size, totalElements, totalPages }
 };

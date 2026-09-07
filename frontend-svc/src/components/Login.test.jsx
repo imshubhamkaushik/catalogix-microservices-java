@@ -48,7 +48,6 @@ describe("Login", () => {
     api.login.mockResolvedValue({
       accessToken: "token",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "refresh",
       user: { id: 1, name: "Alice", email: "alice@example.com", role: "USER" },
     });
 
@@ -64,7 +63,6 @@ describe("Login", () => {
     api.register.mockResolvedValue({
       accessToken: "token",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "refresh",
       user: { id: 2, name: "Bob", email: "bob@example.com", role: "USER" },
     });
 

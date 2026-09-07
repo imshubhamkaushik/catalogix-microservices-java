@@ -19,7 +19,6 @@ async function loginFirst() {
   api.login.mockResolvedValue({
     accessToken: "tok",
     accessTokenExpiresInMs: 900000,
-    refreshToken: "ref",
     user: { id: 1, name: "Alice", email: "alice@example.com", role: "USER", verified: false },
   });
   // AuthProvider reads from localStorage on init, so seed it directly rather
@@ -27,7 +26,6 @@ async function loginFirst() {
   localStorage.setItem("catalogix.auth", JSON.stringify({
     accessToken: "tok",
     accessTokenExpiresInMs: 900000,
-    refreshToken: "ref",
     user: { id: 1, name: "Alice", email: "alice@example.com", role: "USER", verified: false },
   }));
 }

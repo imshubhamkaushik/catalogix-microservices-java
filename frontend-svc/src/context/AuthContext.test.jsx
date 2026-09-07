@@ -38,10 +38,12 @@ describe("AuthContext", () => {
   });
 
   it("becomes authenticated after login() resolves and persists to localStorage", async () => {
+    // No refreshToken here — the real backend never puts it in the JSON body
+    // anymore (see UserController); it arrives as an httpOnly Set-Cookie the
+    // browser manages on its own, invisible to and unstored by this code.
     api.login.mockResolvedValue({
       accessToken: "tok",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "ref",
       user: { id: 1, name: "Alice", email: "a@b.com", role: "ADMIN" },
     });
 
@@ -56,14 +58,16 @@ describe("AuthContext", () => {
 
     const stored = JSON.parse(localStorage.getItem("catalogix.auth"));
     expect(stored.accessToken).toBe("tok");
-    expect(stored.refreshToken).toBe("ref");
+    // The whole point of this migration: no refresh token ever lands in
+    // localStorage, so an XSS bug reading it can't carry away a long-lived
+    // credential.
+    expect(stored.refreshToken).toBeUndefined();
   });
 
   it("clears state and storage on logout", async () => {
     api.login.mockResolvedValue({
       accessToken: "tok",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "ref",
       user: { id: 1, name: "Alice", email: "a@b.com", role: "USER" },
     });
     api.logout.mockResolvedValue(undefined);
@@ -86,7 +90,6 @@ describe("AuthContext", () => {
     api.login.mockResolvedValue({
       accessToken: "tok",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "ref",
       user: { id: 1, name: "Alice", email: "a@b.com", role: "USER" },
     });
 
@@ -103,11 +106,10 @@ describe("AuthContext", () => {
     await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("out"));
   });
 
-  it("updates stored tokens on a silent-refresh event without logging out", async () => {
+  it("updates the stored access token on a silent-refresh event without logging out", async () => {
     api.login.mockResolvedValue({
       accessToken: "old-token",
       accessTokenExpiresInMs: 900000,
-      refreshToken: "old-refresh",
       user: { id: 1, name: "Alice", email: "a@b.com", role: "USER" },
     });
 
@@ -118,15 +120,19 @@ describe("AuthContext", () => {
     await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("in"));
 
     await act(async () => {
+      // Matches what api.jsx's performRefresh actually dispatches now: no
+      // refreshToken field — the rotated cookie is set directly by the
+      // Set-Cookie header on the /users/refresh response, never surfaced
+      // to JS.
       window.dispatchEvent(new CustomEvent("catalogix:tokens-refreshed", {
-        detail: { accessToken: "new-token", refreshToken: "new-refresh" },
+        detail: { accessToken: "new-token", accessTokenExpiresInMs: 900000 },
       }));
     });
 
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem("catalogix.auth"));
       expect(stored.accessToken).toBe("new-token");
-      expect(stored.refreshToken).toBe("new-refresh");
+      expect(stored.refreshToken).toBeUndefined();
     });
     // Still logged in — a silent refresh must not look like a logout.
     expect(screen.getByTestId("auth-state")).toHaveTextContent("in");

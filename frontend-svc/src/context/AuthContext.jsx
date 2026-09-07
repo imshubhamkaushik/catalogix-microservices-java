@@ -44,14 +44,13 @@ export function AuthProvider({ children }) {
   }, [persist]);
 
   const logout = useCallback(async () => {
-    const refreshToken = readStoredAuth()?.refreshToken;
     persist(null);
     // Best-effort: revoke server-side too, but don't block clearing the
     // local session on it (e.g. the backend being briefly unreachable
     // shouldn't trap the user in a "logged in" state on their own machine).
-    if (refreshToken) {
-      try { await apiLogout(refreshToken); } catch { /* already logged out locally */ }
-    }
+    // No refresh token to pass — it lives only in the httpOnly cookie, which
+    // the browser attaches to this request automatically (see api.jsx).
+    try { await apiLogout(); } catch { /* already logged out locally */ }
   }, [persist]);
 
   // Merges a fresh profile (e.g. the response from PATCH /users/me) into the
@@ -70,13 +69,16 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("catalogix:unauthorized", onForcedLogout);
   }, [persist]);
 
-  // api.jsx calls this after silently refreshing an expired access token,
-  // so the new tokens are persisted without a full React state round-trip.
+  // api.jsx calls this after silently refreshing an expired access token, so
+  // the new access token is persisted without a full React state round-trip.
+  // The rotated refresh token is never in e.detail — it arrived as a
+  // Set-Cookie header the browser already stored on its own; there's nothing
+  // for this code to read or persist for it.
   useEffect(() => {
     const onTokensRefreshed = (e) => {
       const current = readStoredAuth();
       if (!current) return;
-      const next = { ...current, accessToken: e.detail.accessToken, refreshToken: e.detail.refreshToken };
+      const next = { ...current, accessToken: e.detail.accessToken };
       setAuth(next);
       writeStoredAuth(next);
     };
@@ -112,8 +114,4 @@ export function useAuth() {
 // needing a hook.
 export function getStoredAccessToken() {
   return readStoredAuth()?.accessToken ?? null;
-}
-
-export function getStoredRefreshToken() {
-  return readStoredAuth()?.refreshToken ?? null;
 }

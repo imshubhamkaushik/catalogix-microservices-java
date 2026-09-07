@@ -9,7 +9,7 @@ vi.mock("../api");
 
 function seedUser(role = "USER") {
   localStorage.setItem("catalogix.auth", JSON.stringify({
-    accessToken: "tok", accessTokenExpiresInMs: 900000, refreshToken: "ref",
+    accessToken: "tok", accessTokenExpiresInMs: 900000,
     user: { id: 1, name: "Alice", email: "alice@example.com", role, verified: true },
   }));
 }
