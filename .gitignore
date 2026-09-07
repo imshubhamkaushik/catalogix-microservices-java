@@ -1,15 +1,15 @@
 # ====== Java / Spring Boot ======
-*/target/
+**/target/
 *.jar
 *.war
 *.class
 *.log
 
 # ====== Node / React ======
-*/node_modules/
-*/build/
-*/dist/
-*/coverage/
+**/node_modules/
+**/build/
+**/dist/
+**/coverage/
 # .env at repo root — this is the actual secrets file (JWT_SECRET, DB/RabbitMQ
 # passwords) created via `cp .env.example .env`. The original pattern here was
 # `_env` (a typo — matches a literal filename "_env", not dotfiles) plus
@@ -18,14 +18,14 @@
 # committing live secrets. Both now fixed below.
 .env
 .env.local
-*/.env
-*/.env.local
+**/.env
+**/.env.local
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # ====== Misc ======
-*.zip
+**.zip
 .github/
 secrets/*
 !secrets/*.example
