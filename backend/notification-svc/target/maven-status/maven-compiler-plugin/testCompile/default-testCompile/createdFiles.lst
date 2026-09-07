@@ -1,4 +1,0 @@
-com\catalogix\notification\listener\OrderEventListenerTest.class
-com\catalogix\notification\listener\UserEventListenerTest.class
-com\catalogix\notification\svc\EmailSvcTest.class
-com\catalogix\notification\controller\NotificationControllerTest.class

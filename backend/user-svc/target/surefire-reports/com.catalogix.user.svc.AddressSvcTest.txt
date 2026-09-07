@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.catalogix.user.svc.AddressSvcTest
--------------------------------------------------------------------------------
-Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.409 s -- in com.catalogix.user.svc.AddressSvcTest
