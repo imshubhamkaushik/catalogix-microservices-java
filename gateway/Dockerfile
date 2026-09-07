@@ -1,4 +1,8 @@
 FROM nginx:1.29.8-alpine
+
+# Run nginx unprivileged. The Helm deployment mounts writable emptyDir volumes
+# for nginx cache/run/log/tmp paths because the container root filesystem is
+# read-only in EKS.
 RUN apk update && apk upgrade --no-cache \
     && sed -i '/^user /d' /etc/nginx/nginx.conf \
     && sed -i 's|^pid .*|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \
