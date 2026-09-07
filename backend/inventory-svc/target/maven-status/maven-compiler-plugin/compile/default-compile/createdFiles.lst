@@ -1,0 +1,13 @@
+com\catalogix\inventory\controller\InventoryController.class
+com\catalogix\inventory\exception\InventoryItemNotFoundException.class
+com\catalogix\inventory\dto\InitInventoryRequest.class
+com\catalogix\inventory\dto\InventoryResponse.class
+com\catalogix\inventory\InventorySvcApplication.class
+com\catalogix\inventory\exception\GlobalExceptionHandler.class
+com\catalogix\inventory\model\InventoryItem.class
+com\catalogix\inventory\controller\HealthController.class
+com\catalogix\inventory\repository\InventoryItemRepository.class
+com\catalogix\inventory\svc\InventorySvc.class
+com\catalogix\inventory\exception\ForbiddenException.class
+com\catalogix\inventory\exception\InsufficientInventoryException.class
+com\catalogix\inventory\dto\AdjustInventoryRequest.class

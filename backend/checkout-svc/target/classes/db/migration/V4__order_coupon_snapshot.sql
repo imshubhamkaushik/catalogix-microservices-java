@@ -1,0 +1,3 @@
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS applied_coupon_code VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0;

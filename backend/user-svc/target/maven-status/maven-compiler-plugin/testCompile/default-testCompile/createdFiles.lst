@@ -1,0 +1,5 @@
+com\catalogix\user\svc\AddressSvcTest.class
+com\catalogix\user\svc\UserSvcTest.class
+com\catalogix\user\controller\AddressControllerTest.class
+com\catalogix\user\security\UserEventPublisherTest.class
+com\catalogix\user\controller\UserControllerTest.class

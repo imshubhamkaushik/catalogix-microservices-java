@@ -1,0 +1,7 @@
+com\catalogix\checkout\svc\CompensationOutboxProcessorTest.class
+com\catalogix\checkout\svc\CheckoutSvcTest.class
+com\catalogix\checkout\controller\OrderControllerTest.class
+com\catalogix\checkout\svc\OrderEventPublisherTest.class
+com\catalogix\checkout\controller\ReturnControllerTest.class
+com\catalogix\checkout\controller\AdminControllerTest.class
+com\catalogix\checkout\svc\ReturnSvcTest.class

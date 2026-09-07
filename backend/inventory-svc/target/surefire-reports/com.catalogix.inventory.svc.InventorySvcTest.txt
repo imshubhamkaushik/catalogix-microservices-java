@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.catalogix.inventory.svc.InventorySvcTest
+-------------------------------------------------------------------------------
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.586 s -- in com.catalogix.inventory.svc.InventorySvcTest

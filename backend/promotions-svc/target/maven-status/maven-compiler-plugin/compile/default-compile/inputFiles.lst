@@ -1,0 +1,14 @@
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\model\DiscountType.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\controller\CouponController.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\PromotionsSvcApplication.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\dto\ApplyCouponRequest.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\exception\ForbiddenException.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\dto\CreateCouponRequest.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\exception\CouponInvalidException.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\svc\CouponSvc.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\exception\GlobalExceptionHandler.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\model\Coupon.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\repository\CouponRepository.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\controller\HealthController.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\dto\DiscountResponse.java
+D:\Projects\catalogix-microservices-java\backend\promotions-svc\src\main\java\com\catalogix\promotions\dto\CouponResponse.java

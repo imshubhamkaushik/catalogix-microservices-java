@@ -1,0 +1,6 @@
+com\catalogix\security\JwtAuthFilter.class
+com\catalogix\security\CorsConfig.class
+com\catalogix\security\RateLimiterFilter.class
+com\catalogix\security\RateLimiterFilter$RequestCounter.class
+com\catalogix\security\CorsConfig$1.class
+com\catalogix\security\JwtService.class

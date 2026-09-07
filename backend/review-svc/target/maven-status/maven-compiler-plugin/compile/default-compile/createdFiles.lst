@@ -1,0 +1,17 @@
+com\catalogix\review\config\OpenApiConfig.class
+com\catalogix\review\dto\ReviewResponse.class
+com\catalogix\review\dto\PagedResponse.class
+com\catalogix\review\exception\GlobalExceptionHandler.class
+com\catalogix\review\client\OrderClient$RawVerifiedPurchase.class
+com\catalogix\review\dto\SubmitReviewRequest.class
+com\catalogix\review\config\RestTemplateConfig.class
+com\catalogix\review\controller\HealthController.class
+com\catalogix\review\ReviewSvcApplication.class
+com\catalogix\review\dto\RatingSummaryResponse.class
+com\catalogix\review\model\Review.class
+com\catalogix\review\exception\ReviewNotFoundException.class
+com\catalogix\review\client\OrderClient.class
+com\catalogix\review\svc\ReviewSvc.class
+com\catalogix\review\controller\ReviewController.class
+com\catalogix\review\repository\ReviewRepository.class
+com\catalogix\review\exception\ForbiddenException.class

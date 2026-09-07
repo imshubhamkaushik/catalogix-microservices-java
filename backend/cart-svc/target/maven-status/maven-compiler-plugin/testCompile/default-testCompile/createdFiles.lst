@@ -1,0 +1,4 @@
+com\catalogix\cart\svc\WishlistSvcTest.class
+com\catalogix\cart\controller\WishlistControllerTest.class
+com\catalogix\cart\controller\CartControllerTest.class
+com\catalogix\cart\svc\CartSvcTest.class

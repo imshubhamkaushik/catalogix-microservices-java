@@ -1,0 +1,16 @@
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\exception\ReviewNotFoundException.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\controller\ReviewController.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\exception\GlobalExceptionHandler.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\exception\ForbiddenException.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\config\OpenApiConfig.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\controller\HealthController.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\model\Review.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\dto\RatingSummaryResponse.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\svc\ReviewSvc.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\client\OrderClient.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\config\RestTemplateConfig.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\dto\PagedResponse.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\repository\ReviewRepository.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\dto\ReviewResponse.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\dto\SubmitReviewRequest.java
+D:\Projects\catalogix-microservices-java\backend\review-svc\src\main\java\com\catalogix\review\ReviewSvcApplication.java
