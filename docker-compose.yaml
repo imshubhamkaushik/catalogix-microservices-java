@@ -1,7 +1,39 @@
+# Every service below has an explicit mem_limit. Before this was added,
+# NONE were set — and every Java service's Dockerfile sets
+# -XX:MaxRAMPercentage=75, which computes 75% of whatever Docker reports
+# as available. Without a container-level limit, that's 75% of your
+# ENTIRE HOST RAM, independently, per service — with 9 JVMs running at
+# once, that's a real, serious problem on a resource-constrained machine,
+# not a minor inefficiency. Limits here match the Helm chart's own
+# per-service resource limits (helm/catalogix-hc/values-dev.yaml) for
+# consistency. Total ceiling across all 15 services: ~5.9GB — still
+# substantial, so if you're tight on RAM, see the profiles below to run
+# only a subset instead of everything at once.
+# Every service also has an explicit `cpus:` limit, capping total demand
+# across all 15 containers at exactly 4.0 cores. This isn't just "fair
+# scheduling" — it's a root-cause fix for a real mechanism: Java 21's
+# container-aware ergonomics size GC threads, JIT compiler threads, and
+# other internal thread pools off Runtime.availableProcessors(), which
+# WITHOUT a cgroup CPU quota returns the HOST's full core count. Every one
+# of the 9 JVMs was independently sizing its background thread pools as if
+# it alone owned all 6 host cores — which is exactly why CPU usage was high
+# even on services with zero real traffic (frontend-svc/gateway showed 0%
+# while catalog-svc/inventory-svc/notification-svc sat at 74-87% idle).
+# Setting `cpus:` gives each container a real cgroup quota, so the JVM
+# correctly sizes its thread pools to a SMALLER number instead.
+#
+# Allocation preserves some of the Helm chart's relative weighting
+# (user-svc/catalog-svc get slightly more, matching their higher Helm
+# limits) but is otherwise simplified/flattened to fit a tight 4-core local
+# budget — checkout-svc doesn't get proportionally more here the way it
+# does in the Helm chart's 600m vs 400m, since there isn't room to
+# preserve that at this total.
 services:
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
+    mem_limit: 512m
+    cpus: 0.4
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -29,6 +61,8 @@ services:
   # consumes them and sends the actual emails.
   rabbitmq:
     image: rabbitmq:4-management-alpine
+    mem_limit: 512m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
@@ -44,8 +78,15 @@ services:
     networks: [catalogix]
 
   # Dev-only SMTP catcher — view sent mail at http://localhost:8025.
+  # Optional (profiles: [tools]) — nothing else depends_on it, and the app
+  # runs fine without it (notification-svc just won't have anywhere to
+  # actually deliver mail to). Skipped by default; add with:
+  #   docker compose --profile tools up
   mailpit:
     image: axllent/mailpit:latest
+    profiles: ["tools"]
+    mem_limit: 128m
+    cpus: 0.1
     restart: unless-stopped
     ports:
       - "8025:8025"
@@ -58,8 +99,16 @@ services:
   # payment-svc, and cart-svc — debugging "why did checkout hang" across six
   # services by reading six sets of logs independently doesn't scale the way
   # it did when this was four services. View traces at http://localhost:16686.
+  # Optional (profiles: [tools]) — same reasoning as mailpit: genuinely
+  # nice for debugging, not required for the app to function. If it's not
+  # running, OTLP export attempts just fail silently in the background
+  # (Micrometer's tracing bridge doesn't block startup on an unreachable
+  # collector) — skipped by default, same activation flag as mailpit.
   jaeger:
     image: jaegertracing/all-in-one:latest
+    profiles: ["tools"]
+    mem_limit: 512m
+    cpus: 0.2
     restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -70,13 +119,16 @@ services:
   user-svc:
     build:
       context: .
-      dockerfile: user-svc/Dockerfile
+      dockerfile: backend/user-svc/Dockerfile
+    mem_limit: 512m
+    cpus: 0.35
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_users
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      CORS_ALLOW_CREDENTIALS: "true"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
       REFRESH_TOKEN_EXPIRATION_MS: ${REFRESH_TOKEN_EXPIRATION_MS}
@@ -87,8 +139,8 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11001:11001"
+    expose:
+      - "11001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,7 +154,9 @@ services:
   catalog-svc:
     build:
       context: .
-      dockerfile: catalog-svc/Dockerfile
+      dockerfile: backend/catalog-svc/Dockerfile
+    mem_limit: 512m
+    cpus: 0.35
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_catalog
@@ -113,8 +167,8 @@ services:
       INVENTORY_SVC_URL: http://inventory-svc:11003
       REVIEW_SVC_URL: http://review-svc:11009
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11002:11002"
+    expose:
+      - "11002"
     depends_on:
       postgres:
         condition: service_healthy
@@ -128,7 +182,9 @@ services:
   inventory-svc:
     build:
       context: .
-      dockerfile: inventory-svc/Dockerfile
+      dockerfile: backend/inventory-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_inventory
@@ -137,8 +193,8 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11003:11003"
+    expose:
+      - "11003"
     depends_on:
       postgres:
         condition: service_healthy
@@ -151,7 +207,9 @@ services:
   cart-svc:
     build:
       context: .
-      dockerfile: cart-svc/Dockerfile
+      dockerfile: backend/cart-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_cart
@@ -163,8 +221,8 @@ services:
       INVENTORY_SVC_URL: http://inventory-svc:11003
       PROMOTIONS_SVC_URL: http://promotions-svc:11005
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11004:11004"
+    expose:
+      - "11004"
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,7 +235,9 @@ services:
   promotions-svc:
     build:
       context: .
-      dockerfile: promotions-svc/Dockerfile
+      dockerfile: backend/promotions-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_promotions
@@ -186,8 +246,8 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11005:11005"
+    expose:
+      - "11005"
     depends_on:
       postgres:
         condition: service_healthy
@@ -201,7 +261,9 @@ services:
   payment-svc:
     build:
       context: .
-      dockerfile: payment-svc/Dockerfile
+      dockerfile: backend/payment-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
@@ -210,8 +272,8 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11006:11006"
+    expose:
+      - "11006"
     depends_on:
       postgres:
         condition: service_healthy
@@ -224,7 +286,9 @@ services:
   checkout-svc:
     build:
       context: .
-      dockerfile: checkout-svc/Dockerfile
+      dockerfile: backend/checkout-svc/Dockerfile
+    mem_limit: 640m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_checkout
@@ -243,8 +307,8 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11007:11007"
+    expose:
+      - "11007"
     depends_on:
       postgres:
         condition: service_healthy
@@ -272,7 +336,9 @@ services:
   notification-svc:
     build:
       context: .
-      dockerfile: notification-svc/Dockerfile
+      dockerfile: backend/notification-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
@@ -287,8 +353,8 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11008:11008"
+    expose:
+      - "11008"
     depends_on:
       postgres:
         condition: service_healthy
@@ -319,7 +385,9 @@ services:
   review-svc:
     build:
       context: .
-      dockerfile: review-svc/Dockerfile
+      dockerfile: backend/review-svc/Dockerfile
+    mem_limit: 384m
+    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_reviews
@@ -329,8 +397,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       CHECKOUT_SVC_URL: http://checkout-svc:11007
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-    ports:
-      - "11009:11009"
+    expose:
+      - "11009"
     depends_on:
       postgres:
         condition: service_healthy
@@ -342,22 +410,24 @@ services:
   # depends_on + restart: unless-stopped instead.
 
   frontend-svc:
+    # Internal service port; only gateway publishes host port 11000.
     build:
       context: ./frontend-svc
+      dockerfile: backend/frontend-svc/Dockerfile
+    mem_limit: 256m
+    cpus: 0.1
     restart: unless-stopped
     expose:
-      - "8080"
-    depends_on:
-      - user-svc
-      - catalog-svc
-      - checkout-svc
-      - cart-svc
-      - review-svc
+      - "11000"
     networks: [catalogix]
 
   gateway:
+    # Sole browser-facing host endpoint: localhost:11000 -> gateway:80.
     build:
       context: ./gateway
+      dockerfile: backend/gateway/Dockerfile
+    mem_limit: 128m
+    cpus: 0.1
     restart: unless-stopped
     ports:
       - "11000:80"
@@ -371,6 +441,10 @@ services:
       cart-svc:
         condition: service_started
       promotions-svc:
+        condition: service_started
+      notification-svc:
+        condition: service_started
+      review-svc:
         condition: service_started
       frontend-svc:
         condition: service_healthy

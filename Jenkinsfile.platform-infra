@@ -1,0 +1,656 @@
+// Infrastructure pipeline — trigger manually only, never via webhook.
+
+// ensureKubernetesAccess() is defined in the shared library (catalogix-shared-library).
+// Both this pipeline and Jenkinsfile.app-cicd call it via @Library — there is no inline copy and no duplication. 
+// Changes to the function only need to be made in the library.
+@Library('catalogix-shared-library') _
+
+// ACTION=Apply  → Terraform fmt → init → validate → plan → human approval → apply → verify EKS → deploy monitoring
+// ACTION=Destroy → Checkout → init → plan -destroy → human approval (double-gate) → destroy
+
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION   = "ap-south-1"
+        CLUSTER_NAME = "catalogix-cluster-${params.ENV}"
+        TF_DIR       = "terraform/platform-infra/env/${params.ENV}"
+        // GIT_REPO_URL is injected by JCasC from /etc/default/jenkins — update group_vars/all/jenkins.yaml
+        GIT_REPO_URL = "${env.GIT_REPO_URL}"
+        // KUBECONFIG is pre-configured by Ansible at /var/lib/jenkins/.kube/config
+        // Pipelines use it directly — no aws eks update-kubeconfig needed
+        KUBECONFIG   = "/var/lib/jenkins/.kube/config"
+    }
+
+    parameters { 
+        // ── Action selector ──────────────────────────────────────────────────
+        // 'Apply'   → full provisioning flow (default, safe)
+        // 'Destroy' → tears down ALL resources — requires CONFIRM_DESTROY=true
+        choice(
+            name: 'ACTION',
+            choices: ['Apply', 'Destroy'],
+            description: '''What should this pipeline do?
+            Apply   → Provision / update infrastructure (normal flow)
+            Destroy → Tear down ALL Terraform-managed resources (IRREVERSIBLE)'''
+        )
+
+        choice(
+            name: 'ENV',
+            choices: ['dev', 'staging'],
+            description: 'Select the deployment environment. This determines which EKS cluster and Helm values are used.'
+        )
+
+        // Non-secret email alert config — the actual secret (SMTP auth
+        // password) flows through Terraform -> Secrets Manager -> ESO ->
+        // mounted file, same as every other credential in this project.
+        // These three aren't secrets, so routing them through that whole
+        // pipeline would just be extra indirection for no security benefit
+        // — a plain pipeline parameter is the right amount of ceremony here.
+        string(
+            name: 'ALERT_EMAIL_TO',
+            defaultValue: '',
+            description: 'Email address critical alerts are sent to. Leave empty to keep alerting disabled.'
+        )
+        string(
+            name: 'SMTP_HOST',
+            defaultValue: '',
+            description: 'SMTP smarthost, host:port form (e.g. smtp.gmail.com:587). Leave empty to keep alerting disabled.'
+        )
+        string(
+            name: 'SMTP_USERNAME',
+            defaultValue: '',
+            description: 'SMTP auth username. Leave empty to keep alerting disabled.'
+        )
+
+        booleanParam( 
+            name: 'DEPLOY_APP_AFTER_INFRA', 
+            defaultValue: false, 
+            description: 'Deploy app after infra provisioning?' 
+        ) 
+ 
+        // Second safety gate — must be explicitly checked when ACTION=Destroy.
+        // Defaults to false so an accidental 'destroy' run without ticking this
+        // will abort at the gate stage before touching any infrastructure.
+        booleanParam(
+            name: 'CONFIRM_DESTROY',
+            defaultValue: false,
+            description: 'REQUIRED when ACTION=Destroy. Check this box to confirm you intend to destroy all resources. Has no effect when ACTION=Apply.'
+        )
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds(abortPrevious: true)
+        timeout(time: 90, unit: 'MINUTES')
+    }
+
+    stages {
+
+        stage("Clean Workspace") { 
+            steps { 
+                cleanWs() 
+            } 
+        }
+
+        stage('Checkout') {
+            steps {
+                // credentialsId references the github-token defined in JCasC
+                git branch: 'main',
+                    url: "${GIT_REPO_URL}",
+                    credentialsId: 'github-token'
+            }
+        }
+
+        // ── Destroy safety gate ──────────────────────────────────────────────
+        // Runs immediately after checkout so we fail fast before touching AWS.
+        // Prevents accidental destroys when ACTION=Destroy but the checkbox was
+        // forgotten (the default).
+        stage("Destroy Safety Gate") {
+            when {
+                expression { params.ACTION == 'Destroy' }
+            }
+            steps {
+                script {
+                    if (!params.CONFIRM_DESTROY) {
+                        error("Destroy aborted — set CONFIRM_DESTROY=true to proceed.")
+                    }
+                    echo "Destroy safety gate cleared. Proceeding with destroy flow."
+                }
+            }
+        }
+
+        // ── Apply-only stages ────────────────────────────────────────────────
+
+        stage("Precheck Bootstrap State") {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+
+            steps {
+                sh """
+                aws s3 ls s3://catalogix-tfstate/bootstrap-infra/terraform.tfstate
+                """
+            }
+        }
+
+        stage("Terraform Format Check - terraform/platform-infra/"){ 
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps { 
+                sh "terraform fmt -check -recursive terraform/platform-infra/"
+            } 
+        }
+
+        stage("Trivy IaC Scan") {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                script {
+                    env.TRIVY_TAG = sh(
+                        script: "grep '^trivy_version:' ansible/group_vars/all/vars.yaml | awk -F'\"' '{print \$2}'",
+                        returnStdout: true
+                    ).trim()
+                    env.TRIVY_IMAGE = "aquasec/trivy:${env.TRIVY_TAG}"
+                }
+                sh """
+                set -e
+                docker run --rm -v \$(pwd):/iac ${TRIVY_IMAGE} config \\
+                    --severity HIGH,CRITICAL --exit-code 1 \\
+                    --ignorefile /iac/.trivyignore \\
+                    /iac/terraform/platform-infra/
+                """
+            }
+        }
+
+        // ── Shared stages (apply + destroy) ─────────────────────────────────
+
+        stage("Terraform Init") { 
+            steps { 
+                dir("${TF_DIR}") { 
+                    sh "terraform init" 
+                } 
+            }
+        }
+
+        stage("Terraform Validate") {
+            when {
+                expression { params.ACTION == 'Apply' }
+            } 
+            steps {    
+                dir("${TF_DIR}") { 
+                    // terraform validate is not strictly required because terraform plan will fail if the config is invalid, but it provides faster feedback on syntax errors before the more time-consuming plan step.
+                    sh "terraform validate"
+                }         
+            } 
+        }
+
+        stage("Terraform Plan and Apply"){
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                dir("${TF_DIR}") {
+                    sh """
+                    set -e
+                    echo "========================================================"
+                    echo "  Running terraform plan ..."
+                    echo "========================================================"
+                    terraform plan -out main.tfplan
+                    echo "========================================================"
+                    """
+                }
+                // input is a Jenkins DSL step, must be at Groovy level — CANNOT go inside sh.
+                input message: "Review the terraform plan above. Approve apply?", ok: "Apply"
+
+                dir("${TF_DIR}") {
+                    sh """
+                    set -e
+                    echo "========================================================"
+                    echo "  Running terraform apply main.tfplan ..."
+                    echo "========================================================"
+                    terraform apply -auto-approve main.tfplan
+                    echo "========================================================"
+                    echo "  Apply complete."
+                    echo "========================================================"
+                    """
+                }
+            }
+        }
+
+        stage('Ensure Kubernetes Access') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                script {
+                    ensureKubernetesAccess(env.AWS_REGION, env.CLUSTER_NAME, env.KUBECONFIG)
+                }            
+            }
+        }
+
+        stage("Wait for EKS Ready") {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                sh """
+                set -e
+
+                NODEGROUP="${CLUSTER_NAME}-node-group"
+
+                echo "Get Cluster Information from AWS API..."
+                echo ""
+                echo "Verifying EKS cluster..."
+
+                echo "=== Step 1: Wait for node group to reach ACTIVE state ==="
+                echo "Polling AWS API (aws eks wait) — no kubectl needed for this step."
+                echo "This waits up to 20 min, polling every 30s."
+                echo ""
+
+                # aws eks wait polls the AWS API directly — no kubectl connection required.
+                # It exits 0 when the node group is ACTIVE, exits 1 on timeout or error.
+                # This is more reliable than kubectl polling because it doesn't depend on
+                # the kubernetes API server being reachable — it just checks EC2/EKS state.
+                aws eks wait nodegroup-active \\
+                    --cluster-name ${CLUSTER_NAME} \\
+                    --nodegroup-name \${NODEGROUP} \\
+                    --region ${AWS_REGION}
+
+                echo "Node group is ACTIVE."
+                echo ""
+
+                echo "=== Step 2: Wait for all nodes to be Ready ==="
+                echo "Using kubectl wait — polls until all nodes report Ready condition."
+                echo "Timeout: 5 minutes. Each individual kubectl call times out in 15s."
+                echo ""
+
+                    
+                # kubectl wait is cleaner than a manual grep loop:
+                # - It blocks until the condition is met or the timeout is reached
+                # - --request-timeout=15s caps each individual API call so a connection
+                #   failure fails fast instead of hanging for 2-3 minutes per attempt
+                # - stderr is NOT suppressed so connection errors are visible in the log
+                kubectl wait \
+                    --for=condition=Ready nodes \
+                    --all \
+                    --timeout=300s \
+                    --request-timeout=15s
+
+                echo "=== Waiting for CoreDNS ==="
+                kubectl rollout status deployment/coredns -n kube-system --timeout=120s
+
+                echo ""
+                echo "All nodes are Ready."
+                kubectl get nodes --request-timeout=15s
+                echo ""
+                echo "Cluster is ready for use."
+                """ 
+            }
+        }
+
+        // Metrics Server is a cluster-level component that the monitoring stack depends on, so we install it here in the infra pipeline rather than the app pipeline. 
+        // Metrics Server is used by the Horizontal Pod Autoscaler (HPA) to scale workloads based on CPU/memory usage, and by the monitoring stack to provide resource metrics for dashboards and alerts.
+        stage('Install Metrics Server') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                sh """
+                set -e
+
+                echo "Installing metrics-server..."
+
+                helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/ || \\
+                    helm repo list | grep -q '^metrics-server' || \\
+                    { echo "ERROR: metrics-server repo could not be added and is not in the repo list"; exit 1; }
+
+                helm repo update metrics-server
+
+                helm upgrade --install metrics-server metrics-server/metrics-server \\
+                    --namespace kube-system \\
+                    --create-namespace \\
+                    --version 3.12.2 \\
+                    --set args="{--kubelet-preferred-address-types=InternalIP}" \\
+                    --wait --timeout 120s
+
+                echo "Verifying metrics-server..."
+                kubectl get deployment metrics-server -n kube-system
+                """
+            }
+        }
+
+        // Monitoring is deployed here — after the cluster and ESO are ready — rather than as a separate manual step. 
+        // This makes the platform-infra pipeline the single entry point for all cluster-level infrastructure, with app deployments handled separately.
+        stage('Deploy Monitoring Stack') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                script {
+                    // Same pattern as the RDS endpoint lookup elsewhere in
+                    // this pipeline — modules/observability-storage writes
+                    // these 4 SSM params, values.yaml carries only empty
+                    // placeholders (values.yaml files aren't Terraform- or
+                    // Helm-templated at write time, so this is the only
+                    // way a Terraform-generated bucket name/role ARN
+                    // reaches a `helm upgrade` invocation).
+                    env.LOKI_BUCKET = sh(
+                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-bucket --query Parameter.Value --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+                    env.LOKI_ROLE_ARN = sh(
+                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-role-arn --query Parameter.Value --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+                    env.TEMPO_BUCKET = sh(
+                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/tempo-bucket --query Parameter.Value --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+                    env.TEMPO_ROLE_ARN = sh(
+                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/tempo-role-arn --query Parameter.Value --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+                }
+
+                sh """
+                set -e
+
+                # helm repo add is idempotent — safe on every run.
+                # Without this, helm dependency update fails on a clean Jenkins workspace.
+                helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+                helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
+                helm repo update prometheus-community grafana
+
+                # Resolve the kube-prometheus-stack dependency before install
+                helm dependency update helm/monitoring
+
+                helm upgrade --install monitoring helm/monitoring \\
+                    --namespace monitoring \\
+                    --create-namespace \\
+                    --set global.alertingSecretName=${CLUSTER_NAME}/alerting-secrets \\
+                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=${params.ALERT_EMAIL_TO}' \\
+                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].smarthost=${params.SMTP_HOST}' \\
+                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].auth_username=${params.SMTP_USERNAME}' \\
+                    --set loki.loki.storage.bucketNames.chunks=${LOKI_BUCKET} \\
+                    --set loki.loki.storage.bucketNames.ruler=${LOKI_BUCKET} \\
+                    --set loki.loki.storage.bucketNames.admin=${LOKI_BUCKET} \\
+                    --set loki.loki.storage.s3.region=${AWS_REGION} \\
+                    --set loki.serviceAccount.annotations.'eks\\.amazonaws\\.com/role-arn'=${LOKI_ROLE_ARN} \\
+                    --set tempo.tempo.storage.trace.s3.bucket=${TEMPO_BUCKET} \\
+                    --set tempo.tempo.storage.trace.s3.region=${AWS_REGION} \\
+                    --set tempo.serviceAccount.annotations.'eks\\.amazonaws\\.com/role-arn'=${TEMPO_ROLE_ARN} \\
+                    --wait --timeout 300s
+                """
+            }
+        }
+        // Backstage's own generated build process (unlike every other
+        // image in this project, which builds directly from source via a
+        // single `docker build`): yarn install -> yarn tsc -> yarn
+        // build:backend produce packages/backend/dist/{skeleton,bundle}.tar.gz,
+        // which THEN get packaged by the Dockerfile. Two real build steps,
+        // not one — this is the actual, real build sequence the scaffold
+        // documents in its own Dockerfile comments, followed exactly, not
+        // simplified from what was genuinely required.
+        stage('AWS Account Lookup') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                script {
+                    // Needed by Build & Push Backstage Image right below —
+                    // this Jenkinsfile never computed this before now
+                    // (unlike Jenkinsfile.app-cicd's own AWS Authentication
+                    // stage, since platform-infra never previously needed
+                    // to build+push a custom image, only deploy from
+                    // public images or images app-cicd already built).
+                    env.AWS_ACCOUNT_ID = sh(
+                        script: "aws sts get-caller-identity --query Account --output text",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+
+        stage('Build & Push Backstage Image') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                sh """
+                set -e
+                cd backstage
+                yarn install --immutable
+                yarn tsc
+                yarn build:backend
+
+                aws ecr get-login-password --region ${AWS_REGION} \\
+                    | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                docker build -f packages/backend/Dockerfile -t ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/backstage:${BUILD_NUMBER} .
+                docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/backstage:${BUILD_NUMBER}
+                """
+            }
+        }
+
+        stage('Deploy Backstage') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps {
+                script {
+                    env.RDS_ENDPOINT = sh(
+                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/rds-endpoint --query Parameter.Value --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+                }
+
+                sh """
+                set -e
+
+                helm upgrade --install backstage helm/backstage \\
+                    --namespace catalogix \\
+                    --create-namespace \\
+                    --set image.repository=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/backstage \\
+                    --set image.tag=${BUILD_NUMBER} \\
+                    --set database.host=${RDS_ENDPOINT} \\
+                    --wait --timeout 300s
+                """
+            }
+        }
+
+        stage('Verify Monitoring Stack') {
+            when {
+                expression { params.ACTION == 'Apply' }
+            }
+            steps  {
+                sh """
+                set -e
+                kubectl get pods -n monitoring
+                kubectl get svc  -n monitoring
+                kubectl get pods -n kube-system | grep -E 'metrics-server|coredns|aws-load-balancer'
+                """
+            }       
+        }
+
+        // ── Destroy flow ─────────────────────────────────────────────────────
+        // Runs only when ACTION=Destroy AND CONFIRM_DESTROY=true (gate above).
+        // Uses 'terraform plan -destroy' so you see exactly what will be removed before the human approval input.
+
+        stage("Terraform Plan - Destroy Preview") {
+            when {
+                expression { params.ACTION == 'Destroy' }
+            }
+            steps {
+                dir("${TF_DIR}") {
+                    sh """
+                    set -e
+                    echo "========================================================"
+                    echo " DESTROY PLAN — RESOURCES THAT WILL BE DESTROYED"
+                    echo "========================================================"
+                    terraform plan -destroy -out destroy.tfplan
+                    echo "========================================================"
+                    """
+                }
+            }
+        }
+
+        stage("Destroy Approval") {
+            when {
+                expression { params.ACTION == 'Destroy' }
+            }
+            steps {
+                // input must be at Groovy level — not inside sh.
+                input message: """⚠️  FINAL WARNING — Terraform Destroy
+ 
+You are about to PERMANENTLY DELETE all infrastructure managed by this Terraform workspace:
+  • EKS cluster (${env.CLUSTER_NAME})
+  • All node groups, security groups
+  • ALB, RDS, ESO, Secrets, and everything else in the plan above
+ 
+This action is IRREVERSIBLE. Review the destroy plan in the stage above carefully.
+Are you absolutely sure?""",
+                      ok: "Yes, destroy everything"
+            }
+        }
+
+        stage("Cleanup Kubernetes Resources") {
+            when {
+                expression { params.ACTION == 'Destroy' }
+            }
+            steps {
+                // We use set +e (or || true) so the pipeline doesn't fail 
+                // if the cluster is already partially destroyed or unreachable.
+                sh """
+
+                echo "Attempting to clean up K8s resources to prevent Terraform timeouts and AWS VPC hangs..."
+                
+                # Ensure we are connected to the cluster
+                if ! aws eks update-kubeconfig \\
+                    --region ${AWS_REGION} \\
+                    --name ${CLUSTER_NAME} \\
+                    --kubeconfig ${KUBECONFIG} 2>&1; then
+                    echo "WARNING: Failed to connect to cluster — it may already be destroyed. Skipping Kubernetes cleanup."
+                else
+                    echo "Uninstalling App..."
+                    helm uninstall catalogix -n catalogix || true
+                
+                    echo "Uninstalling Monitoring & Metrics..."
+                    helm uninstall monitoring -n monitoring || true
+                    helm uninstall metrics-server -n kube-system || true
+
+                    # kube-prometheus-stack does not delete PVCs on uninstall by default.
+                    # Delete them explicitly while the EBS CSI driver is still alive so the CSI driver calls DeleteVolume on AWS and removes the EBS volumes before the nodes are killed. 
+                    #This requires reclaimPolicy: Delete on the gp3-sc StorageClass — Retain would keep the volumes regardless.
+                    
+                    kubectl delete pvc --all -n monitoring --wait=true --timeout=120s || true
+
+                    echo "Waiting for ALBs to be deleted..."
+                    MAX_WAIT=180
+                    ELAPSED=0
+                    while true; do
+                        if ! COUNT=\$(aws elbv2 describe-load-balancers --region ${AWS_REGION} \\
+                                --query "LoadBalancers[?contains(LoadBalancerName,'catalogix')] | length(@)" \\
+                                --output text 2>&1); then
+                            echo "WARNING: ALB query failed — proceeding anyway"; break
+                        fi
+                        [ "\$COUNT" = "0" ] && echo "No ALBs remaining." && break
+                        echo "  \${COUNT} ALB(s) remain... \${ELAPSED}s"
+                        sleep 15; ELAPSED=\$((ELAPSED+15))
+                        [ \$ELAPSED -ge \$MAX_WAIT ] && echo "WARNING: timeout" && break
+                    done
+
+                    helm uninstall aws-load-balancer-controller -n kube-system || true
+                fi
+                """
+            }
+        }
+
+        stage("Terraform Destroy") {
+            when {
+                expression { params.ACTION == 'Destroy' }
+            }
+            steps {
+                dir("${TF_DIR}") {
+                    sh """
+                    set -e
+                    echo "========================================================"
+                    echo "  Running terraform apply destroy.tfplan ..."
+                    echo "========================================================"
+                    terraform apply -auto-approve destroy.tfplan
+                    echo "========================================================"
+                    echo "  Destroy complete."
+                    echo "========================================================"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success { 
+            script {
+                if (params.ACTION == 'Apply') {
+                    echo "Platform infrastructure and monitoring stack applied successfully."
+                    if (params.DEPLOY_APP_AFTER_INFRA) {
+                        // ESO was deployed by Terraform (module.eso), but the operator pods may still be initializing by the time we reach post { success }. 
+                        // The app pipeline's first Helm deploy creates an ExternalSecret that ESO must process immediately — 
+                        // if ESO isn't ready, the ExternalSecret stays in a Pending state and
+                        // pods fail to start because the DB password secret never gets created. 
+                        // This wait ensures ESO is actually serving requests before the app pipeline fires.
+                        sh """
+                        set -e
+
+                        echo "Waiting for ESO to be ready before triggering app deployment..."
+                        kubectl wait deployment/external-secrets \\
+                            -n external-secrets \\
+                            --for=condition=Available \\
+                            --timeout=120s
+                        kubectl wait deployment/external-secrets-webhook \\
+                            -n external-secrets \\
+                            --for=condition=Available \\
+                            --timeout=120s
+                        echo "ESO is ready."
+
+                        # Wait for the ExternalSecret CRD to be Ready — not just
+                        # the ESO controller. The controller being Available does not guarantee the ExternalSecret has synced from Secrets Manager.
+                        # Without this wait, Spring Boot starts, fails to read credentials,
+                        # and enters CrashLoopBackOff before the Secret is created.
+                        
+                        kubectl wait externalsecret/catalogix-db-credentials \\
+                            -n catalogix --for=condition=Ready --timeout=120s || true
+                        """
+                        echo "Triggering app deployment pipeline..."
+                        
+                        build job: 'app-cicd',
+                              parameters: [string(name: 'ENV', value: params.ENV)],
+                              wait: false
+                        
+                        echo "App deployment pipeline triggered."
+                    } else {
+                        echo "Skipping app deployment as per parameter."
+                    }
+                } else {
+                    echo "Terraform destroy completed. All managed resources have been removed."
+                }
+            }
+        }
+
+        failure { 
+            script {
+                if (params.ACTION == 'Apply') {
+                    echo "Platform infrastructure pipeline failed. Will not proceed with app deployment. Please check the logs and fix the issues."
+                } else {
+                    echo "Terraform destroy pipeline FAILED. Some resources may still exist — check the AWS console and Terraform state."
+                }
+            }
+        }
+        
+        always  { 
+            dir("${TF_DIR}") { 
+                sh "rm -f main.tfplan destroy.tfplan || true"
+            } 
+        }
+    }
+}

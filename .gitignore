@@ -17,9 +17,10 @@
 # covers the root .env, so it was never actually gitignored — a real risk of
 # committing live secrets. Both now fixed below.
 .env
-.env.local
 **/.env
-**/.env.local
+**/.env.*
+.env.*
+!.env.example
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -37,3 +38,31 @@ secrets/*
 *.project
 *.classpath
 *.settings/
+
+# Backstage build outputs
+**/dist/
+**/dist-types/
+**/build/
+**/packages/*/dist/
+**/plugins/*/dist/
+**/coverage/
+
+# TypeScript / build caches
+*.tsbuildinfo
+.eslintcache
+.cache/
+.tmp/
+
+# Test artifacts
+**/playwright-report/
+**/test-results/
+
+# Yarn 4 generated/cache files that should not be committed
+**/.yarn/install-state.gz
+**/.yarn/build-state.yml
+**/.yarn/unplugged/
+**/.yarn/cache/
+
+# Local Backstage configuration / secrets
+app-config.local.yaml
+app-config.*.local.yaml
