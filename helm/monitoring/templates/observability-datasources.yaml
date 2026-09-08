@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalogix-observability-datasources
+  namespace: {{ .Release.Namespace }}
+  labels:
+    # Same sidecar mechanism as catalogix-dashboard-cm.yaml, but for
+    # datasources — Grafana's datasource sidecar watches this label.
+    grafana_datasource: "1"
+data:
+  loki-tempo-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      # Service names hardcode the "monitoring-" release prefix, matching
+      # the same convention already used in templates/ingress.yaml.
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://monitoring-loki:3100
+        uid: loki
+        jsonData:
+          # Clicking a log line with a trace ID jumps straight to that trace in Tempo.
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "traceId=(\\w+)"
+              name: TraceID
+              url: "${__value.raw}"
+
+      - name: Tempo
+        type: tempo
+        access: proxy
+        url: http://monitoring-tempo:3100
+        uid: tempo
+        jsonData:
+          # Viewing a trace shows a "Logs for this span" button linking back to Loki.
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            filterByTraceID: true

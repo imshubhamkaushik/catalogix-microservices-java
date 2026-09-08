@@ -1,0 +1,254 @@
+global:
+  imageRegistry: ""
+  imageTag: "1.0-0"
+  cloudProvider: "aws"
+  # Every service exports traces here (Jaeger/Tempo collector in the
+  # `monitoring` namespace) via OTLP — see the upgrade plan doc, section 6.
+  otlpEndpoint: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"
+
+database:
+  host: ""          # set at deploy time: --set database.host=<RDS endpoint from SSM>
+  port: 5432
+  # No shared username here anymore — each service authenticates with its
+  # own role (db_user_<svc>/db_password_<svc>, see
+  # templates/_helpers.tpl's commonEnv), created by
+  # terraform/platform-infra/modules/db-roles. The old shared "catalogix"
+  # master role is now used only by Terraform's postgresql provider itself
+  # to create those per-service roles, never by an app service directly.
+
+# DB password, JWT secret, and RabbitMQ credentials are NOT stored here —
+# they're pulled from AWS Secrets Manager by the ExternalSecret template
+# (templates/external-secrets.yaml) into the 'catalogix-secrets' K8s Secret.
+secretsManager:
+  dbSecretName: "catalogix-cluster-staging/db-credentials"
+  appSecretName: "catalogix-cluster-staging/app-secrets"   # JWT_SECRET + RabbitMQ creds
+
+rabbitmq:
+  host: "rabbitmq"        # in-cluster headless Service, see templates/rabbitmq.yaml
+  port: 5672
+  replicas: 1   # See templates/rabbitmq.yaml header comment: 3-replica clustering only gives real HA on >=3 nodes (each node hosting exactly 1 replica). On a small dev/minikube cluster, 3 replicas often just means multiple replicas stacked on the same node(s), which protects against a POD crashing but not a NODE dying — theater, not real HA. Bump this back to 3 once the node count actually supports it; the clustering code (RBAC, Erlang cookie, quorum queues) stays correct either way.
+  image: "rabbitmq:4-management-alpine"
+  storageClass: "gp3-sc"
+  storageSize: "2Gi"   # per-replica — StatefulSet volumeClaimTemplates provisions one PVC of this size PER pod, so 3 replicas = 3x 2Gi, not one shared 2Gi
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { cpu: "500m", memory: "512Mi" }
+
+ingress:
+  enabled: true
+  host: ""
+  paths:
+    frontend: /
+
+hpa:
+  enabled: true
+
+# One entry per backend service. Every field here is consumed generically by
+# templates/deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
+# a 10th service is a new map entry, not a new template.
+services:
+
+  user-svc:
+    dbName: catalogix_users
+    image: { repository: "user-svc", pullPolicy: "IfNotPresent" }
+    port: 11001
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /users
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "500m", memory: "512Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv:
+      - name: ALLOWED_ORIGINS
+        value: "*"
+      - name: CORS_ALLOW_CREDENTIALS
+        value: "true"
+      - name: ADMIN_EMAILS
+        value: "admin@example.com"
+
+  catalog-svc:
+    dbName: catalogix_catalog
+    image: { repository: "catalog-svc", pullPolicy: "IfNotPresent" }
+    port: 11002
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /products
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "500m", memory: "512Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv:
+      - name: INVENTORY_SVC_URL
+        value: "http://inventory-svc:11003"
+
+  inventory-svc:
+    dbName: catalogix_inventory
+    image: { repository: "inventory-svc", pullPolicy: "IfNotPresent" }
+    port: 11003
+    replicaCount: 2
+    # Internal-only, service-to-service — no ALB path, mirrors the gateway's
+    # nginx.conf rule in the local docker-compose setup.
+    routeToALB: false
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv: []
+
+  cart-svc:
+    dbName: catalogix_cart
+    image: { repository: "cart-svc", pullPolicy: "IfNotPresent" }
+    port: 11004
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /cart
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv:
+      - name: CATALOG_SVC_URL
+        value: "http://catalog-svc:11002"
+      - name: INVENTORY_SVC_URL
+        value: "http://inventory-svc:11003"
+      - name: PROMOTIONS_SVC_URL
+        value: "http://promotions-svc:11005"
+
+  promotions-svc:
+    dbName: catalogix_promotions
+    image: { repository: "promotions-svc", pullPolicy: "IfNotPresent" }
+    port: 11005
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /coupons
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv: []
+
+  payment-svc:
+    dbName: catalogix_payment
+    image: { repository: "payment-svc", pullPolicy: "IfNotPresent" }
+    port: 11006
+    replicaCount: 2
+    # Internal-only — checkout-svc is its ONLY caller. No ALB path.
+    # Pair with a NetworkPolicy restricting ingress to checkout-svc's pod
+    # selector (see upgrade plan doc, section 7) once NetworkPolicies land.
+    routeToALB: false
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv: []
+
+  checkout-svc:
+    dbName: catalogix_checkout
+    image: { repository: "checkout-svc", pullPolicy: "IfNotPresent" }
+    port: 11007
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /orders
+      - /admin
+    resources:
+      requests: { cpu: "150m", memory: "192Mi" }   # orchestrates 5 downstream calls per checkout — a bit more headroom
+      limits: { cpu: "600m", memory: "640Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 70, memoryUtilization: 75 }
+    extraEnv:
+      - name: CATALOG_SVC_URL
+        value: "http://catalog-svc:11002"
+      - name: INVENTORY_SVC_URL
+        value: "http://inventory-svc:11003"
+      - name: PROMOTIONS_SVC_URL
+        value: "http://promotions-svc:11005"
+      - name: PAYMENT_SVC_URL
+        value: "http://payment-svc:11006"
+      - name: CART_SVC_URL
+        value: "http://cart-svc:11004"
+
+  notification-svc:
+    dbName: catalogix_notification
+    image: { repository: "notification-svc", pullPolicy: "IfNotPresent" }
+    port: 11008
+    replicaCount: 2
+    # CORRECTED: this was routeToALB: false with the reasoning "pure
+    # RabbitMQ consumer, nothing calls it synchronously" — true for the
+    # event-CONSUMING side, but incomplete: NotificationController also
+    # exposes a real admin-only GET /notifications (read-only visibility
+    # into what's been sent/failed), which needs external routing for an
+    # admin UI to ever reach it. Caught while building the admin
+    # notification-log page — the endpoint existed in code the whole time,
+    # this Helm config just never accounted for it.
+    routeToALB: true
+    ingressPaths:
+      - /notifications
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv:
+      - name: MAIL_FROM
+        value: "noreply@catalogix.local"
+      # MAIL_HOST/MAIL_PORT point at a real SMTP provider in staging/prod;
+      # local dev/dev-cluster values point at an in-cluster Mailpit if added.
+
+  review-svc:
+    dbName: catalogix_reviews
+    image: { repository: "review-svc", pullPolicy: "IfNotPresent" }
+    port: 11009
+    replicaCount: 2
+    routeToALB: true
+    ingressPaths:
+      - /reviews
+    resources:
+      requests: { cpu: "100m", memory: "128Mi" }
+      limits: { cpu: "400m", memory: "384Mi" }
+    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    extraEnv: []
+
+
+gateway:
+  image:
+    repository: "gateway"
+    pullPolicy: "IfNotPresent"
+  replicaCount: 2
+  service:
+    type: "ClusterIP"
+    port: 80
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "250m", memory: "128Mi" }
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    cpuUtilization: 75
+
+frontendSvc:
+  image:
+    repository: "frontend-svc"
+    pullPolicy: "IfNotPresent"
+  replicaCount: 2
+  service:
+    type: "ClusterIP"
+    port: 11000
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "200m", memory: "256Mi" }
+  hpa:
+    minReplicas: 3
+    maxReplicas: 4
+    cpuUtilization: 75
+
+monitoring:
+  enabled: true
+
+aws:
+  accountId: ""
+  region: "ap-south-1"

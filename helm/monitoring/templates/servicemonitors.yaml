@@ -1,0 +1,57 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogix-services
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.targetNamespace | default "catalogix" }}
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - user-svc
+          - catalog-svc
+          - inventory-svc
+          - cart-svc
+          - promotions-svc
+          - payment-svc
+          - checkout-svc
+          - notification-svc
+          - review-svc
+          # frontend-svc is excluded: nginx does not expose /actuator/prometheus.
+          # Add it here if a metrics endpoint is added to the frontend image.
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+      scrapeTimeout: 10s
+
+---
+# RabbitMQ — queue depth, consumer count, unacked messages, cluster
+# partition status. The rabbitmq_prometheus plugin (enabled in
+# helm/catalogix-hc/templates/rabbitmq.yaml) exposes these on port 15692
+# without needing a separate exporter sidecar.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogix-rabbitmq
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.targetNamespace | default "catalogix" }}
+  selector:
+    matchLabels:
+      app: rabbitmq
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

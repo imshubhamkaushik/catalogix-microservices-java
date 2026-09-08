@@ -1,0 +1,13 @@
+apiVersion: v2
+name: backstage
+description: >
+  Catalogix's developer portal — real Backstage instance (scaffolded via
+  @backstage/create-app, actually installed and run in the sandbox this was
+  built in — see the conversation for the live validation, including a
+  real bug it caught: a relative-path link in catalog-info.yaml that
+  Backstage's own entity validation rejects). Deployed as platform infra
+  via Jenkinsfile.platform-infra, same category as helm/monitoring and
+  other platform components — not part of the app's own Helm release.
+type: application
+version: 0.1.0
+appVersion: "1.0"

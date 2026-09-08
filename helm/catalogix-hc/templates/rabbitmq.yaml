@@ -1,0 +1,255 @@
+# Self-hosted RabbitMQ, clustered (3 replicas) for HA. See the upgrade
+# plan's RabbitMQ hosting decision for why self-hosted over Amazon MQ.
+#
+# Three things had to be true simultaneously for this to be real HA, not
+# just "more pods" — see the conversation this was built in for the full
+# explanation:
+#   1. Peer discovery (rabbitmq_peer_discovery_k8s plugin + RBAC below) so
+#      the 3 pods can actually find and join each other.
+#   2. A shared Erlang cookie (all 3 pods need the IDENTICAL cookie file,
+#      or they refuse to cluster even if they can see each other).
+#   3. Quorum queues at the APP level (backend/notification-svc/.../RabbitMQConfig.java
+#      — QueueBuilder.durable(...).quorum()). Clustering the BROKER doesn't
+#      make an individual QUEUE survive a node failure unless it's declared
+#      quorum — this is the part that's easy to build infra for and still
+#      not actually have HA.
+
+# ─── RBAC — lets the peer-discovery plugin list pods/endpoints via the K8s API ───
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rabbitmq-sa
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: {{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: rabbitmq-sa
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: rabbitmq-peer-discovery
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ─── Cluster config — enables the peer discovery plugin + tells it how to find peers ───
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: {{ .Release.Namespace }}
+data:
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_peer_discovery_k8s,rabbitmq_prometheus].
+  rabbitmq.conf: |
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.k8s.service_name = rabbitmq
+    cluster_formation.k8s.namespace = {{ .Release.Namespace }}
+    cluster_formation.node_cleanup.interval = 30
+    cluster_formation.node_cleanup.only_log_warning = true
+    # pause_minority (not autoheal/ignore) — on a network partition, the
+    # minority side stops accepting operations rather than risk two halves
+    # of the cluster diverging. Safer default for a 3-node cluster than
+    # letting both sides keep serving and reconcile later.
+    cluster_partition_handling = pause_minority
+    loopback_users.guest = false
+
+---
+# ─── Erlang cookie — generated once, kept stable across `helm upgrade` via
+# `lookup` (if it already exists, reuse it; only generate fresh on first
+# install). Without this stability, every `helm upgrade` would silently
+# regenerate the cookie and make all 3 pods unable to re-cluster with
+# each other on their next restart. ───
+{{- $existingSecret := lookup "v1" "Secret" .Release.Namespace "rabbitmq-erlang-cookie" }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-erlang-cookie
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+  {{- if $existingSecret }}
+  cookie: {{ index $existingSecret.data "cookie" }}
+  {{- else }}
+  cookie: {{ randAlphaNum 32 | b64enc }}
+  {{- end }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: {{ .Release.Namespace }}
+spec:
+  serviceName: rabbitmq
+  replicas: {{ .Values.rabbitmq.replicas | default 3 }}
+  podManagementPolicy: Parallel  # nodes need to come up together to cluster, not one-at-a-time like a typical StatefulSet rollout
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq-sa
+      # Soft, not hard, anti-affinity: with a small node group (see
+      # env/dev's node group sizing, 2/6/3), REQUIRING 3 distinct nodes
+      # could leave a replica permanently Pending if the cluster is
+      # temporarily scaled down. Preferred still steers the scheduler away
+      # from stacking all 3 on one node under normal conditions.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: rabbitmq
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      # RabbitMQ requires its Erlang cookie file to be owned by the
+      # rabbitmq user with strict 600 permissions. A Secret volume mount
+      # can't express "root-owned file, then chown/chmod it" on its own —
+      # this initContainer does that copy+chmod+chown once, as root,
+      # before the main container (which runs as non-root 999) starts.
+      # Same PVC is mounted in both, so the fix persists into the main container.
+      initContainers:
+        - name: erlang-cookie-setup
+          image: busybox:1.36
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              cp /secret-cookie/cookie /var/lib/rabbitmq/.erlang.cookie
+              chmod 600 /var/lib/rabbitmq/.erlang.cookie
+              chown 999:999 /var/lib/rabbitmq/.erlang.cookie
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: erlang-cookie-secret
+              mountPath: /secret-cookie
+              readOnly: true
+      containers:
+        - name: rabbitmq
+          image: "{{ .Values.rabbitmq.image }}"
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+            - name: clustering
+              containerPort: 25672
+            - name: epmd
+              containerPort: 4369
+            - name: metrics
+              containerPort: 15692
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  # Lowercase — matches the AWS Secrets Manager JSON key
+                  # exactly, since templates/external-secrets.yaml's
+                  # app-secrets ExternalSecret uses dataFrom.extract, which
+                  # copies keys verbatim (no renaming). Was RABBITMQ_USER
+                  # (uppercase) here before — that stopped matching the
+                  # moment external-secrets.yaml switched to dataFrom.extract
+                  # and was never updated here. Same bug class already fixed
+                  # once in _helpers.tpl's commonEnv, missed here until now.
+                  key: rabbitmq_user
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: RABBITMQ_ERLANG_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-erlang-cookie
+                  key: cookie
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@$(POD_NAME).rabbitmq.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources: {{ toYaml .Values.rabbitmq.resources | nindent 12 }}
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+      volumes:
+        - name: erlang-cookie-secret
+          secret:
+            secretName: rabbitmq-erlang-cookie
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.rabbitmq.storageClass | default "gp3-sc" }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.storageSize | default "2Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: {{ .Release.Namespace }}
+spec:
+  clusterIP: None   # headless — required for both StatefulSet pod DNS AND peer discovery to enumerate all 3 pods
+  publishNotReadyAddresses: true  # peer discovery needs to see pods that aren't ready YET (they're not ready until clustered) — without this, a pod could never discover its not-yet-ready peers to cluster with in the first place
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
+    - name: clustering
+      port: 25672
+    - name: epmd
+      port: 4369
+    - name: metrics
+      port: 15692

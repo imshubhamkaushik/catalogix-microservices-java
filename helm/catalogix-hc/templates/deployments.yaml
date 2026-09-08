@@ -1,0 +1,50 @@
+{{- range $name, $svc := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app: {{ $name }}
+spec:
+  {{- if not $.Values.hpa.enabled }}
+  replicas: {{ $svc.replicaCount | default 2 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "{{ $svc.port }}"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: {{ $name }}
+          image: "{{ $.Values.global.imageRegistry }}/{{ $svc.image.repository }}:{{ $svc.image.tag | default $.Values.global.imageTag }}"
+          imagePullPolicy: {{ $svc.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: {{ $svc.port }}
+          env:
+            {{- include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) | nindent 12 }}
+            {{- if $svc.extraEnv }}
+            {{- toYaml $svc.extraEnv | nindent 12 }}
+            {{- end }}
+          resources: {{ toYaml $svc.resources | nindent 12 }}
+          {{- include "catalogix.securityContext" $ | nindent 10 }}
+          {{- include "catalogix.probes" (dict "port" $svc.port) | nindent 10 }}
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+{{- end }}

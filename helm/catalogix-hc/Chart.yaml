@@ -1,0 +1,6 @@
+apiVersion: v2
+name: catalogix-hc
+description: Catalogix — 9-service microservices app (user/catalog/inventory/cart/promotions/payment/checkout/notification/review) + frontend + in-cluster RabbitMQ, using an AWS ALB -> in-cluster nginx gateway edge
+type: application
+version: 0.2.0
+appVersion: "2.0"

@@ -1,0 +1,427 @@
+# kube-prometheus-stack values
+# Aligned with previous manual Prometheus/Grafana setup
+
+global:
+  targetNamespace: catalogix
+  # Set via --set at deploy time: --set global.alertingSecretName=<cluster-name>/alerting-secrets
+  # Deterministic string Jenkins already knows (CLUSTER_NAME env var) —
+  # unlike the Loki/Tempo bucket names, this doesn't need an SSM round-trip
+  # since it's not a Terraform-generated value, just a naming convention.
+  alertingSecretName: ""
+
+kube-prometheus-stack:
+
+# Prometheus
+  prometheus:
+    enabled: true
+
+    prometheusSpec:
+      retention: 10d
+
+      # Allow Prometheus to discover ServiceMonitors created by the chart
+      serviceMonitorSelectorNilUsesHelmValues: false
+      serviceMonitorSelector: {}
+      serviceMonitorNamespaceSelector: {}
+
+      # Allow Prometheus to discover PodMonitors created by the chart
+      podMonitorSelectorNilUsesHelmValues: false
+
+      resources:
+        requests:
+          cpu: 200m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: "gp3-sc"
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+
+  # Grafana
+  grafana:
+    enabled: true
+
+    # DEV NOTE: existingSecret is empty so Grafana uses its default credentials.
+    # For production, create a k8s secret and reference it here:
+    #  kubectl create secret generic grafana-admin-secret \
+    #    --from-literal=admin-user=admin \
+    #    --from-literal=admin-password=<strong-password> \
+    #    -n monitoring
+    # Then set:
+    #   existingSecret: "grafana-admin-secret"
+
+    admin:
+      existingSecret: ""
+
+    service:
+      type: ClusterIP
+
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+      datasources:
+        enabled: true
+        label: grafana_datasource
+    
+    persistence:
+      enabled: true
+      storageClassName: "gp3-sc"
+      accessModes: ["ReadWriteOnce"]
+      size: 2Gi
+
+    resources:
+      requests:
+        cpu: 250m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  
+    dashboardProviders:
+      dashboardproviders.yaml:
+        apiVersion: 1
+        providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # Alertmanager
+  alertmanager:
+    enabled: true
+
+    alertmanagerSpec:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+      # Mounts the K8s Secret templates/alertmanager-secrets.yaml's
+      # ExternalSecret creates, at /etc/alertmanager/secrets/alertmanager-secrets/<key>.
+      # The Prometheus Operator does this mount automatically for any
+      # Secret named here — no manual volume/volumeMount needed.
+      secrets:
+        - alertmanager-secrets
+
+    config:
+      global:
+        resolve_timeout: 5m
+
+      # Routing tree:
+      # critical  -> critical-receiver (real SMTP email, see below)
+      # warning   -> null (logged, not paged — keeps noise low in dev)
+      # catch-all -> null
+      route:
+        receiver: "null"
+        group_by: ["alertname", "namespace", "service"]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 3h
+        routes:
+          - matchers:
+              - name: severity
+                value: critical
+            receiver: "critical-receiver"
+            repeat_interval: 1h
+          - matchers:
+              - name: severity
+                value: warning
+            receiver: "null"
+      
+      receivers:
+        # Discards alerts silently. Used for warnings and unmapped alerts in dev.
+        - name: "null"
+ 
+        # Real SMTP email receiver — kept to email only, deliberately, over
+        # also wiring Slack/PagerDuty/etc: this is meant to demonstrate the
+        # actual pipeline (Terraform -> Secrets Manager -> ESO -> mounted
+        # file -> Alertmanager config), and one working channel proves that
+        # pipeline just as well as three would, without needing a Slack
+        # workspace or PagerDuty account to exist for the demo to make sense.
+        #
+        # auth_password_file (not auth_password) — same reasoning as Slack's
+        # api_url_file before: the SMTP password is never a plaintext value
+        # in this file, it's a path into the Secret volume
+        # alertmanagerSpec.secrets mounts above. If var.smtp_password
+        # (terraform/platform-infra) is still empty, this file exists but is
+        # empty — Alertmanager will log a send failure per critical alert
+        # rather than silently succeed, which is correct fail-loud behavior
+        # until a real SMTP credential is supplied.
+        - name: "critical-receiver"
+          email_configs:
+            # Empty placeholders — Alertmanager's config file does NOT
+            # support ${VAR}-style shell interpolation (a first draft of
+            # this used that and it would have silently rendered as a
+            # literal string, not a real value). Real values come from
+            # Jenkinsfile.platform-infra's --set flags at deploy time,
+            # same convention as every other Terraform-generated or
+            # environment-specific value in this project (database.host,
+            # the Loki/Tempo bucket names, etc.) — none of it lives in a
+            # committed values.yaml.
+            - to: ""            # --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=ops@example.com'
+              from: "alertmanager@catalogix.local"
+              smarthost: ""     # --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].smarthost=smtp.example.com:587'
+              auth_username: "" # --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].auth_username=alerts@example.com'
+              auth_password_file: /etc/alertmanager/secrets/alertmanager-secrets/smtp_password
+              require_tls: true
+              send_resolved: true
+ 
+      # Inhibit rules suppress downstream alerts when the root cause is already firing.
+      # One outage should fire ONE alert (ServiceUnavailable), not three.
+      # HighErrorRate and HighLatencyP95 are symptoms of the outage, not separate problems.
+      inhibit_rules:
+        - source_matchers:
+            - name: alertname
+              value: ServiceUnavailable
+          target_matchers:
+            - name: alertname
+              value: HighErrorRate
+          equal: ["namespace"]
+        - source_matchers:
+            - name: alertname
+              value: ServiceUnavailable
+          target_matchers:
+            - name: alertname
+              value: HighLatencyP95
+          equal: ["namespace"]
+
+  # Custom Alert Rules
+  additionalPrometheusRulesMap:
+    catalogix-alerts:
+      groups:
+        - name: service-availability
+          rules:
+            - alert: ServiceUnavailable
+              # original expr used up{job="kubernetes-service-endpoints"} — a static Prometheus scrape job that does not exist in kube-prometheus-stack.
+              # With ServiceMonitor-based discovery, catalogix services have a different job label. 
+              # kube_deployment_status_replicas_available comes from kube-state-metrics (bundled in kube-prometheus-stack) and correctly targets the catalogix namespace.
+              expr: |
+                kube_deployment_status_replicas_available{namespace="catalogix"} == 0
+              for: 3m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Deployment {{ $labels.deployment }} has no available replicas"
+                description: "Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has had 0 available replicas for more than 3 minutes."
+
+        - name: error-rate
+          rules:
+            - alert: HighErrorRate
+              # added namespace filter so the alert only fires for catalogix services, not Prometheus/Grafana/Alertmanager internal traffic.
+              # 
+              # sum by namespace so the ratio is calculated per-namespace.
+              # The original collapsed all namespaces into one ratio, masking which service was the source and diluting the signal with unrelated traffic.
+              expr: |
+                (
+                  sum by (namespace) (
+                    rate(http_server_requests_seconds_count{status=~"5..",namespace="catalogix"}[5m])
+                  )
+                  /
+                  sum by (namespace) (
+                    rate(http_server_requests_seconds_count{namespace="catalogix"}[5m])
+                  )
+                ) > 0.05
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "High 5xx error rate in {{ $labels.namespace }}"
+                description: "5xx responses exceed 5% of total traffic in namespace {{ $labels.namespace }} for more than 5 minutes."
+
+
+        - name: high-latency
+          rules:
+            - alert: HighLatencyP95
+              # added namespace filter (same reason as HighErrorRate).
+              # 
+              # sum by (le, job) not (le, service) -- Spring Boot Actuator metrics do not expose a 'service' label — the per-service identifier in
+              # kube-prometheus-stack is the 'job' label set by the ServiceMonitor.
+              # Summing by 'service' collapsed all series into one bucket set and produced a meaningless quantile across all services combined.
+              expr: |
+                histogram_quantile(
+                  0.95,
+                  sum by (le, job) (
+                    rate(http_server_requests_seconds_bucket{namespace="catalogix"}[5m])
+                  )
+                ) > 1.5
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "High p95 latency for {{ $labels.job }}"
+                description: "95th percentile latency for {{ $labels.job }} exceeds 1.5s for more than 5 minutes."
+
+        - name: pod-health
+          rules:
+            - alert: PodCrashLooping
+              # kube_pod_container_status_restarts_total is a counter, not
+              # a gauge — increase() over a window is the correct way to
+              # detect "restarting repeatedly" rather than reading the raw
+              # total (which only ever goes up and would eventually alert
+              # on every pod that's ever restarted once, forever).
+              expr: |
+                increase(kube_pod_container_status_restarts_total{namespace="catalogix"}[15m]) >= 3
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "{{ $labels.pod }} is crash-looping"
+                description: "Container {{ $labels.container }} in pod {{ $labels.pod }} (namespace {{ $labels.namespace }}) has restarted 3+ times in the last 15 minutes."
+
+        - name: checkout-outbox
+          rules:
+            - alert: OutboxDeadLetterBacklog
+              # checkout_outbox_dead_letter_count comes from
+              # backend/checkout-svc's OutboxMetrics — a stuck refund,
+              # stock-release, or coupon-restore that exhausted its
+              # retries and needs a human. This metric doesn't self-heal;
+              # it only drops when someone manually resolves the row, so
+              # any nonzero value sitting for 10+ minutes is worth paging on.
+              expr: |
+                checkout_outbox_dead_letter_count{namespace="catalogix"} > 0
+              for: 10m
+              labels:
+                severity: critical
+              annotations:
+                summary: "checkout-svc has dead-lettered compensation entries"
+                description: "{{ $value }} outbox entries in DEAD_LETTER — failed refunds/stock-releases/coupon-restores needing manual review. See GET /admin/outbox on checkout-svc."
+
+# ─── Loki — log aggregation ───────────────────────────────────────────────
+# Single-binary mode: one Loki process handles ingestion, storage, and
+# queries. This is the right choice at this scale — the distributed
+# multi-component mode exists for much higher log volume than a 9-service
+# fresher project generates, and would just be more moving parts to operate
+# for no real benefit yet. Storage is a local PVC (filesystem backend), same
+# reasoning as not using S3 for Tempo below: no object storage needed until
+# this needs multi-replica HA.
+loki:
+  deploymentMode: SingleBinary
+  # Bucket name, region, and the IRSA role ARN come from Terraform
+  # (modules/observability-storage) via SSM, injected by
+  # Jenkinsfile.platform-infra's "Deploy Monitoring Stack" stage as --set
+  # flags: --set loki.loki.storage.bucketNames.chunks=<bucket>
+  #        --set loki.loki.storage.s3.region=<region>
+  #        --set loki.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=<arn>
+  # Empty-string placeholders here are never meant to deploy as-is — same
+  # pattern as database.host in helm/catalogix-hc/values-dev.yaml.
+  serviceAccount:
+    create: true
+    # MUST exactly match the sub condition in
+    # modules/observability-storage's loki IRSA trust policy
+    # ("system:serviceaccount:monitoring:loki-sa") — this is set explicitly
+    # rather than left to the chart's own default naming specifically so
+    # the two can't silently drift apart on a chart version bump.
+    name: "loki-sa"
+    annotations: {}   # role-arn annotation injected via --set at deploy time
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    storage:
+      type: s3
+      bucketNames:
+        chunks: ""   # --set at deploy time
+        ruler: ""
+        admin: ""
+      s3:
+        region: ""   # --set at deploy time
+    schemaConfig:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: s3
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+  singleBinary:
+    replicas: 1
+    # Even with S3 for chunk storage, Loki still needs local disk for the
+    # WAL and in-progress TSDB index before it's shipped to S3 — this PVC
+    # is much smaller now than the old all-local-storage version (10Gi -> 5Gi)
+    # since it's no longer holding the actual log data, just the working set.
+    persistence:
+      enabled: true
+      storageClass: "gp3-sc"
+      size: 5Gi
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits: { cpu: "500m", memory: "1Gi"}
+  # These subcomponents are for the distributed mode only — explicitly
+  # zeroed out so SingleBinary mode doesn't also try to deploy them.
+  backend: { replicas: 0 }
+  read: { replicas: 0 }
+  write: { replicas: 0 }
+  gateway: { enabled: false }
+  chunksCache: { enabled: false }
+  resultsCache: { enabled: false }
+  monitoring:
+    serviceMonitor: { enabled: false }  # enable once RabbitMQ-style ServiceMonitor wiring is added for Loki itself
+    selfMonitoring: { enabled: false }
+    lokiCanary: { enabled: false }
+  test: { enabled: false }
+
+# Promtail — log shipper. Runs as a DaemonSet, auto-discovers every pod's
+# stdout/stderr via the K8s API (no per-service config needed — a new
+# service's logs are picked up automatically, same principle as the
+# ServiceMonitor discovery pattern above).
+promtail:
+  config:
+    clients:
+      # This chart is always installed as `helm install monitoring ...` (see
+      # ingress.yaml, which hardcodes the same "monitoring-" prefix for
+      # Grafana/Prometheus/Alertmanager service names) — matching that
+      # convention rather than introducing templating that values.yaml files
+      # don't actually support (only templates/*.yaml are Go-templated).
+      - url: http://monitoring-loki:3100/loki/api/v1/push
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { cpu: "200m", memory: "128Mi" }
+
+# ─── Tempo — distributed tracing (cluster only) ───────────────────────────
+# Monolithic mode, same reasoning as Loki's SingleBinary mode above.
+# Local docker-compose dev keeps using Jaeger — this is additive for the
+# cluster, not a replacement for local dev's existing tracing setup.
+tempo:
+  serviceAccount:
+    create: true
+    # MUST exactly match modules/observability-storage's tempo IRSA trust
+    # policy sub condition ("system:serviceaccount:monitoring:tempo-sa").
+    name: "tempo-sa"
+    annotations: {}   # role-arn annotation injected via --set at deploy time
+  tempo:
+    storage:
+      trace:
+        backend: s3
+        s3:
+          bucket: ""     # --set at deploy time: tempo.tempo.storage.trace.s3.bucket
+          region: ""     # --set at deploy time: tempo.tempo.storage.trace.s3.region
+          endpoint: "s3.amazonaws.com"
+    resources:
+      requests: { cpu: "100m", memory: "256Mi" }
+      limits: { cpu: "500m", memory: "1Gi" }
+  # Same reasoning as Loki's singleBinary.persistence above — small local
+  # disk for the WAL, actual trace data lives in S3 now (10Gi -> 5Gi).
+  persistence:
+    enabled: true
+    storageClassName: "gp3-sc"
+    size: 5Gi
+  # OTLP receiver — every backend service's OTLP_ENDPOINT (see
+  # helm/catalogix-hc/values-dev.yaml global.otlpEndpoint) points here.
+  # Both gRPC (4317) and HTTP (4318) are enabled by the chart's defaults;
+  # the app currently uses the HTTP path.
+  serviceMonitor:
+    enabled: false  # enable once Tempo's own metrics are worth alerting on

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backstage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: backstage
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: backstage
+  template:
+    metadata:
+      labels:
+        app: backstage
+    spec:
+      # The scaffold's own Dockerfile already sets USER node — matching
+      # that non-root convention here too, consistent with every other
+      # container in this project.
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backstage
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.port }}
+          env:
+            - name: POSTGRES_HOST
+              value: "{{ .Values.database.host }}"
+            - name: POSTGRES_PORT
+              value: "{{ .Values.database.port }}"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_backstage
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_backstage
+          resources: {{ toYaml .Values.resources | nindent 12 }}
+          # No custom health-check path configured in the scaffold by
+          # default — the root path (served by the app-backend plugin)
+          # responds once the backend has finished initializing all
+          # plugins, which is a reasonable enough readiness signal without
+          # adding a dedicated health-check plugin that wasn't part of
+          # what was actually scaffolded and validated.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.port }}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ .Values.port }}
+            initialDelaySeconds: 40
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backstage
+  namespace: {{ .Values.namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: backstage
+  ports:
+    - port: {{ .Values.port }}
+      targetPort: {{ .Values.port }}
+---
+{{- if .Values.ingress.enabled }}
+# Shares the app's existing ALB (group.name: catalogix), same pattern as
+# other platform components's ingress — one more path rule on an ALB that already
+# exists, not new billable infra.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backstage-ingress
+  namespace: {{ .Values.namespace }}
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: catalogix-alb
+    alb.ingress.kubernetes.io/group.name: catalogix
+    alb.ingress.kubernetes.io/group.order: "6"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: {{ .Values.ingress.path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: backstage
+                port:
+                  number: {{ .Values.port }}
+{{- end }}
