@@ -103,11 +103,6 @@
       <artifactId>jjwt-impl</artifactId>
       <scope>runtime</scope>
     </dependency>
-    <dependency>
-      <groupId>io.jsonwebtoken</groupId>
-      <artifactId>jjwt-jackson</artifactId>
-      <scope>runtime</scope>
-    </dependency>
 
     <!-- Flyway (actually wires up the db/migration/*.sql files) -->
     <dependency>

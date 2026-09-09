@@ -31,9 +31,9 @@
 services:
 
   postgres:
-    image: postgres:18-alpine
     mem_limit: 512m
     cpus: 0.4
+    image: postgres:18-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -60,9 +60,9 @@ services:
   # confirmed/cancelled, verification/password-reset requested); notification-svc
   # consumes them and sends the actual emails.
   rabbitmq:
-    image: rabbitmq:4-management-alpine
     mem_limit: 512m
     cpus: 0.3
+    image: rabbitmq:4-management-alpine
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
@@ -83,10 +83,10 @@ services:
   # actually deliver mail to). Skipped by default; add with:
   #   docker compose --profile tools up
   mailpit:
-    image: axllent/mailpit:latest
     profiles: ["tools"]
     mem_limit: 128m
     cpus: 0.1
+    image: axllent/mailpit:latest
     restart: unless-stopped
     ports:
       - "8025:8025"
@@ -105,10 +105,10 @@ services:
   # (Micrometer's tracing bridge doesn't block startup on an unreachable
   # collector) — skipped by default, same activation flag as mailpit.
   jaeger:
-    image: jaegertracing/all-in-one:latest
     profiles: ["tools"]
     mem_limit: 512m
     cpus: 0.2
+    image: jaegertracing/all-in-one:latest
     restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -117,11 +117,11 @@ services:
     networks: [catalogix]
 
   user-svc:
+    mem_limit: 512m
+    cpus: 0.35
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
-    mem_limit: 512m
-    cpus: 0.35
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_users
@@ -152,11 +152,11 @@ services:
   # product-svc when stock ownership split off to inventory-svc; external
   # API path (/products via the gateway) is unchanged.
   catalog-svc:
+    mem_limit: 512m
+    cpus: 0.35
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
-    mem_limit: 512m
-    cpus: 0.35
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_catalog
@@ -180,11 +180,11 @@ services:
   # Owns row-level locking for reserve/release; nothing else in the system
   # is allowed to touch stock counts except through this service.
   inventory-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_inventory
@@ -205,11 +205,11 @@ services:
   # that only happens once, at checkout-svc, at the moment of actually
   # placing an order.
   cart-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_cart
@@ -233,11 +233,11 @@ services:
   # and recordUsage used to be two separate, unlocked calls with a gap
   # between them).
   promotions-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_promotions
@@ -259,11 +259,11 @@ services:
   # nothing here talks to an actual card network. Not reachable through the
   # gateway; checkout-svc is its only caller.
   payment-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
@@ -284,11 +284,11 @@ services:
   # here now lives in cart-svc/promotions-svc/payment-svc, each reached over
   # HTTP with explicit compensation on failure — see CheckoutSvc's Javadoc.
   checkout-svc:
+    mem_limit: 640m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
-    mem_limit: 640m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_checkout
@@ -334,11 +334,11 @@ services:
     networks: [catalogix]
 
   notification-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
@@ -383,11 +383,11 @@ services:
   # readiness, so dropping this one edge costs nothing beyond what
   # OrderClient's circuit breaker already handles.
   review-svc:
+    mem_limit: 384m
+    cpus: 0.3
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile
-    mem_limit: 384m
-    cpus: 0.3
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_reviews
@@ -411,11 +411,10 @@ services:
 
   frontend-svc:
     # Internal service port; only gateway publishes host port 11000.
-    build:
-      context: ./frontend-svc
-      dockerfile: backend/frontend-svc/Dockerfile
     mem_limit: 256m
     cpus: 0.1
+    build:
+      context: ./frontend-svc
     restart: unless-stopped
     expose:
       - "11000"
@@ -423,11 +422,10 @@ services:
 
   gateway:
     # Sole browser-facing host endpoint: localhost:11000 -> gateway:80.
-    build:
-      context: ./gateway
-      dockerfile: backend/gateway/Dockerfile
     mem_limit: 128m
     cpus: 0.1
+    build:
+      context: ./gateway
     restart: unless-stopped
     ports:
       - "11000:80"

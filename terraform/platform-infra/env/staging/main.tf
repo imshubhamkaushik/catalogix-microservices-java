@@ -224,9 +224,9 @@ module "app_secrets" {
 
   secret_values = merge(
     {
-      jwt_secret            = random_password.jwt.result
-      rabbitmq_user         = "catalogix"
-      rabbitmq_password     = random_password.rabbitmq.result
+      jwt_secret        = random_password.jwt.result
+      rabbitmq_user     = "catalogix"
+      rabbitmq_password = random_password.rabbitmq.result
     },
     { for svc, creds in module.db_roles.credentials : "db_user_${replace(svc, "-", "_")}" => creds.username },
     { for svc, creds in module.db_roles.credentials : "db_password_${replace(svc, "-", "_")}" => creds.password }
@@ -249,11 +249,11 @@ module "alerting_secrets" {
 module "eso" {
   source = "../../modules/eso"
 
-  cluster_name              = module.eks.cluster_name
-  oidc_provider_arn         = module.eks.oidc_provider_arn
-  oidc_provider             = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
-  region                    = var.aws_region
-  permissions_boundary_arn  = local.permissions_boundary_arn
+  cluster_name             = module.eks.cluster_name
+  oidc_provider_arn        = module.eks.oidc_provider_arn
+  oidc_provider            = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
+  region                   = var.aws_region
+  permissions_boundary_arn = local.permissions_boundary_arn
 
   providers = {
     kubernetes = kubernetes.after_eks
@@ -266,11 +266,11 @@ module "eso" {
 module "observability_storage" {
   source = "../../modules/observability-storage"
 
-  cluster_name              = local.env_prefix
-  oidc_provider_arn         = module.eks.oidc_provider_arn
-  oidc_provider             = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
-  permissions_boundary_arn  = local.permissions_boundary_arn
-  retention_days            = 14
+  cluster_name             = local.env_prefix
+  oidc_provider_arn        = module.eks.oidc_provider_arn
+  oidc_provider            = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
+  permissions_boundary_arn = local.permissions_boundary_arn
+  retention_days           = 14
 
   depends_on = [module.eks]
 }

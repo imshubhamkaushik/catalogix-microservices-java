@@ -39,30 +39,12 @@ secrets/*
 *.classpath
 *.settings/
 
-# Backstage build outputs
-**/dist/
-**/dist-types/
-**/build/
-**/packages/*/dist/
-**/plugins/*/dist/
-**/coverage/
-
 # TypeScript / build caches
 *.tsbuildinfo
 .eslintcache
 .cache/
 .tmp/
 
-# Test artifacts
-**/playwright-report/
-**/test-results/
-
-# Yarn 4 generated/cache files that should not be committed
-**/.yarn/install-state.gz
-**/.yarn/build-state.yml
-**/.yarn/unplugged/
-**/.yarn/cache/
-
-# Local Backstage configuration / secrets
-app-config.local.yaml
-app-config.*.local.yaml
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl

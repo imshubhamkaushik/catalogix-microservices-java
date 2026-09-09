@@ -81,11 +81,6 @@
       <artifactId>jjwt-impl</artifactId>
       <scope>runtime</scope>
     </dependency>
-    <dependency>
-      <groupId>io.jsonwebtoken</groupId>
-      <artifactId>jjwt-jackson</artifactId>
-      <scope>runtime</scope>
-    </dependency>
 
     <!-- Flyway (actually wires up the db/migration/*.sql files) -->
     <dependency>
@@ -118,6 +113,12 @@
     </dependency>
 
     <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-resttestclient</artifactId>
+        <scope>test</scope>
+    </dependency>
+
+    <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
       <scope>test</scope>
@@ -126,6 +127,20 @@
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Used by AuthFlowIntegrationTest — the first full-context,
+         real-filter-chain, real-Postgres integration test in this repo.
+         Versions come from the testcontainers-bom import in the root pom. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
       <scope>test</scope>
     </dependency>
 

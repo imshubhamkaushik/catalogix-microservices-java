@@ -157,7 +157,7 @@ module "ecr" {
   repositories = [
     "user-svc", "catalog-svc", "inventory-svc", "cart-svc", "promotions-svc",
     "payment-svc", "checkout-svc", "notification-svc", "review-svc",
-    "frontend-svc", "gateway", "backstage"
+    "frontend-svc", "gateway"
   ]
 }
 
@@ -230,8 +230,6 @@ module "db_roles" {
     "checkout-svc"     = "catalogix_checkout"
     "notification-svc" = "catalogix_notification"
     "review-svc"       = "catalogix_reviews"
-
-    "backstage"        = "backstage"
   }
 
   depends_on = [module.rds]
@@ -271,9 +269,9 @@ module "app_secrets" {
   # was the first draft and got reverted).
   secret_values = merge(
     {
-      jwt_secret          = random_password.jwt.result
-      rabbitmq_user       = "catalogix"
-      rabbitmq_password   = random_password.rabbitmq.result
+      jwt_secret        = random_password.jwt.result
+      rabbitmq_user     = "catalogix"
+      rabbitmq_password = random_password.rabbitmq.result
     },
     { for svc, creds in module.db_roles.credentials : "db_user_${replace(svc, "-", "_")}" => creds.username },
     { for svc, creds in module.db_roles.credentials : "db_password_${replace(svc, "-", "_")}" => creds.password }
@@ -331,11 +329,11 @@ module "eso" {
 module "observability_storage" {
   source = "../../modules/observability-storage"
 
-  cluster_name              = local.env_prefix
-  oidc_provider_arn         = module.eks.oidc_provider_arn
-  oidc_provider             = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
-  permissions_boundary_arn  = local.permissions_boundary_arn
-  retention_days            = 14
+  cluster_name             = local.env_prefix
+  oidc_provider_arn        = module.eks.oidc_provider_arn
+  oidc_provider            = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
+  permissions_boundary_arn = local.permissions_boundary_arn
+  retention_days           = 14
 
   depends_on = [module.eks]
 }

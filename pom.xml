@@ -35,11 +35,16 @@
     <properties>
         <java.version>21</java.version>
         <spring.boot.version>4.1.1</spring.boot.version>
-        <jjwt.version>0.12.6</jjwt.version>
+        <jjwt.version>0.13.0</jjwt.version>
         <springdoc.version>3.1.0</springdoc.version>
         <httpclient5.version>5.6.4</httpclient5.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        <jackson.version>2.21.6</jackson.version>
+        
+        <!-- UNVERIFIED: picked from training data, not confirmed against
+             Spring Boot 4.1.1 / Java 21 — Maven Central isn't reachable
+             from the sandbox this was written in. Check for a newer
+             release and actual compatibility before trusting this in CI. -->
+        <testcontainers.version>1.20.4</testcontainers.version>
     </properties>
 
     <!-- Dependency Management -->
@@ -69,6 +74,14 @@
             </dependency>
 
             <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
                 <groupId>org.apache.httpcomponents.client5</groupId>
                 <artifactId>httpclient5</artifactId>
                 <version>${httpclient5.version}</version>
@@ -81,7 +94,7 @@
                 <version>${springdoc.version}</version>
             </dependency>
 
-            <!-- JJWT (JWT issuing/parsing, used by user-svc, product-svc, order-svc) -->
+            <!-- JJWT (JWT issuing/parsing) -->
             <dependency>
                 <groupId>io.jsonwebtoken</groupId>
                 <artifactId>jjwt-api</artifactId>
@@ -91,33 +104,6 @@
                 <groupId>io.jsonwebtoken</groupId>
                 <artifactId>jjwt-impl</artifactId>
                 <version>${jjwt.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.jsonwebtoken</groupId>
-                <artifactId>jjwt-jackson</artifactId>
-                <version>${jjwt.version}</version>
-            </dependency>
-
-            <!-- Jackson BOM -->
-            <dependency>
-                <groupId>com.fasterxml.jackson</groupId>
-                <artifactId>jackson-bom</artifactId>
-                <version>${jackson.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
-            <!-- Explicit Jackson version overrides -->
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-databind</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>com.fasterxml.jackson.core</groupId>
-                <artifactId>jackson-core</artifactId>
-                <version>${jackson.version}</version>
             </dependency>
 
         </dependencies>

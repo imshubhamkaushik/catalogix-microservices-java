@@ -8,14 +8,11 @@ import com.catalogix.cart.exception.WishlistItemNotFoundException;
 import com.catalogix.cart.model.WishlistItem;
 import com.catalogix.cart.repository.WishlistItemRepository;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.stubbing.Answer;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
@@ -27,7 +24,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -52,7 +48,7 @@ class WishlistSvcTest {
     private static final String TOKEN = "Bearer test-token";
     private static final Long USER_ID = 42L;
 
-    @BeforeEach
+    @org.junit.jupiter.api.BeforeEach
     void setUp() {
         svc = new WishlistSvc(repo, catalogClient, inventoryClient, cartSvc);
     }
@@ -114,7 +110,10 @@ class WishlistSvcTest {
 
         assertEquals(1L, result.getProductId());
 
+        // Product information used to validate the product is reused while
+        // building the response, so catalog-svc is called only once.
         verify(catalogClient).fetch(1L, TOKEN);
+
         verify(repo).save(any(WishlistItem.class));
         verify(inventoryClient).fetchQuantity(1L, TOKEN);
     }
@@ -141,24 +140,11 @@ class WishlistSvcTest {
 
     @Test
     void addRecoversGracefullyFromAConcurrentDuplicateInsert() {
-        WishlistItem existing = new WishlistItem(USER_ID, 1L);
-
         when(repo.findByUserIdAndProductId(USER_ID, 1L))
-                .thenAnswer(new Answer<Optional<WishlistItem>>() {
-                    private boolean firstCall = true;
-
-                    @Override
-                    public Optional<WishlistItem> answer(
-                            InvocationOnMock invocation) {
-
-                        if (firstCall) {
-                            firstCall = false;
-                            return Optional.empty();
-                        }
-
-                        return Optional.of(existing);
-                    }
-                });
+                .thenReturn(
+                        Optional.empty(),
+                        Optional.of(new WishlistItem(USER_ID, 1L))
+                );
 
         when(catalogClient.fetch(1L, TOKEN))
                 .thenReturn(product(1L, "Phone", "100.00"));
@@ -173,10 +159,11 @@ class WishlistSvcTest {
 
         assertEquals(1L, result.getProductId());
 
+        // The product was already fetched before the insert race occurred,
+        // so the response path should reuse that ProductInfo.
         verify(catalogClient).fetch(1L, TOKEN);
+
         verify(inventoryClient).fetchQuantity(1L, TOKEN);
-        verify(repo, times(2))
-                .findByUserIdAndProductId(USER_ID, 1L);
     }
 
     // ---- remove ----

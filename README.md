@@ -1,5 +1,7 @@
 # Catalogix
 
+> **Looking for the AWS/Terraform/Jenkins/Kubernetes/monitoring setup?** See [`DEVOPS.md`](DEVOPS.md) for the full infrastructure and CI/CD documentation. This file covers the application itself.
+
 > **Architecture note:** this README's diagram and service list below
 > describe the original 4-service design (user-svc / product-svc / order-svc
 > / notification-svc). That design was later split further — cart, coupons,
@@ -13,41 +15,32 @@
 A small microservices-based product catalogue: register, log in, browse/manage products, and place orders.
 
 ```
-                        ┌─────────────┐
-   browser  ───────────▶│   gateway   │  nginx reverse proxy + rate limiting, port 11000
-                        └──────┬──────┘
-              ┌────────────────┼────────────────┬───────────────┐
-              ▼                ▼                 ▼               ▼
-        /users/*         /products/*        /orders/*        everything else
-              │                │                 │               │
-        ┌─────▼─────┐   ┌──────▼──────┐   ┌──────▼──────┐  ┌─────▼──────┐
-        │ user-svc  │   │ product-svc │   │  order-svc  │  │frontend-svc│
-        │  :11001    │   │   :11002     │◀──┤   :11007     │  │  (nginx)   │
-        └──┬───┬────┘   └──────┬──────┘   └────┬───┬────┘  └────────────┘
-           │   │               │                │   │
-           │   └───────┐  ┌────┘                │   │
-           │           ▼  ▼                     │   │
-           │     ┌───────────┐                  │   │
-           │     │  Postgres │◀─────────────────┘   │
-           │     └───────────┘                      │
-           │                                         ▼
-           │                                 ┌───────────────┐
-           └────────────────────────────────▶│notification-svc│  :11008
-                                              └───────┬───────┘
-                                                      ▼
-                                              ┌───────────────┐
-                                              │    Mailpit     │  dev SMTP catcher, :8025
-                                              └───────────────┘
+                         ┌──────────────┐
+ browser ──────────────▶│ gateway :80  │  nginx routing + rate limiting
+                         └──────┬───────┘
+                                │
+                    ┌───────────┴───────────┐
+                    │                       │
+                  /api/*                 / *
+                    │                       │
+                    ▼                       ▼
+             backend services         frontend-svc
+             11001–11009            nginx :11000
+
+ Local host entry point: http://localhost:11000 → gateway:80.
+ AWS: ALB → gateway:80 → frontend/backend services.
 ```
 
 - **user-svc** — registration, login, access+refresh tokens, password reset, email verification, profile editing, admin user directory
-- **product-svc** — product catalogue: search, pagination, categories, stock, caching
-- **order-svc** — places/cancels orders; calls product-svc (circuit-breaker-guarded) to price items and reserve/restore stock; fires order confirmation/cancellation emails
-- **notification-svc** — internal, service-to-service email delivery (SYSTEM-token-only API); everything it sends lands in Mailpit locally
+- **catalog-svc** — product catalogue: search, pagination, categories, pricing and product metadata
+- **checkout-svc** — owns orders and orchestrates catalog/inventory/cart/promotions/payment with compensation and idempotency; fires order confirmation/cancellation events
+- **notification-svc** — RabbitMQ-driven email delivery plus an admin notification log; everything it sends lands in Mailpit locally
 - **frontend-svc** — React (Vite) SPA, served as static files by nginx
-- **gateway** — nginx reverse proxy + rate limiting; the single entry point browsers talk to
+- **gateway** — nginx application gateway + rate limiting; the single browser entry point in both local Compose and EKS (behind the AWS ALB)
 
-Each service also exposes interactive API docs at `/swagger-ui.html` (e.g. `http://localhost:11001/swagger-ui.html` for user-svc).
+Current backend services use ports **11001–11009** in the order documented in [ARCHITECTURE.md](./ARCHITECTURE.md); `frontend-svc` listens on **11000** internally, and the browser-facing gateway is **localhost:11000** locally (gateway container port 80).
+
+Each backend service exposes interactive API docs at `/swagger-ui.html` when reached through its own service endpoint. In local Compose, backend ports are internal to the Docker network, so direct browser access to a service requires temporarily publishing that service for debugging rather than relying on the gateway.
 
 ## Quick start
 
@@ -61,9 +54,21 @@ docker compose up --build
 
 Then open **http://localhost:11000**. Register an account, or register with an email listed in `ADMIN_EMAILS` to get an admin account (admins see everyone's orders and can manage the user directory).
 
-Postgres is also published on `localhost:5432`, and each backend service on its own port (11001/11002/11007/11008) for direct access/debugging, if you want to inspect them without going through the gateway. Every email any service sends lands in **Mailpit** at `http://localhost:8025` — nothing is ever actually delivered anywhere, so this is where you'll see verification links, password reset links, and order confirmations.
+Postgres is published on `localhost:5432`; backend service ports are internal to the Docker network so the gateway is the sole browser-facing application entry point. Every email any service sends lands in **Mailpit** at `http://localhost:8025` — nothing is ever actually delivered anywhere, so this is where you'll see verification links, password reset links, and order confirmations.
 
 ## What's in this version
+
+> **This whole section describes the pre-split, 4-service design** (the
+> features themselves — JWT refresh rotation, login lockout, the circuit
+> breaker, the compensation outbox, password reset, email verification —
+> genuinely still exist, just redistributed across the current 9 services
+> rather than living in `order-svc`/`product-svc` as described below). The
+> exact service name each feature now lives in, and any detail that
+> changed in the split (e.g. notification-svc is now a pure RabbitMQ
+> consumer with an admin-only log, not the synchronous `POST
+> /notifications/email` endpoint described below), isn't re-verified line
+> by line here — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the current
+> service map and [DEVOPS.md](./DEVOPS.md) for the current infrastructure.
 
 ### Authentication & security
 - **Access + refresh tokens.** Login/registration issue a short-lived JWT (15 min by default) plus a long-lived opaque refresh token, stored hashed (SHA-256) in user-svc's DB. `POST /users/refresh` rotates it — each use revokes the old refresh token and issues a new one, so a stolen-then-reused old token is easy to spot (its hash is already marked revoked). The frontend does this silently: a 401 triggers one shared refresh-and-retry before falling back to logging out.
@@ -99,13 +104,13 @@ Postgres is also published on `localhost:5432`, and each backend service on its 
 
 ## Roadmap (in progress across sessions)
 
-This is being built in phases, each unlocking the next:
+This was built in phases, each unlocking the next:
 
-1. ~~notification-svc + password reset + email verification + profile editing~~ ✅ this round
-2. **Commerce completeness** (server-side cart, payment step, richer order status, coupons) — next
-3. **Message broker conversion** — convert order-svc → notification-svc (and eventually → product-svc) from direct HTTP calls to published events, using notification-svc's existence as the first real consumer
-4. Catalog depth (images, variants, reviews) and a seller dashboard
-5. Real search (OpenSearch), last since it's the most invasive new infrastructure
+1. ~~notification-svc + password reset + email verification + profile editing~~ ✅
+2. ~~**Commerce completeness** (server-side cart, payment step, richer order status, coupons)~~ ✅ — cart-svc, payment-svc, promotions-svc all exist now
+3. ~~**Message broker conversion**~~ ✅ — RabbitMQ now carries compensation events (checkout-svc's outbox) and notification delivery, with real cluster-capable HA and quorum queue declarations; see [ARCHITECTURE.md](./ARCHITECTURE.md)
+4. ~~Catalog depth (reviews) and a seller dashboard~~ — review-svc exists; no seller-facing dashboard yet, only the admin views (Users/Coupons/Outbox/Notifications)
+5. **Real search (OpenSearch)** — still not done, deliberately last since it's the most invasive new infrastructure to add
 
 ## Configuration
 
@@ -118,7 +123,7 @@ See `.env.example` for the full list. Must-changes for anything beyond local tes
 ## Running tests
 
 ```bash
-mvn test                    # all backend services (needs Docker for the Testcontainers-based product-svc integration test)
+mvn test                    # all backend services
 cd frontend-svc && npm test # Vitest + React Testing Library
 ```
 
@@ -126,13 +131,11 @@ cd frontend-svc && npm test # Vitest + React Testing Library
 
 Being upfront about what's *not* production-hardened here:
 
-- **Still not a full distributed saga.** The outbox covers *compensation* reliably now, but the initial multi-item reservation loop in `createOrder` is still synchronous, one item at a time. A saga/choreography approach (or moving the whole flow onto a message broker) would be the next step for true cross-service atomicity.
+- **Still not a full distributed saga at the reservation-loop level.** The compensation outbox (see below) reliably undoes partial failures now, but the initial multi-item reservation loop in checkout-svc's `createOrder`-equivalent is still synchronous, one item at a time. RabbitMQ exists in this system (compensation events, notification delivery), but this specific loop doesn't use it yet.
 - **In-memory state doesn't survive a restart or scale past one replica.** The login-lockout tracker, the Caffeine product cache, and the circuit breaker's state are all per-instance. Fine for a single instance; a multi-replica deployment would want these backed by something shared (Redis, typically) instead.
-- **`user-svc`, `product-svc`, `order-svc` and `notification-svc` have no container-level healthcheck.** They run on a distroless base image with no shell or wget, so `docker compose`'s `healthcheck:` isn't practical there; they rely on `depends_on` + `restart: unless-stopped` instead. `gateway` and `frontend-svc` (both nginx-based) do have real healthchecks.
+- **Backend services have no container-level healthcheck.** They run on a distroless base image with no shell or wget, so `docker compose`'s `healthcheck:` isn't practical there; they rely on `depends_on` + `restart: unless-stopped` instead. `gateway` and `frontend-svc` (both nginx-based) do have real healthchecks.
 - **Email verification isn't a login gate.** An unverified account can still do everything — the UI just shows a banner. Making it a hard gate is a product decision more than a technical one (it locks out anyone whose verification email got lost/delayed/spam-filtered), so this build tracks the status without enforcing it. Flip it in `UserSvc.login()` if you want it enforced.
-- **notification-svc's `notification_log` is an audit trail, not a retry queue.** A failed send is recorded and returned to the caller as `status: FAILED`, but nothing automatically retries it (unlike order-svc's stock-adjustment outbox, which does). A lost password-reset email today just means the user requests another one.
-- **No message broker yet.** user-svc/order-svc call notification-svc synchronously (well, `@Async` on order-svc's side, but still a direct HTTP call). See the Roadmap above — this is the natural next seam for an event-driven conversion.
+- **notification-svc's `notification_log` is an audit trail, not a retry queue.** A failed send is recorded and returned as `status: FAILED`, but nothing automatically retries a failed *email send itself* — unlike checkout-svc's compensation outbox, which does retry with backoff for failed compensations (stock releases, coupon restores). A lost password-reset email today just means the user requests another one.
 - **PATCH /products/{id}/stock is open to any authenticated user**, not just the product's owner — intentional, since placing an order needs to decrement a *different* user's stock, but it does mean any logged-in user could technically restock or deplete someone else's listing directly if they called the endpoint themselves outside the normal order flow.
 - **`react-router-dom` has an open moderate-severity advisory** (open-redirect related) with no patched 6.x release available as of this writing — `npm audit` will still flag it. Tracked, not ignored; re-run `npm audit` periodically and upgrade when a fix lands (likely requires a v7 migration).
 - **Refresh tokens are returned in the JSON body**, not an httpOnly cookie, consistent with this app's existing localStorage-based session model — a real hardening pass would move to httpOnly cookies to reduce XSS exposure, which'd need a bigger frontend/CORS rework than fits here.
-- **No CI pipeline, no distributed tracing/centralized logs, no IaC/Kubernetes manifests.** Still docker-compose-only; see the "what level is this at" conversation for the fuller list of what a production deployment would still need.

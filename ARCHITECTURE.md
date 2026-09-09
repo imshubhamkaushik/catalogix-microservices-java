@@ -10,39 +10,46 @@ and turning order-svc into a proper saga orchestrator.
 
 ## Service map
 
-```
-                                  ┌─────────────┐
-        browser ─────────────────▶│   gateway   │  nginx, rate-limited, port 11000
-                                  └──────┬──────┘
-      ┌──────────┬──────────────┬───────┼────────┬─────────────┬──────────────┐
-      ▼          ▼              ▼       ▼        ▼             ▼              ▼
-  /users/*  /products/*     /orders/*  /cart/*  /coupons/*  everything else
-      │          │              │       │        │             │
- ┌────▼────┐┌────▼─────┐  ┌─────▼─────┐┌▼───────┐┌▼───────────┐┌▼───────────┐
- │user-svc ││catalog-svc│  │checkout-svc││cart-svc││promotions- ││frontend-svc│
- │ :11001   ││  :11002    │  │  :11007    ││ :11004  ││svc  :11005  ││  (nginx)   │
- └────┬────┘└─────┬─────┘  └─────┬─────┘└───┬────┘└─────┬──────┘└────────────┘
-      │           │               │          │           │
-      │     ┌─────▼──────┐        │    ┌─────┴───────────┴────┐
-      │     │inventory-  │◀───────┼────┤ (cart/checkout also  │
-      │     │svc  :11003  │        │    │  read catalog/       │
-      │     └────────────┘        │    │  inventory/promotions│
-      │                           ▼    │  directly, not shown │
-      │                     ┌──────────┴┐ as arrows to avoid   │
-      │                     │payment-svc│ a diagram of spaghetti)
-      │                     │  :11006    │ — not reachable via the
-      │                     └───────────┘  gateway; checkout-svc
-      │                                    is its only caller
-      ▼
- ┌──────────┐        events over RabbitMQ        ┌──────────────────┐
- │ RabbitMQ │◀───────────────────────────────────▶│ notification-svc │ :11008
- └──────────┘   (user-svc, checkout-svc publish;  └──────────────────┘
-                 notification-svc consumes)
+```text
+                                  ┌─────────────────┐
+        browser ─────────────────▶│     AWS ALB     │
+                                  └────────┬────────┘
+                                           │
+                                  ┌────────▼────────┐
+                                  │     gateway     │
+                                  │ nginx :80       │
+                                  │ /api routing    │
+                                  │ rate limiting   │
+                                  └───────┬─────────┘
+                           ┌──────────────┼──────────────┐
+                           │              │              │
+                           ▼              ▼              ▼
+                    /api/users/*   /api/products/*   /api/orders/* ...
+                           │              │              │
+                      user-svc       catalog-svc     checkout-svc
+                       :11001          :11002           :11007
 
- Every service above also exports traces via OTLP to Jaeger (:16686).
- Every service has its own Postgres database (one shared instance,
- database-per-service — see postgres-init/).
+                                          │
+                                  everything else
+                                          ▼
+                                   frontend-svc
+                                      :11000
+
+      Gateway routes also include /api/cart, /api/wishlist, /api/coupons,
+      /api/notifications, /api/reviews and /api/admin. inventory-svc (:11003)
+      and payment-svc (:11006) remain internal-only and have no gateway route.
+
+      checkout-svc calls catalog/inventory/promotions/payment/cart/user over
+      the internal service network; catalog-svc calls inventory/review;
+      review-svc calls checkout-svc. RabbitMQ carries user/checkout events to
+      notification-svc. Every service exports traces via OTLP to the monitoring
+      stack, and each service has its own logical Postgres database.
 ```
+
+The `/api` prefix is intentional: the React application has client-side routes
+like `/products`, `/orders`, `/users`, `/coupons` and `/reviews`. Keeping APIs
+under `/api/*` means a browser refresh can unambiguously reach the SPA while
+AJAX requests are routed to the correct backend service.
 
 ## What owns what
 
@@ -86,36 +93,32 @@ shape (see `payOrder()` / `cancelOrder()` in `CheckoutSvc`).
 - **Cart stays adjacent to checkout, not merged into it** — it's still its
   own service so it can be read/written independently of order placement,
   but nothing about it needed choreography or events; it's a thin service.
-- **No API gateway logic beyond routing** — no BFF-style aggregation beyond
+- **No API gateway logic beyond routing/rate limiting** — no BFF-style aggregation beyond
   catalog-svc composing its own stock reads from inventory-svc for external
   API-shape compatibility.
 - **No service discovery / config server** — docker-compose's DNS-by-container-name
   is doing that job. Fine at this scale; Eureka/Consul (or Kubernetes' own
   DNS) is the natural replacement if this ever runs across multiple hosts.
-- **No contract testing (Pact) or shared event schema registry** — the
-  clients in each service (`CatalogClient`, `InventoryClient`, etc.) are
-  hand-maintained subsets of each other's DTOs. This is real risk (a
-  renamed field in catalog-svc's `ProductResponse` fails silently at
-  runtime, not at build time) and the most concrete next piece of
-  infrastructure worth adding if this split is kept.
 
 ## Honest scope notes from this pass
 
 - **Database-per-service here means separate logical databases on one
-  shared Postgres instance**, not separate managed instances, and every
-  service still authenticates with the same Postgres role. Isolation is by
-  database name, not credential. Per-service DB roles/grants is the natural
-  next hardening step.
-- **No test suites were ported for the new or restructured services.**
-  catalog-svc's and checkout-svc's old tests referenced APIs that no longer
-  exist and were removed rather than left broken; none of the four brand
-  new services (payment/inventory/cart/promotions-svc) have tests yet. This
-  is real debt, not an oversight being glossed over.
-- **None of this has been compiled.** The sandbox this was built in has no
-  `mvn`/`javac`. Every cross-service method signature was manually
-  cross-checked against its caller, but "manually checked" is not "verified
-  by a compiler" — expect to spend a first pass fixing whatever `mvn compile`
-  turns up per module before this actually runs.
+  shared Postgres instance**, not separate managed instances. Per-service
+  DB ROLES now exist too (`terraform/platform-infra/modules/db-roles`) —
+  each service authenticates with its own role, not a shared master
+  credential. This is role-level isolation on a shared instance, not
+  instance-level isolation, stated honestly: the RDS instance itself being
+  down or under heavy load still affects every service regardless.
+- **Test coverage is real and service-focused.** Backend services have unit/controller tests around their current business logic and HTTP behavior, with the frontend covered by Vitest/Testing Library. Integration-style tests should be added selectively where a real external dependency is important; the project does not require a separate contract-testing platform for the current scope.
+- **Static analysis and, where possible, real execution — not uniformly
+  either.** Terraform/Helm/most Java has been cross-referenced and traced
+  by hand (this caught real bugs — a `relativePath` bug affecting all 9
+  services' parent POM resolution, a staging environment with a wrong
+  Terraform variable name and 2 missing required arguments, and other integration/configuration issues). The frontend 
+  instance is the only genuine exception: actually installed,
+  built, and run for real that static review never would have
+  surfaced. Expect a first pass with `mvn compile`/`terraform plan`/`helm
+  template` to turn up things neither method caught.
 
 ## When was this split actually worth it?
 
