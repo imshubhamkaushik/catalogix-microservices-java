@@ -4,7 +4,10 @@ import com.catalogix.checkout.exception.ProductUnavailableException;
 import com.catalogix.security.JwtService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -49,8 +52,11 @@ public class InventoryClient {
         var body = new java.util.HashMap<String, Object>();
         body.put("delta", delta);
         try {
-            restTemplate.exchange(inventorySvcUrl + "/inventory/" + productId + "/adjust",
-                    HttpMethod.PATCH, new HttpEntity<>(body, headers), Void.class);
+            restTemplate.exchange(
+                    inventorySvcUrl + "/inventory/" + productId + "/adjust",
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(body, headers),
+                    Void.class);
         } catch (HttpClientErrorException.Conflict e) {
             throw new ProductUnavailableException(
                     "Insufficient stock for product " + productId);

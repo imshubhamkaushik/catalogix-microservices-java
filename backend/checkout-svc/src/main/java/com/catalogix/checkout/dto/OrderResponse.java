@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.List;
 
 public class OrderResponse {
+
     private Long id;
     private Long userId;
     private OrderStatus status;
@@ -18,40 +19,32 @@ public class OrderResponse {
     private ShippingAddressSummary shippingAddress;
 
     public OrderResponse() {
+        /*
+         * Required by Jackson to instantiate this DTO during JSON deserialization.
+         * Fields are populated through setters after construction.
+         */
     }
 
-    // Kept for existing callers that don't care about coupons (defaults to no
-    // discount); prefer the 9-arg constructor for real use.
-    public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
-                          Instant createdAt, List<OrderItemResponse> items) {
-        this(id, userId, status, totalAmount, createdAt, items, null, BigDecimal.ZERO, null);
-    }
-
-    // Kept for callers from before shippingAddress existed.
-    public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
-                          Instant createdAt, List<OrderItemResponse> items,
-                          String appliedCouponCode, BigDecimal discountAmount) {
-        this(id, userId, status, totalAmount, createdAt, items, appliedCouponCode, discountAmount, null);
-    }
-
-    public OrderResponse(Long id, Long userId, OrderStatus status, BigDecimal totalAmount,
-                          Instant createdAt, List<OrderItemResponse> items,
-                          String appliedCouponCode, BigDecimal discountAmount,
-                          ShippingAddressSummary shippingAddress) {
+    public OrderResponse(
+            Long id,
+            Long userId,
+            OrderStatus status,
+            BigDecimal totalAmount,
+            Instant createdAt,
+            List<OrderItemResponse> items) {
         this.id = id;
         this.userId = userId;
         this.status = status;
         this.totalAmount = totalAmount;
         this.createdAt = createdAt;
         this.items = items;
-        this.appliedCouponCode = appliedCouponCode;
-        this.discountAmount = discountAmount;
-        this.shippingAddress = shippingAddress;
+        this.discountAmount = BigDecimal.ZERO;
     }
 
     public Long getId() {
         return id;
     }
+
     public void setId(Long id) {
         this.id = id;
     }
@@ -59,6 +52,7 @@ public class OrderResponse {
     public Long getUserId() {
         return userId;
     }
+
     public void setUserId(Long userId) {
         this.userId = userId;
     }
@@ -66,6 +60,7 @@ public class OrderResponse {
     public OrderStatus getStatus() {
         return status;
     }
+
     public void setStatus(OrderStatus status) {
         this.status = status;
     }
@@ -73,6 +68,7 @@ public class OrderResponse {
     public BigDecimal getTotalAmount() {
         return totalAmount;
     }
+
     public void setTotalAmount(BigDecimal totalAmount) {
         this.totalAmount = totalAmount;
     }
@@ -80,6 +76,7 @@ public class OrderResponse {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
@@ -87,6 +84,7 @@ public class OrderResponse {
     public List<OrderItemResponse> getItems() {
         return items;
     }
+
     public void setItems(List<OrderItemResponse> items) {
         this.items = items;
     }
@@ -94,6 +92,7 @@ public class OrderResponse {
     public String getAppliedCouponCode() {
         return appliedCouponCode;
     }
+
     public void setAppliedCouponCode(String appliedCouponCode) {
         this.appliedCouponCode = appliedCouponCode;
     }
@@ -101,6 +100,7 @@ public class OrderResponse {
     public BigDecimal getDiscountAmount() {
         return discountAmount;
     }
+
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
     }
@@ -108,6 +108,7 @@ public class OrderResponse {
     public ShippingAddressSummary getShippingAddress() {
         return shippingAddress;
     }
+
     public void setShippingAddress(ShippingAddressSummary shippingAddress) {
         this.shippingAddress = shippingAddress;
     }

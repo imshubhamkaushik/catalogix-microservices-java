@@ -2,7 +2,10 @@ package com.catalogix.checkout.client;
 
 import com.catalogix.security.JwtService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -43,8 +46,11 @@ public class RefundClient {
 
         var resp = restTemplate.exchange(paymentSvcUrl + "/payments/refund", HttpMethod.POST,
                 new HttpEntity<>(body, headers), RawRefund.class);
-        RawRefund r = resp.getBody();
-        return new RefundOutcome(r != null ? r.reference : null);
+        RawRefund responseBody = resp.getBody();
+        if (responseBody == null) {
+            throw new IllegalStateException("payment-svc returned an empty refund response");
+        }
+        return new RefundOutcome(responseBody.reference);
     }
 
     static class RawRefund {

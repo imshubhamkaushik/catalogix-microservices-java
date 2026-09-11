@@ -12,6 +12,10 @@ public class PagedResponse<T> {
     private int totalPages;
 
     public PagedResponse() {
+        /*
+         * Required by Jackson for DTO deserialization. Fields are populated
+         * through setters after construction.
+         */
     }
 
     public PagedResponse(List<T> content, int page, int size, long totalElements, int totalPages) {

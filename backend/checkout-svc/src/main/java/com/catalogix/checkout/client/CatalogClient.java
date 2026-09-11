@@ -33,8 +33,11 @@ public class CatalogClient {
         try {
             var resp = restTemplate.exchange(catalogSvcUrl + "/products/" + productId,
                     HttpMethod.GET, new HttpEntity<>(headers), RawProduct.class);
-            RawProduct p = resp.getBody();
-            return new ProductDto(p.id, p.name, p.price);
+            RawProduct body = resp.getBody();
+            if (body == null) {
+                throw new IllegalStateException("catalog-svc returned an empty product response");
+            }
+            return new ProductDto(body.id, body.name, body.price);
         } catch (HttpClientErrorException.NotFound e) {
             throw new ProductUnavailableException("Product not found: " + productId);
         }

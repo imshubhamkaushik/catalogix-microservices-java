@@ -22,6 +22,10 @@ public class CreateOrderRequest {
     private Long addressId;
 
     public CreateOrderRequest() {
+        /*
+        * Required by Jackson to instantiate this DTO during JSON deserialization.
+        * Fields are populated through the setters after construction.
+        */
     }
 
     public List<OrderItemRequest> getItems() {

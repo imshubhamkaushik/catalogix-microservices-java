@@ -1,6 +1,14 @@
 package com.catalogix.checkout.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 
@@ -32,6 +40,10 @@ public class OrderItem {
     private BigDecimal unitPrice;
 
     public OrderItem() {
+        /*
+         * Required by JPA for entity instantiation. Fields are populated after
+         * construction by Hibernate or the domain service.
+         */
     }
 
     public OrderItem(Long productId, String productName, Integer quantity, BigDecimal unitPrice) {

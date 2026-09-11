@@ -10,6 +10,10 @@ public class OrderItemResponse {
     private BigDecimal subtotal;
 
     public OrderItemResponse() {
+        /*
+         * Required by Jackson for DTO deserialization. Fields are populated
+         * through setters after construction.
+         */
     }
 
     public OrderItemResponse(Long productId, String productName, Integer quantity,

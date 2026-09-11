@@ -15,7 +15,12 @@ public class ResetPasswordRequest {
     )
     private String newPassword;
 
-    public ResetPasswordRequest() {}
+    public ResetPasswordRequest() {
+        /*
+         * Required by Jackson to instantiate this DTO during JSON deserialization.
+         * Fields are populated through the setters after construction.
+         */
+    }
 
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }

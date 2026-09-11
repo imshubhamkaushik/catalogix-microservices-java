@@ -42,10 +42,12 @@ public class GlobalExceptionHandler {
     // controller method runs, so this is the only place to catch it.
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        Class<?> requiredType = ex.getRequiredType();
+
         String message;
-        if (ex.getRequiredType() != null && ex.getRequiredType().isEnum()) {
+        if (requiredType != null && requiredType.isEnum()) {
             message = "Invalid value for '" + ex.getName() + "': " + ex.getValue()
-                    + ". Valid values: " + Arrays.toString(ex.getRequiredType().getEnumConstants());
+                    + ". Valid values: " + Arrays.toString(requiredType.getEnumConstants());
         } else {
             message = "Invalid value for '" + ex.getName() + "': " + ex.getValue();
         }

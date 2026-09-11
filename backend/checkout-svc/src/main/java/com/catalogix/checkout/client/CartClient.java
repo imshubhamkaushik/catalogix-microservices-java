@@ -1,7 +1,9 @@
 package com.catalogix.checkout.client;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -29,9 +31,16 @@ public class CartClient {
     public Handoff handoff(String bearerToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, bearerToken);
-        var resp = restTemplate.exchange(cartSvcUrl + "/cart/handoff", HttpMethod.GET,
-                new HttpEntity<>(headers), Handoff.class);
-        return resp.getBody();
+        var resp = restTemplate.exchange(
+                cartSvcUrl + "/cart/handoff",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                Handoff.class);
+        Handoff body = resp.getBody();
+        if (body == null) {
+            throw new IllegalStateException("cart-svc returned an empty checkout handoff");
+        }
+        return body;
     }
 
     public void clear(String bearerToken) {

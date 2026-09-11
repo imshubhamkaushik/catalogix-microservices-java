@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
@@ -141,10 +143,18 @@ class WishlistSvcTest {
     @Test
     void addRecoversGracefullyFromAConcurrentDuplicateInsert() {
         when(repo.findByUserIdAndProductId(USER_ID, 1L))
-                .thenReturn(
-                        Optional.empty(),
-                        Optional.of(new WishlistItem(USER_ID, 1L))
-                );
+                .thenAnswer(new Answer<Optional<WishlistItem>>() {
+                        private int invocationCount;
+
+                        @Override
+                        public Optional<WishlistItem> answer(InvocationOnMock invocation) {
+                                invocationCount++;
+
+                                return invocationCount == 1
+                                        ? Optional.empty()
+                                        : Optional.of(new WishlistItem(USER_ID, 1L));
+                        }
+                });
 
         when(catalogClient.fetch(1L, TOKEN))
                 .thenReturn(product(1L, "Phone", "100.00"));

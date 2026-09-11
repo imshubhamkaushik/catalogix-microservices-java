@@ -1,14 +1,34 @@
 package com.catalogix.checkout.svc;
 
-import com.catalogix.checkout.client.*;
-import com.catalogix.checkout.dto.*;
+import com.catalogix.checkout.client.AddressClient;
+import com.catalogix.checkout.client.CartClient;
+import com.catalogix.checkout.client.CatalogClient;
+import com.catalogix.checkout.client.CheckoutClients;
+import com.catalogix.checkout.client.PaymentClient;
+import com.catalogix.checkout.client.PromotionsClient;
+import com.catalogix.checkout.dto.CreateOrderRequest;
+import com.catalogix.checkout.dto.InvoiceLineResponse;
+import com.catalogix.checkout.dto.InvoiceResponse;
+import com.catalogix.checkout.dto.OrderItemResponse;
+import com.catalogix.checkout.dto.OrderResponse;
+import com.catalogix.checkout.dto.OrderTrackingResponse;
+import com.catalogix.checkout.dto.PagedResponse;
+import com.catalogix.checkout.dto.PayOrderRequest;
+import com.catalogix.checkout.dto.ShippingAddressSummary;
+import com.catalogix.checkout.dto.TrackingEventResponse;
 import com.catalogix.checkout.event.OrderCancelledEvent;
 import com.catalogix.checkout.event.OrderConfirmedEvent;
 import com.catalogix.checkout.event.OrderItemEventData;
 import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.exception.InvalidOrderStateException;
 import com.catalogix.checkout.exception.OrderNotFoundException;
-import com.catalogix.checkout.model.*;
+import com.catalogix.checkout.exception.RefundFailedException;
+import com.catalogix.checkout.model.CompensationOutbox;
+import com.catalogix.checkout.model.Order;
+import com.catalogix.checkout.model.OrderItem;
+import com.catalogix.checkout.model.OrderStatus;
+import com.catalogix.checkout.model.OrderStatusEvent;
+import com.catalogix.checkout.model.PaymentMethod;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
 import com.catalogix.checkout.repository.OrderRepository;
 
@@ -65,26 +85,17 @@ public class CheckoutSvc {
 
     private final OrderRepository repo;
     private final CompensationOutboxRepository outboxRepo;
-    private final CatalogClient catalogClient;
-    private final InventoryClient inventoryClient;
-    private final PromotionsClient promotionsClient;
-    private final PaymentClient paymentClient;
-    private final CartClient cartClient;
-    private final AddressClient addressClient;
+    private final CheckoutClients clients;
     private final ApplicationEventPublisher eventPublisher;
 
-    public CheckoutSvc(OrderRepository repo, CompensationOutboxRepository outboxRepo, CatalogClient catalogClient,
-                        InventoryClient inventoryClient, PromotionsClient promotionsClient,
-                        PaymentClient paymentClient, CartClient cartClient, AddressClient addressClient,
-                        ApplicationEventPublisher eventPublisher) {
+    public CheckoutSvc(
+            OrderRepository repo,
+            CompensationOutboxRepository outboxRepo,
+            CheckoutClients clients,
+            ApplicationEventPublisher eventPublisher) {
         this.repo = repo;
         this.outboxRepo = outboxRepo;
-        this.catalogClient = catalogClient;
-        this.inventoryClient = inventoryClient;
-        this.promotionsClient = promotionsClient;
-        this.paymentClient = paymentClient;
-        this.cartClient = cartClient;
-        this.addressClient = addressClient;
+        this.clients = clients;
         this.eventPublisher = eventPublisher;
     }
 
@@ -119,7 +130,7 @@ public class CheckoutSvc {
             return existing.get();
         }
 
-        CartClient.Handoff handoff = cartClient.handoff(bearerToken);
+        CartClient.Handoff handoff = clients.cart().handoff(bearerToken);
         if (handoff == null) {
             throw new IllegalStateException("cart-svc returned a null checkout handoff");
         }
@@ -129,15 +140,13 @@ public class CheckoutSvc {
 
         if (result.wasNew()) {
             try {
-                cartClient.clear(bearerToken);
+                clients.cart().clear(bearerToken);
             } catch (RuntimeException e) {
                 log.warn("Order {} placed but clearing the cart failed: {}", result.order().getId(), e.getMessage());
             }
         }
         return result;
     }
-
-
 
     private Optional<OrderCreationResult> existingOrder(Long userId, String idempotencyKey) {
         if (idempotencyKey == null) {
@@ -158,15 +167,15 @@ public class CheckoutSvc {
         try {
             BigDecimal subtotal = BigDecimal.ZERO;
             for (CartClient.ItemLine line : items) {
-                CatalogClient.ProductDto product = catalogClient.fetch(line.productId(), bearerToken);
-                inventoryClient.adjust(line.productId(), -line.quantity());
+                CatalogClient.ProductDto product = clients.catalog().fetch(line.productId(), bearerToken);
+                clients.inventory().adjust(line.productId(), -line.quantity());
                 reserved.add(new ReservedItem(product.id(), product.name(), product.price(), line.quantity()));
                 subtotal = subtotal.add(product.price().multiply(BigDecimal.valueOf(line.quantity())));
             }
 
             BigDecimal discount = BigDecimal.ZERO;
             if (couponCode != null && !couponCode.isBlank()) {
-                PromotionsClient.DiscountDto d = promotionsClient.commit(couponCode, subtotal, bearerToken);
+                PromotionsClient.DiscountDto d = clients.promotions().commit(couponCode, subtotal, bearerToken);
                 discount = d.discountAmount();
                 committedCouponCode = d.code();
             }
@@ -185,7 +194,7 @@ public class CheckoutSvc {
             order.setTotalAmount(subtotal.subtract(discount));
 
             if (addressId != null) {
-                AddressClient.AddressDto address = addressClient.fetch(addressId, bearerToken);
+                AddressClient.AddressDto address = clients.address().fetch(addressId, bearerToken);
                 order.setShippingLabel(address.label());
                 order.setShippingLine1(address.line1());
                 order.setShippingLine2(address.line2());
@@ -223,7 +232,7 @@ public class CheckoutSvc {
                     "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
         }
 
-        PaymentClient.PaymentOutcome payment = paymentClient.process(orderId, userId, order.getTotalAmount(), req);
+        PaymentClient.PaymentOutcome payment = clients.payment().process(orderId, userId, order.getTotalAmount(), req);
 
         if (payment.succeeded()) {
             order.setStatus(OrderStatus.CONFIRMED);
@@ -378,6 +387,17 @@ public class CheckoutSvc {
                     "Order " + id + " can no longer be cancelled (current status: " + order.getStatus() + ")");
         }
 
+        if (order.getStatus() == OrderStatus.CONFIRMED
+                && order.getPaymentMethod() != null
+                && order.getPaymentMethod() != PaymentMethod.COD) {
+            try {
+                clients.refund().refund(order.getId(), order.getTotalAmount());
+            } catch (RuntimeException e) {
+                throw new RefundFailedException(
+                        "Refund failed for cancelled order " + id);
+            }
+        }
+
         releaseOrderSideEffects(order, bearerToken, "cancel-order-" + id);
         order.setStatus(OrderStatus.CANCELLED);
         boolean isOwnCancellation = order.getUserId() != null && order.getUserId().equals(userId);
@@ -402,7 +422,7 @@ public class CheckoutSvc {
     private void compensateWithReason(List<ReservedItem> reserved, String couponCode, String bearerToken, String reason) {
         for (ReservedItem r : reserved) {
             try {
-                inventoryClient.adjust(r.productId(), r.quantity());
+                clients.inventory().adjust(r.productId(), r.quantity());
             } catch (RuntimeException compensationError) {
                 log.warn("Live stock-release failed for product {} ({}), queuing to outbox: {}",
                         r.productId(), reason, compensationError.getMessage());
@@ -411,7 +431,7 @@ public class CheckoutSvc {
         }
         if (couponCode != null) {
             try {
-                promotionsClient.release(couponCode, bearerToken);
+                clients.promotions().release(couponCode, bearerToken);
             } catch (RuntimeException compensationError) {
                 log.warn("Live coupon-release failed for {} ({}), queuing to outbox: {}",
                         couponCode, reason, compensationError.getMessage());
@@ -444,9 +464,12 @@ public class CheckoutSvc {
                         order.getShippingLabel(), order.getShippingLine1(), order.getShippingLine2(),
                         order.getShippingCity(), order.getShippingState(),
                         order.getShippingPincode(), order.getShippingPhone());
-        return new OrderResponse(
+        OrderResponse response = new OrderResponse(
                 order.getId(), order.getUserId(), order.getStatus(), order.getTotalAmount(),
-                order.getCreatedAt(), items, order.getAppliedCouponCode(), order.getDiscountAmount(),
-                shippingAddress);
+                order.getCreatedAt(), items);
+        response.setAppliedCouponCode(order.getAppliedCouponCode());
+        response.setDiscountAmount(order.getDiscountAmount());
+        response.setShippingAddress(shippingAddress);
+        return response;
     }
 }

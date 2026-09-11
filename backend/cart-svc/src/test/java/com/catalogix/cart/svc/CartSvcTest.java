@@ -203,9 +203,9 @@ class CartSvcTest {
         // code exactly as passed in ("save10"), then again inside the
         // toResponse() it calls afterwards, by which point the code on the
         // entity has already been uppercased to "SAVE10" — see CartSvc.applyCoupon.
-        when(promotionsClient.preview(eq("save10"), eq(new BigDecimal("200.00")), eq(TOKEN)))
+        when(promotionsClient.preview("save10", new BigDecimal("200.00"), TOKEN))
                 .thenReturn(new BigDecimal("20.00"));
-        when(promotionsClient.preview(eq("SAVE10"), eq(new BigDecimal("200.00")), eq(TOKEN)))
+        when(promotionsClient.preview("SAVE10", new BigDecimal("200.00"), TOKEN))
                 .thenReturn(new BigDecimal("20.00"));
 
         CartResponse resp = svc.applyCoupon(42L, "save10", TOKEN);

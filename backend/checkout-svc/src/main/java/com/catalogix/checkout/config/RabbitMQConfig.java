@@ -1,13 +1,13 @@
 package com.catalogix.checkout.config;
 
 import org.springframework.amqp.core.TopicExchange;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * order-svc is a publisher only here — it declares the exchange (safe/idempotent
+ * checkout-svc is a publisher only here — it declares the exchange (safe/idempotent
  * even if notification-svc's consumer-side declaration races it at startup) and
  * sends JSON messages to it; it declares no queues of its own.
  */
@@ -23,6 +23,6 @@ public class RabbitMQConfig {
 
     @Bean
     public MessageConverter jsonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
+        return new JacksonJsonMessageConverter();
     }
 }

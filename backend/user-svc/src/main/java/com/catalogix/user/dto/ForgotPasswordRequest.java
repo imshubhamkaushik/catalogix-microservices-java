@@ -9,7 +9,12 @@ public class ForgotPasswordRequest {
     @Email(message = "email must be valid")
     private String email;
 
-    public ForgotPasswordRequest() {}
+    public ForgotPasswordRequest() {
+        /*
+         * Required by Jackson to instantiate this DTO during JSON deserialization.
+         * Fields are populated through the setters after construction.
+         */
+    }
 
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }

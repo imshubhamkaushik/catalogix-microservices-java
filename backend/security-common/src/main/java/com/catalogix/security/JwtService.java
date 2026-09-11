@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 
 /**
@@ -52,7 +54,7 @@ public class JwtService {
     private static final String SYSTEM_SUBJECT = "0";
     private static final String SYSTEM_ROLE = "SYSTEM";
     private static final String SYSTEM_EMAIL = "system@internal";
-    private static final long SYSTEM_TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
+    private static final Duration SYSTEM_TOKEN_TTL = Duration.ofMinutes(5); // 5 minutes
 
     public JwtService(@Value("${JWT_SECRET}") String secret) {
         if (secret == null || secret.length() < 32) {
@@ -80,14 +82,14 @@ public class JwtService {
 
     /** Mints a short-lived token identifying this call as coming from the system itself, not a user. */
     public String generateSystemToken() {
-        Date now = new Date();
-        Date expiry = new Date(now.getTime() + SYSTEM_TOKEN_TTL_MS);
+        Instant now = Instant.now();
+        Instant expiry = now.plus(SYSTEM_TOKEN_TTL);
         return Jwts.builder()
                 .subject(SYSTEM_SUBJECT)
                 .claim("email", SYSTEM_EMAIL)
                 .claim("role", SYSTEM_ROLE)
-                .issuedAt(now)
-                .expiration(expiry)
+                .issuedAt(Date.from(now))
+                .expiration(Date.from(expiry))
                 .signWith(key)
                 .compact();
     }

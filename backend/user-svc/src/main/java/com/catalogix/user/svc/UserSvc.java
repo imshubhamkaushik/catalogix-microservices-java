@@ -16,7 +16,7 @@ import com.catalogix.user.model.User;
 import com.catalogix.user.repository.EmailVerificationTokenRepository;
 import com.catalogix.user.repository.PasswordResetTokenRepository;
 import com.catalogix.user.repository.UserRepository;
-import com.catalogix.user.security.JwtService;
+import com.catalogix.user.security.UserJwtService;
 import com.catalogix.user.security.LoginAttemptTracker;
 import com.catalogix.user.security.RefreshTokenService;
 import com.catalogix.user.security.TokenHasher;
@@ -50,7 +50,7 @@ public class UserSvc {
 
     private final UserRepository repo;
     private final PasswordEncoder passwordEncoder;
-    private final JwtService jwtService;
+    private final UserJwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final LoginAttemptTracker loginAttemptTracker;
     private final EmailVerificationTokenRepository emailVerificationRepo;
@@ -59,11 +59,12 @@ public class UserSvc {
     private final ApplicationEventPublisher eventPublisher;
     private final String frontendBaseUrl;
     private final Set<String> adminEmails;
+    private static final String ACCOUNT_NO_LONGER_EXISTS = "Account no longer exists";
 
     public UserSvc(
             UserRepository repo,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService,
+            UserJwtService jwtService,
             RefreshTokenService refreshTokenService,
             LoginAttemptTracker loginAttemptTracker,
             EmailVerificationTokenRepository emailVerificationRepo,
@@ -135,7 +136,7 @@ public class UserSvc {
     public TokenPairResponse refresh(String refreshToken) {
         RefreshTokenService.RotationResult rotation = refreshTokenService.rotate(refreshToken);
         User user = repo.findById(rotation.userId())
-                .orElseThrow(() -> new UnauthorizedException("Account no longer exists"));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
 
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole());
         return new TokenPairResponse(accessToken, jwtService.getExpirationMs(), rotation.newRefreshToken());
@@ -173,7 +174,7 @@ public class UserSvc {
         }
 
         User user = repo.findById(token.getUserId())
-                .orElseThrow(() -> new UnauthorizedException("Account no longer exists"));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
         user.setVerified(true);
         repo.save(user);
 
@@ -186,7 +187,7 @@ public class UserSvc {
     @Transactional
     public void resendVerificationEmail(Long userId) {
         User user = repo.findById(userId)
-                .orElseThrow(() -> new UnauthorizedException("Account no longer exists"));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
         if (!user.isVerified()) {
             sendVerificationEmail(user);
         }
@@ -215,7 +216,7 @@ public class UserSvc {
         }
 
         User user = repo.findById(token.getUserId())
-                .orElseThrow(() -> new UnauthorizedException("Account no longer exists"));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
         user.setPassword(passwordEncoder.encode(newPassword));
         repo.save(user);
 
@@ -232,7 +233,7 @@ public class UserSvc {
     @Transactional
     public UserResponse updateProfile(Long userId, UpdateProfileRequest req) {
         User user = repo.findById(userId)
-                .orElseThrow(() -> new UnauthorizedException("Account no longer exists"));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
 
         boolean changingEmail = StringUtils.hasText(req.getEmail()) && !req.getEmail().equalsIgnoreCase(user.getEmail());
         boolean changingPassword = StringUtils.hasText(req.getNewPassword());

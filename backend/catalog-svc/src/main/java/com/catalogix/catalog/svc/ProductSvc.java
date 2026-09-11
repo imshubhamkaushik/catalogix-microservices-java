@@ -72,8 +72,18 @@ public class ProductSvc {
         int initialStock = req.getStockQuantity() != null ? req.getStockQuantity() : 0;
         inventoryClient.init(saved.getId(), initialStock, bearerToken);
 
-        return new ProductResponse(saved.getId(), saved.getName(), saved.getDescription(), saved.getPrice(),
-                saved.getCategory(), initialStock, saved.getOwnerId(), saved.getCreatedAt());
+        ProductResponse response = new ProductResponse(
+                saved.getId(),
+                saved.getName(),
+                saved.getDescription(),
+                saved.getPrice());
+
+        response.setCategory(saved.getCategory());
+        response.setStockQuantity(initialStock);
+        response.setOwnerId(saved.getOwnerId());
+        response.setCreatedAt(saved.getCreatedAt());
+
+        return response;
     }
 
     /**
@@ -87,8 +97,17 @@ public class ProductSvc {
     public Optional<ProductResponse> findById(long id, String bearerToken) {
         return cacheCore(id).map(core -> {
             Integer stock = inventoryClient.fetchQuantity(id, bearerToken);
-            ProductResponse response = new ProductResponse(core.id(), core.name(), core.description(), core.price(),
-                    core.category(), stock, core.ownerId(), core.createdAt());
+            ProductResponse response = new ProductResponse(
+                    core.id(),
+                    core.name(),
+                    core.description(),
+                    core.price());
+
+            response.setCategory(core.category());
+            response.setStockQuantity(stock);
+            response.setOwnerId(core.ownerId());
+            response.setCreatedAt(core.createdAt());
+
             ReviewClient.Summary rating = reviewClient.fetchSummary(id, bearerToken);
             response.setAverageRating(rating.averageRating());
             response.setReviewCount(rating.reviewCount());
@@ -134,15 +153,33 @@ public class ProductSvc {
         Product product = repo.findById(id).orElseThrow(() -> new ProductNotFoundException(id));
 
         boolean isOwner = product.getOwnerId() != null && product.getOwnerId().equals(requesterId);
+
         boolean isAdmin = "ADMIN".equalsIgnoreCase(requesterRole);
+
         if (!isOwner && !isAdmin) {
             throw new ForbiddenException("Only the product's owner or an admin may adjust its stock");
         }
 
         Integer newQuantity = inventoryClient.adjust(id, delta);
-        return findById(id, bearerToken)
-                .map(r -> { r.setStockQuantity(newQuantity); return r; })
-                .orElseThrow(() -> new ProductNotFoundException(id));
+
+        ProductResponse response = new ProductResponse(
+                product.getId(),
+                product.getName(),
+                product.getDescription(),
+                product.getPrice());
+
+        response.setCategory(product.getCategory());
+        response.setStockQuantity(newQuantity);
+        response.setOwnerId(product.getOwnerId());
+        response.setCreatedAt(product.getCreatedAt());
+
+        ReviewClient.Summary rating =
+                reviewClient.fetchSummary(id, bearerToken);
+
+        response.setAverageRating(rating.averageRating());
+        response.setReviewCount(rating.reviewCount());
+
+        return response;
     }
 
     private record ProductCore(Long id, String name, String description,
@@ -151,8 +188,17 @@ public class ProductSvc {
 
     private ProductResponse toResponse(Product p, String bearerToken) {
         Integer stock = inventoryClient.fetchQuantity(p.getId(), bearerToken);
-        ProductResponse response = new ProductResponse(p.getId(), p.getName(), p.getDescription(), p.getPrice(),
-                p.getCategory(), stock, p.getOwnerId(), p.getCreatedAt());
+        ProductResponse response = new ProductResponse(
+                p.getId(),
+                p.getName(),
+                p.getDescription(),
+                p.getPrice());
+
+        response.setCategory(p.getCategory());
+        response.setStockQuantity(stock);
+        response.setOwnerId(p.getOwnerId());
+        response.setCreatedAt(p.getCreatedAt());
+
         ReviewClient.Summary rating = reviewClient.fetchSummary(p.getId(), bearerToken);
         response.setAverageRating(rating.averageRating());
         response.setReviewCount(rating.reviewCount());

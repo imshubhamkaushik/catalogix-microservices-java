@@ -73,8 +73,10 @@ class OrderControllerTest {
     private OrderResponse sampleResponse(OrderStatus status) {
         OrderItemResponse item = new OrderItemResponse(
                 1L, "Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"));
-        return new OrderResponse(1L, 42L, status, new BigDecimal("200.00"),
-                Instant.now(), List.of(item));
+        OrderResponse response = new OrderResponse(
+                1L, 42L, status, new BigDecimal("200.00"), Instant.now(), List.of(item));
+        response.setDiscountAmount(BigDecimal.ZERO);
+        return response;
     }
 
     // ---- POST /orders (direct API) ----

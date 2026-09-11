@@ -7,7 +7,12 @@ import com.catalogix.checkout.model.OutboxStatus;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestAttribute;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.List;
@@ -58,8 +63,18 @@ public class AdminController {
     }
 
     private OutboxEntryResponse toResponse(CompensationOutbox e) {
-        return new OutboxEntryResponse(
-                e.getId(), e.getType(), e.getProductId(), e.getDelta(), e.getCouponCode(), e.getReason(),
-                e.getStatus(), e.getAttempts(), e.getLastError(), e.getCreatedAt(), e.getUpdatedAt());
+        OutboxEntryResponse response = new OutboxEntryResponse();
+        response.setId(e.getId());
+        response.setType(e.getType());
+        response.setProductId(e.getProductId());
+        response.setDelta(e.getDelta());
+        response.setCouponCode(e.getCouponCode());
+        response.setReason(e.getReason());
+        response.setStatus(e.getStatus());
+        response.setAttempts(e.getAttempts());
+        response.setLastError(e.getLastError());
+        response.setCreatedAt(e.getCreatedAt());
+        response.setUpdatedAt(e.getUpdatedAt());
+        return response;
     }
 }

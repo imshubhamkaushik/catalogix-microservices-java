@@ -15,7 +15,12 @@ public class UpdateProfileRequest {
 
     private String currentPassword;
 
-    public UpdateProfileRequest() {}
+    public UpdateProfileRequest() {
+        /*
+         * Required by Jackson to instantiate this DTO during JSON deserialization.
+         * Fields are populated through the setters after construction.
+         */
+    }
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }

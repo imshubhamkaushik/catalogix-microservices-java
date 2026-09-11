@@ -46,7 +46,8 @@ public class InventoryClient {
         HttpHeaders headers = authHeaders(bearerToken);
         var resp = restTemplate.exchange(inventorySvcUrl + "/inventory/" + productId,
                 HttpMethod.GET, new HttpEntity<>(headers), StockDto.class);
-        return resp.getBody() != null ? resp.getBody().quantity : null;
+        StockDto body = resp.getBody();
+        return body != null ? body.quantity : null;
     }
 
     @SuppressWarnings("unused")
@@ -71,7 +72,8 @@ public class InventoryClient {
             var resp = restTemplate.exchange(
                     inventorySvcUrl + "/inventory/" + productId + "/adjust",
                     HttpMethod.PATCH, new HttpEntity<>(body, headers), StockDto.class);
-            return resp.getBody() != null ? resp.getBody().quantity : null;
+            StockDto responseBody = resp.getBody();
+            return responseBody != null ? responseBody.quantity : null;
         } catch (HttpClientErrorException.Conflict e) {
             throw new InsufficientStockException(productId, -1, -delta);
         }

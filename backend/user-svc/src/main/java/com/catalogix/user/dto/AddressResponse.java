@@ -14,7 +14,12 @@ public class AddressResponse {
     private String phone;
     private boolean isDefault;
 
-    public AddressResponse() {}
+    public AddressResponse() {
+        /*
+        * Required by Jackson to instantiate this DTO during JSON deserialization.
+        * Fields are populated through the setters after construction.
+        */
+    }
 
     public static AddressResponse from(Address a) {
         AddressResponse r = new AddressResponse();

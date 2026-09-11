@@ -3,6 +3,7 @@ package com.catalogix.user.integration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.resttestclient.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
@@ -42,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 class AuthFlowIntegrationTest {
 
     @Container
@@ -52,6 +54,12 @@ class AuthFlowIntegrationTest {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("ALLOWED_ORIGINS", () -> "http://localhost:11000");
+
+        registry.add(
+                "JWT_SECRET",
+                () -> "svfmhSAWW6kcsgGiSSz1eOoQDK1ku6+crVQPJHo+XmZxFoj7ujud7ImW4+e3RFW8"
+        );
 
         // application-test.properties (the default "test" profile) excludes
         // DataSourceAutoConfiguration/HibernateJpaAutoConfiguration/
@@ -62,8 +70,10 @@ class AuthFlowIntegrationTest {
         // same way production does. Re-enabling here rather than editing
         // that shared file, so the 866+ lines of existing slice tests stay
         // exactly as fast and DB-free as they were.
-        registry.add("spring.autoconfigure.exclude", () -> "");
         registry.add("spring.flyway.enabled", () -> "true");
+        registry.add("spring.flyway.locations", () -> "classpath:db/migration");
+
+        registry.add("spring.autoconfigure.exclude", () -> "");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
         registry.add("spring.sql.init.mode", () -> "never");
 
@@ -111,7 +121,10 @@ class AuthFlowIntegrationTest {
                 "password", "Password1"
         );
         ResponseEntity<Map> registerResponse =
-                rest.postForEntity(url("/users/register"), registerBody, Map.class);
+                rest.postForEntity("/users/register", registerBody, Map.class);
+
+        System.out.println("REGISTER STATUS = " + registerResponse.getStatusCode().value());
+        System.out.println("REGISTER BODY   = " + registerResponse.getBody());
 
         assertThat(registerResponse.getStatusCode().value())
                 .as("registration must succeed with no Authorization header — "
@@ -121,7 +134,7 @@ class AuthFlowIntegrationTest {
 
         Map<String, String> loginBody = Map.of("email", email, "password", "Password1");
         ResponseEntity<Map> loginResponse =
-                rest.postForEntity(url("/users/login"), loginBody, Map.class);
+                rest.postForEntity("/users/login", loginBody, Map.class);
 
         assertThat(loginResponse.getStatusCode().value())
                 .as("login must succeed with no Authorization header — "
@@ -136,7 +149,7 @@ class AuthFlowIntegrationTest {
         // publicPaths check must exempt only the exact configured paths,
         // not accidentally the whole service. /users/me is deliberately
         // not in security.public-paths.
-        ResponseEntity<Map> response = rest.getForEntity(url("/users/me"), Map.class);
+        ResponseEntity<Map> response = rest.getForEntity("/users/me", Map.class);
 
         assertThat(response.getStatusCode().value()).isEqualTo(401);
     }
@@ -150,12 +163,12 @@ class AuthFlowIntegrationTest {
         // arrives.
         String email = "wrongpass-" + System.nanoTime() + "@example.com";
         rest.postForEntity(
-                url("/users/register"),
+                "/users/register",
                 Map.of("name", "Wrong Pass", "email", email, "password", "Password1"),
                 Map.class);
 
         ResponseEntity<Map> response = rest.postForEntity(
-                url("/users/login"),
+                "/users/login",
                 Map.of("email", email, "password", "DefinitelyNotThePassword1"),
                 Map.class);
 

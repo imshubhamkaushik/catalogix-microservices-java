@@ -2,10 +2,12 @@ package com.catalogix.checkout.svc;
 
 import com.catalogix.checkout.client.AddressClient;
 import com.catalogix.checkout.client.CartClient;
+import com.catalogix.checkout.client.CheckoutClients;
 import com.catalogix.checkout.client.CatalogClient;
 import com.catalogix.checkout.client.InventoryClient;
 import com.catalogix.checkout.client.PaymentClient;
 import com.catalogix.checkout.client.PromotionsClient;
+import com.catalogix.checkout.client.RefundClient;
 import com.catalogix.checkout.dto.CreateOrderRequest;
 import com.catalogix.checkout.dto.InvoiceResponse;
 import com.catalogix.checkout.dto.OrderItemRequest;
@@ -16,6 +18,7 @@ import com.catalogix.checkout.exception.CouponInvalidException;
 import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.exception.InvalidOrderStateException;
 import com.catalogix.checkout.exception.ProductUnavailableException;
+import com.catalogix.checkout.exception.RefundFailedException;
 import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.Order;
 import com.catalogix.checkout.model.OrderItem;
@@ -59,6 +62,7 @@ class CheckoutSvcTest {
     @Mock private CartClient cartClient;
     @Mock private AddressClient addressClient;
     @Mock private ApplicationEventPublisher eventPublisher;
+    @Mock private RefundClient refundClient;
 
     private CheckoutSvc svc;
 
@@ -68,8 +72,10 @@ class CheckoutSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new CheckoutSvc(repo, outboxRepo, catalogClient, inventoryClient,
-                promotionsClient, paymentClient, cartClient, addressClient, eventPublisher);
+        CheckoutClients clients = new CheckoutClients(
+                addressClient, cartClient, catalogClient, inventoryClient,
+                paymentClient, promotionsClient, refundClient);
+        svc = new CheckoutSvc(repo, outboxRepo, clients, eventPublisher);
         when(repo.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
             if (o.getId() == null) o.setId(1L);
@@ -514,6 +520,37 @@ class CheckoutSvcTest {
         verify(promotionsClient).release("SAVE10", TOKEN);
         verify(eventPublisher).publishEvent(any(OrderCancelledEvent.class));
         assertEquals("Cancelled by customer", lastEvent(order).getNote());
+    }
+
+    @Test
+    void cancelConfirmedCardOrderRefundsBeforeReleasingSideEffects() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentMethod(PaymentMethod.CARD);
+        order.setPaymentReference("MOCK-REF");
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(refundClient.refund(5L, new BigDecimal("200.00")))
+                .thenReturn(new RefundClient.RefundOutcome("REFUND-REF"));
+
+        svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
+
+        verify(refundClient).refund(5L, new BigDecimal("200.00"));
+        verify(inventoryClient).adjust(1L, 2);
+    }
+
+    @Test
+    void cancelConfirmedCardOrderFailsWhenRefundCannotBeProcessed() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentMethod(PaymentMethod.CARD);
+        order.setPaymentReference("MOCK-REF");
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(refundClient.refund(5L, new BigDecimal("200.00")))
+                .thenThrow(new RuntimeException("payment-svc unavailable"));
+
+        assertThrows(RefundFailedException.class,
+                () -> svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL));
+        verifyNoInteractions(inventoryClient);
     }
 
     @Test

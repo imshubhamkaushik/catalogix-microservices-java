@@ -3,7 +3,11 @@ package com.catalogix.checkout.client;
 import com.catalogix.checkout.dto.PayOrderRequest;
 import com.catalogix.security.JwtService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -58,8 +62,11 @@ public class PaymentClient {
         try {
             var resp = restTemplate.exchange(paymentSvcUrl + "/payments", HttpMethod.POST,
                     new HttpEntity<>(body, headers), RawPayment.class);
-            RawPayment p = resp.getBody();
-            return new PaymentOutcome(true, p != null ? p.reference : null, p != null ? p.status : null);
+            RawPayment responseBody = resp.getBody();
+            if (responseBody == null) {
+                throw new IllegalStateException("payment-svc returned an empty payment response");
+            }
+            return new PaymentOutcome(true, responseBody.reference, responseBody.status);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatus.PAYMENT_REQUIRED) {
                 return new PaymentOutcome(false, null, null);

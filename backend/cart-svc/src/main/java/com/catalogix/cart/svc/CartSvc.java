@@ -24,6 +24,7 @@ public class CartSvc {
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
     private final PromotionsClient promotionsClient;
+    private static final String CART_IS_EMPTY = "Cart is empty";
 
     public CartSvc(CartRepository repo, CatalogClient catalogClient,
                    InventoryClient inventoryClient, PromotionsClient promotionsClient) {
@@ -63,7 +64,7 @@ public class CartSvc {
     @Transactional
     public CartResponse updateItemQuantity(Long userId, Long productId, UpdateCartItemRequest req, String bearerToken) {
         Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException("Cart is empty"));
+                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY));
         CartItem item = cart.getItems().stream()
                 .filter(i -> i.getProductId().equals(productId))
                 .findFirst()
@@ -77,7 +78,7 @@ public class CartSvc {
     @Transactional
     public CartResponse removeItem(Long userId, Long productId, String bearerToken) {
         Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException("Cart is empty"));
+                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY ));
         cart.removeItemByProductId(productId);
         cart.setUpdatedAt(Instant.now());
         Cart saved = repo.save(cart);
@@ -87,7 +88,7 @@ public class CartSvc {
     @Transactional
     public CartResponse applyCoupon(Long userId, String code, String bearerToken) {
         Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException("Cart is empty"));
+                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY));
         BigDecimal subtotal = calculateSubtotal(cart, bearerToken);
         // Validated as a preview here purely to give the user an immediate
         // yes/no — the coupon isn't actually redeemed until checkout-svc
@@ -102,7 +103,7 @@ public class CartSvc {
     @Transactional
     public CartResponse removeCoupon(Long userId, String bearerToken) {
         Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException("Cart is empty"));
+                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY ));
         cart.setCouponCode(null);
         cart.setUpdatedAt(Instant.now());
         Cart saved = repo.save(cart);
@@ -119,7 +120,7 @@ public class CartSvc {
     @Transactional(readOnly = true)
     public CheckoutHandoff toCheckoutHandoff(Long userId) {
         Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException("Cart is empty"));
+                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY));
         if (cart.getItems().isEmpty()) {
             throw new EmptyCartException("Cannot checkout an empty cart");
         }
@@ -130,10 +131,9 @@ public class CartSvc {
     }
 
     // Called by checkout-svc after it has successfully created the order —
-    // clears the cart the same way the original CartController.checkout did
-    // in-process. If this call fails (network blip) the order still exists;
-    // the user just sees stale cart contents until they refresh, which is a
-    // display-only inconsistency, not a lost/duplicated order or charge.
+    // clears the cart the same way the original CartController.checkout did in-process. 
+    // If this call fails (network blip) the order still exists; the user just sees stale cart contents until they refresh, 
+    // which is a display-only inconsistency, not a lost/duplicated order or charge.
     @Transactional
     public void clear(Long userId) {
         repo.findByUserId(userId).ifPresent(cart -> {

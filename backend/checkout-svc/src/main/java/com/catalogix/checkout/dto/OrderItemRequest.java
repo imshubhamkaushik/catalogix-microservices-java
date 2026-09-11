@@ -13,6 +13,10 @@ public class OrderItemRequest {
     private Integer quantity;
 
     public OrderItemRequest() {
+        /*
+        * Required by Jackson to instantiate this DTO during JSON deserialization.
+        * Fields are populated through the setters after construction.
+        */
     }
 
     public Long getProductId() {

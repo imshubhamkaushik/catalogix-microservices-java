@@ -52,6 +52,10 @@ public class Address {
     private Instant createdAt = Instant.now();
 
     public Address() {
+        /*
+         * Required by JPA to instantiate this entity during database reads.
+         * Fields are populated through the setters after construction.
+         */
     }
 
     public Long getId() { return id; }

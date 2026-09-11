@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
+import java.time.Instant;
 
 /**
  * Extends the shared com.catalogix.security.JwtService with the one thing
@@ -19,11 +20,11 @@ import java.util.Date;
  * inconsistency as a side effect, not just removes duplication).
  */
 @Service
-public class JwtService extends com.catalogix.security.JwtService {
+public class UserJwtService extends com.catalogix.security.JwtService {
 
     private final long expirationMs;
 
-    public JwtService(
+    public UserJwtService(
             @Value("${JWT_SECRET}") String secret,
             @Value("${JWT_EXPIRATION_MS:900000}") long expirationMs
     ) {
@@ -32,14 +33,14 @@ public class JwtService extends com.catalogix.security.JwtService {
     }
 
     public String generateToken(Long userId, String email, String role) {
-        Date now = new Date();
-        Date expiry = new Date(now.getTime() + expirationMs);
+        Instant now = Instant.now();
+        Instant expiry = now.plusMillis(expirationMs);
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("email", email)
                 .claim("role", role)
-                .issuedAt(now)
-                .expiration(expiry)
+                .issuedAt(Date.from(now)) // NOSONAR java:S2143
+                .expiration(Date.from(expiry)) // NOSONAR java:S2143
                 .signWith(getKey())
                 .compact();
     }

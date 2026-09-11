@@ -32,7 +32,8 @@ public class InventoryClient {
                 org.springframework.http.HttpMethod.GET,
                 new org.springframework.http.HttpEntity<>(headers),
                 StockDto.class);
-        return resp.getBody() != null ? resp.getBody().quantity : null;
+        StockDto body = resp.getBody();
+        return body != null ? body.quantity : null;
     }
 
     @SuppressWarnings("unused")

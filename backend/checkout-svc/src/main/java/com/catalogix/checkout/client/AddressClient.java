@@ -45,8 +45,12 @@ public class AddressClient {
             var resp = restTemplate.exchange(
                     userSvcUrl + "/users/me/addresses/" + addressId,
                     HttpMethod.GET, new HttpEntity<>(headers), RawAddress.class);
-            RawAddress a = resp.getBody();
-            return new AddressDto(a.label, a.line1, a.line2, a.city, a.state, a.pincode, a.phone);
+            RawAddress body = resp.getBody();
+            if (body == null) {
+                throw new IllegalStateException("user-svc returned an empty address response");
+            }
+            return new AddressDto(body.label, body.line1, body.line2, body.city,
+                    body.state, body.pincode, body.phone);
         } catch (HttpClientErrorException.NotFound e) {
             throw new AddressUnavailableException("Address not found: " + addressId);
         }

@@ -35,7 +35,12 @@ public class AddressRequest {
     // automatically regardless of this flag (see AddressSvc.create).
     private boolean makeDefault = false;
 
-    public AddressRequest() {}
+    public AddressRequest() {
+        /*
+        * Required by Jackson to instantiate this DTO during JSON deserialization.
+        * Fields are populated through the setters after construction.
+        */
+    }
 
     public String getLabel() { return label; }
     public void setLabel(String label) { this.label = label; }

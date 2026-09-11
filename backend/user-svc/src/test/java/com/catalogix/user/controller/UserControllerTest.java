@@ -43,6 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 
 // Auth is exercised via requestAttr(...) (simulating what JwtAuthFilter would set) rather
 // than via a real token, so JwtAuthFilter/RateLimiterFilter are excluded from this slice —
@@ -225,7 +226,7 @@ class UserControllerTest {
         mvc.perform(post("/users/logout"))
                 .andExpect(status().isNoContent());
 
-        verify(svc, org.mockito.Mockito.never()).logout(any());
+        verify(svc, never()).logout(any());
     }
 
     @Test

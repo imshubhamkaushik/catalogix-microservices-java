@@ -61,8 +61,18 @@ class ProductControllerTest {
     }
 
     private ProductResponse sampleResponse() {
-        return new ProductResponse(1L, "Phone", "A phone", new BigDecimal("100.00"),
-                "GENERAL", 10, 42L, Instant.now());
+        ProductResponse response = new ProductResponse(
+                1L,
+                "Phone",
+                "A phone",
+                new BigDecimal("100.00"));
+
+        response.setCategory("GENERAL");
+        response.setStockQuantity(10);
+        response.setOwnerId(42L);
+        response.setCreatedAt(Instant.now());
+
+        return response;
     }
 
     @Test
@@ -188,10 +198,18 @@ class ProductControllerTest {
     }
 
     @Test
-    @SuppressWarnings("null")
     void adjustStockReturnsUpdatedProduct() throws Exception {
-        ProductResponse restocked = new ProductResponse(1L, "Phone", "A phone", new BigDecimal("100.00"),
-                "GENERAL", 15, 42L, Instant.now());
+        ProductResponse restocked = new ProductResponse(
+                1L,
+                "Phone",
+                "A phone",
+                new BigDecimal("100.00"));
+
+        restocked.setCategory("GENERAL");
+        restocked.setStockQuantity(15);
+        restocked.setOwnerId(42L);
+        restocked.setCreatedAt(Instant.now());
+
         when(svc.adjustStock(1L, 5, 42L, "USER", "Bearer token")).thenReturn(restocked);
 
         mvc.perform(patch("/products/1/stock")

@@ -2,7 +2,10 @@ package com.catalogix.checkout.client;
 
 import com.catalogix.checkout.exception.CouponInvalidException;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -53,7 +56,11 @@ public class PromotionsClient {
         body.put("subtotal", subtotal);
         var resp = restTemplate.exchange(promotionsSvcUrl + path, HttpMethod.POST,
                 new HttpEntity<>(body, headers), RawDiscount.class);
-        return resp.getBody();
+        RawDiscount responseBody = resp.getBody();
+        if (responseBody == null) {
+            throw new IllegalStateException("promotions-svc returned an empty discount response");
+        }
+        return responseBody;
     }
 
     static class RawDiscount {

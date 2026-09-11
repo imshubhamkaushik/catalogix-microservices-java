@@ -1,6 +1,13 @@
 package com.catalogix.checkout.model;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
@@ -54,7 +61,12 @@ public class CompensationOutbox {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
-    public CompensationOutbox() {}
+    public CompensationOutbox() {
+        /*
+         * Required by JPA for entity instantiation. Fields are populated by
+         * Hibernate or by the static factory methods after construction.
+         */
+    }
 
     public static CompensationOutbox releaseStock(Long productId, Integer delta, String reason) {
         CompensationOutbox e = new CompensationOutbox();

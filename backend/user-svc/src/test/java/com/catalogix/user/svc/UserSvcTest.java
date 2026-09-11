@@ -17,7 +17,7 @@ import com.catalogix.user.model.User;
 import com.catalogix.user.repository.EmailVerificationTokenRepository;
 import com.catalogix.user.repository.PasswordResetTokenRepository;
 import com.catalogix.user.repository.UserRepository;
-import com.catalogix.user.security.JwtService;
+import com.catalogix.user.security.UserJwtService;
 import com.catalogix.user.security.LoginAttemptTracker;
 import com.catalogix.user.security.RefreshTokenService;
 import com.catalogix.user.security.TokenHasher;
@@ -43,7 +43,7 @@ class UserSvcTest {
 
     @Mock private UserRepository repo;
     @Mock private PasswordEncoder encoder;
-    @Mock private JwtService jwtService;
+    @Mock private UserJwtService jwtService;
     @Mock private RefreshTokenService refreshTokenService;
     @Mock private LoginAttemptTracker loginAttemptTracker;
     @Mock private EmailVerificationTokenRepository emailVerificationRepo;

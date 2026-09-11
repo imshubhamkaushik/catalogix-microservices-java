@@ -37,7 +37,11 @@ public class Coupon {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
-    public Coupon() {}
+    public Coupon() {
+        /*
+        * Required by JPA for entity instantiation. Fields are populated through the setters after construction.
+        */
+    }
 
     public boolean isCurrentlyRedeemable(Instant now) {
         if (!active) return false;

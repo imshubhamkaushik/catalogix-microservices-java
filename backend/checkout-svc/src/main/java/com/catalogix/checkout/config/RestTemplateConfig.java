@@ -17,9 +17,7 @@ public class RestTemplateConfig {
         // the JDK's default HttpURLConnection-based factory does not support PATCH,
         // which this service needs for its calls to inventory-svc's adjust endpoint.
         return builder
-                .requestFactory(() -> {
-                    return new HttpComponentsClientHttpRequestFactory();
-                })
+                .requestFactory(HttpComponentsClientHttpRequestFactory::new)
                 .connectTimeout(Duration.ofSeconds(3))
                 .readTimeout(Duration.ofSeconds(5))
                 .build();
