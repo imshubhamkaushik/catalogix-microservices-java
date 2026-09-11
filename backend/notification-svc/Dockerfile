@@ -1,11 +1,7 @@
 # Multi-stage Dockerfile for Notification Service
 # ---------- Stage 1:Build ----------
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
+FROM sec-shared AS build
 WORKDIR /app
-
-# Install parent POM so the service POM can resolve it
-COPY pom.xml ./pom.xml
-RUN mvn -B -N install
 
 # Now copy and build the service
 COPY backend/notification-svc/pom.xml notification-svc/pom.xml

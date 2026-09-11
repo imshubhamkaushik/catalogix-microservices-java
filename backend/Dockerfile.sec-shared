@@ -1,0 +1,14 @@
+# ---------- Shared security-common builder ----------
+FROM maven:3.9.9-eclipse-temurin-21-alpine
+
+WORKDIR /app
+
+# Install the root Maven parent POM
+COPY pom.xml ./pom.xml
+RUN mvn -B -N install
+
+# Build and install security-common into this image's local Maven repository
+COPY backend/security-common/pom.xml security-common/pom.xml
+COPY backend/security-common/src security-common/src
+
+RUN mvn -B -f security-common/pom.xml clean install -DskipTests

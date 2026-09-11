@@ -29,7 +29,6 @@
 # does in the Helm chart's 600m vs 400m, since there isn't room to
 # preserve that at this total.
 services:
-
   postgres:
     mem_limit: 512m
     cpus: 0.4
@@ -42,7 +41,7 @@ services:
     secrets:
       - postgres_password
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       # Runs once, on first init of an empty data volume, to create one
       # database per service — see the script for the isolation tradeoffs
       # this local/dev-tier setup does and doesn't give you.
@@ -72,9 +71,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       retries: 10
-      start_period: 20s
+      start_period: 30s
     networks: [catalogix]
 
   # Dev-only SMTP catcher — view sent mail at http://localhost:8025.
@@ -83,7 +82,6 @@ services:
   # actually deliver mail to). Skipped by default; add with:
   #   docker compose --profile tools up
   mailpit:
-    profiles: ["tools"]
     mem_limit: 128m
     cpus: 0.1
     image: axllent/mailpit:latest
@@ -116,12 +114,20 @@ services:
       - "16686:16686" # UI
     networks: [catalogix]
 
+  sec-shared:
+    image: catalogix/sec-shared:1.0
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.sec-shared
+
   user-svc:
     mem_limit: 512m
     cpus: 0.35
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_users
@@ -157,6 +163,8 @@ services:
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_catalog
@@ -185,6 +193,8 @@ services:
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_inventory
@@ -210,6 +220,8 @@ services:
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_cart
@@ -238,6 +250,8 @@ services:
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_promotions
@@ -264,6 +278,8 @@ services:
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
@@ -289,6 +305,8 @@ services:
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_checkout
@@ -339,6 +357,8 @@ services:
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
@@ -388,6 +408,8 @@ services:
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile
+      additional_contexts:
+        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_reviews

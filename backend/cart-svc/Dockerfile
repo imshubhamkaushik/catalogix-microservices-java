@@ -1,10 +1,7 @@
 # Multi-stage Dockerfile for cart-svc
 # ---------- Stage 1: Build ----------
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
+FROM sec-shared AS build
 WORKDIR /app
-
-COPY pom.xml ./pom.xml
-RUN mvn -B -N install
 
 COPY backend/cart-svc/pom.xml cart-svc/pom.xml
 COPY backend/cart-svc/src cart-svc/src

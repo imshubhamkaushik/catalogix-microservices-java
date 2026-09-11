@@ -1,10 +1,7 @@
 # Multi-stage Dockerfile for review-svc
 # ---------- Stage 1: Build ----------
-FROM maven:3.9.9-eclipse-temurin-21-alpine AS build
+FROM sec-shared AS build
 WORKDIR /app
-
-COPY pom.xml ./pom.xml
-RUN mvn -B -N install
 
 COPY backend/review-svc/pom.xml review-svc/pom.xml
 COPY backend/review-svc/src review-svc/src
