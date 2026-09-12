@@ -31,7 +31,7 @@
 services:
   postgres:
     mem_limit: 512m
-    cpus: 0.4
+    cpus: 0.35
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
@@ -60,14 +60,14 @@ services:
   # consumes them and sends the actual emails.
   rabbitmq:
     mem_limit: 512m
-    cpus: 0.3
+    cpus: 0.6
     image: rabbitmq:4-management-alpine
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "15672:15672" # management UI (http://localhost:15672)
+      - "25672:15672" # management UI (http://localhost:15672)
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
@@ -122,7 +122,7 @@ services:
 
   user-svc:
     mem_limit: 512m
-    cpus: 0.35
+    cpus: 0.325
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
@@ -159,7 +159,7 @@ services:
   # API path (/products via the gateway) is unchanged.
   catalog-svc:
     mem_limit: 512m
-    cpus: 0.35
+    cpus: 0.325
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
@@ -189,7 +189,7 @@ services:
   # is allowed to touch stock counts except through this service.
   inventory-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.275
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
@@ -216,7 +216,7 @@ services:
   # placing an order.
   cart-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.275
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
@@ -246,7 +246,7 @@ services:
   # between them).
   promotions-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.275
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
@@ -274,7 +274,7 @@ services:
   # gateway; checkout-svc is its only caller.
   payment-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.275
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
@@ -301,7 +301,7 @@ services:
   # HTTP with explicit compensation on failure — see CheckoutSvc's Javadoc.
   checkout-svc:
     mem_limit: 640m
-    cpus: 0.3
+    cpus: 0.25
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
@@ -353,7 +353,7 @@ services:
 
   notification-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.25
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
@@ -364,6 +364,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       JWT_SECRET: ${JWT_SECRET}
       MAIL_HOST: mailpit
       MAIL_PORT: 1025
@@ -404,7 +405,7 @@ services:
   # OrderClient's circuit breaker already handles.
   review-svc:
     mem_limit: 384m
-    cpus: 0.3
+    cpus: 0.25
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile

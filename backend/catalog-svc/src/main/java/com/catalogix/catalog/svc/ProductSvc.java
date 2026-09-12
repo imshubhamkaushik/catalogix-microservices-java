@@ -39,8 +39,8 @@ public class ProductSvc {
     public PagedResponse<ProductResponse> search(String search, String category, BigDecimal minPrice,
                                                    BigDecimal maxPrice, ProductSortOption sortBy,
                                                    Pageable pageable, String bearerToken) {
-        String normalizedSearch = StringUtils.hasText(search) ? search.trim() : null;
-        String normalizedCategory = StringUtils.hasText(category) ? category.trim() : null;
+        String normalizedSearch = StringUtils.hasText(search) ? search.trim() : "";
+        String normalizedCategory = StringUtils.hasText(category) ? category.trim() : "";
         // A caller-supplied sortBy takes over ordering entirely rather than
         // combining with whatever Pageable's own ?sort= carried — mixing
         // the two would mean the friendly enum sometimes wins and sometimes
