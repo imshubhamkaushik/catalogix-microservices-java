@@ -4,11 +4,14 @@ import com.catalogix.payment.dto.PaymentResponse;
 import com.catalogix.payment.dto.ProcessPaymentRequest;
 import com.catalogix.payment.dto.ProcessRefundRequest;
 import com.catalogix.payment.dto.RefundResponse;
+import com.catalogix.payment.exception.DeclinedException;
 import com.catalogix.payment.exception.ForbiddenException;
+import com.catalogix.payment.model.PaymentStatus;
 import com.catalogix.payment.svc.PaymentSvc;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -38,13 +41,31 @@ public class PaymentController {
     @PostMapping
     public ResponseEntity<PaymentResponse> process(
             @Valid @RequestBody ProcessPaymentRequest req,
-            @RequestAttribute("userRole") String role
+            @RequestAttribute("userRole") String role,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
     ) {
         if (!"SYSTEM".equalsIgnoreCase(role)) {
             throw new ForbiddenException("Payments must be initiated by checkout-svc, not called directly");
         }
-        PaymentResponse resp = svc.process(req, req.getRequestedByUserId());
-        return ResponseEntity.status(HttpStatus.CREATED).body(resp);
+
+        try {
+            PaymentSvc.ProcessResult result =
+                    svc.process(req, req.getRequestedByUserId(), idempotencyKey);
+            return ResponseEntity
+                    .status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
+                    .body(result.response());
+        } catch (DataIntegrityViolationException race) {
+            // Two concurrent requests with the same user/key can both miss
+            // the pre-check. The unique DB index makes exactly one winner.
+            // Return that winner rather than leaking a raw 500 to checkout-svc.
+            PaymentResponse existing =
+                    svc.findExistingByIdempotencyKey(req.getRequestedByUserId(), idempotencyKey)
+                            .orElseThrow(() -> race);
+            if (existing.getStatus() == PaymentStatus.FAILED) {
+                throw new DeclinedException("Payment declined");
+            }
+            return ResponseEntity.ok(existing);
+        }
     }
 
     // Same SYSTEM-only lockdown as /payments above — checkout-svc is the

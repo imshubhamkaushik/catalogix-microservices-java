@@ -180,9 +180,11 @@ public class OrderController {
             @RequestAttribute("userRole") String role,
             @RequestAttribute("bearerToken") String bearerToken,
             @RequestAttribute("userEmail") String userEmail,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PayOrderRequest req
     ) {
-        CheckoutSvc.OrderPaymentResult result = svc.payOrder(id, userId, role, req, bearerToken, userEmail);
+        CheckoutSvc.OrderPaymentResult result =
+                svc.payOrder(id, userId, role, req, bearerToken, userEmail, idempotencyKey);
         // Reconstructs the same {order, payment: {status: ...}} shape the
         // frontend already expects (Orders.jsx reads result.payment.status)
         // — this split changed where payment processing happens, not the

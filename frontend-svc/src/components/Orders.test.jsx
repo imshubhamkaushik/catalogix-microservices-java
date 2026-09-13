@@ -102,7 +102,7 @@ describe("Orders page", () => {
     renderOrders();
     await userEvent.click(await screen.findByRole("button", { name: /^pay/i }));
 
-    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "CARD", "4242", undefined));
+    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "CARD", "4242", undefined, expect.any(String)));
     expect(await screen.findByText(/payment successful/i)).toBeInTheDocument();
   });
 
@@ -124,7 +124,7 @@ describe("Orders page", () => {
     await userEvent.selectOptions(await screen.findByDisplayValue(/^card$/i), "UPI");
     await userEvent.click(screen.getByRole("button", { name: /^pay/i }));
 
-    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "UPI", undefined, "buyer@upi"));
+    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "UPI", undefined, "buyer@upi", expect.any(String)));
   });
 
   it("confirms a COD order without claiming a payment happened", async () => {
@@ -145,7 +145,7 @@ describe("Orders page", () => {
     await userEvent.selectOptions(await screen.findByDisplayValue(/^card$/i), "COD");
     await userEvent.click(screen.getByRole("button", { name: /confirm.*on delivery/i }));
 
-    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "COD", undefined, undefined));
+    await waitFor(() => expect(api.payOrder).toHaveBeenCalledWith(7, "COD", undefined, undefined, expect.any(String)));
     expect(await screen.findByText(/pay in cash when it arrives/i)).toBeInTheDocument();
   });
 

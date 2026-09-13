@@ -197,6 +197,10 @@ function PaymentForm({ order, onPaid, onError }) {
   const [cardLast4, setCardLast4] = useState("");
   const [upiId, setUpiId] = useState("");
   const [paying, setPaying] = useState(false);
+  // Stable for the lifetime of this payment form. A retry after a transport
+  // timeout therefore repeats the same logical payment instead of charging
+  // twice. We intentionally reset it whenever the payment inputs change.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   let paymentButtonText = `Pay ${formatPrice(order.totalAmount)}`;
 
@@ -222,7 +226,13 @@ function PaymentForm({ order, onPaid, onError }) {
     }
 
     try {
-      const result = await payOrder(order.id, method, cardValue, upiValue);
+      const result = await payOrder(
+        order.id,
+        method,
+        cardValue,
+        upiValue,
+        idempotencyKey,
+      );
 
       onPaid(result);
     } catch (error) {
@@ -237,7 +247,10 @@ function PaymentForm({ order, onPaid, onError }) {
       <select
         className="sort-select"
         value={method}
-        onChange={(event) => setMethod(event.target.value)}
+        onChange={(event) => {
+          setMethod(event.target.value);
+          setIdempotencyKey(crypto.randomUUID());
+        }}
         disabled={paying}
       >
         <option value="CARD">Card</option>
@@ -254,6 +267,7 @@ function PaymentForm({ order, onPaid, onError }) {
           value={cardLast4}
           onChange={(event) => {
             setCardLast4(event.target.value.replace(/\D/g, ""));
+            setIdempotencyKey(crypto.randomUUID());
           }}
           disabled={paying}
         />
@@ -265,7 +279,10 @@ function PaymentForm({ order, onPaid, onError }) {
           style={{ width: 140 }}
           placeholder="you@upi"
           value={upiId}
-          onChange={(event) => setUpiId(event.target.value)}
+          onChange={(event) => {
+            setUpiId(event.target.value);
+            setIdempotencyKey(crypto.randomUUID());
+          }}
           disabled={paying}
         />
       )}

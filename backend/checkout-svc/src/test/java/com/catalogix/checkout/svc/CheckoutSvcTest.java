@@ -424,6 +424,28 @@ class CheckoutSvcTest {
     }
 
     @Test
+    void payOrderForwardsIdempotencyKeyToPaymentService() {
+        Order order = pendingPaymentOrder();
+        when(repo.findById(5L)).thenReturn(Optional.of(order));
+
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.CARD);
+        req.setCardLast4("4242");
+
+        when(paymentClient.process(
+                eq(5L), any(), eq(new BigDecimal("200.00")), eq(req), eq("pay-key-123")))
+                .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF", "SUCCEEDED"));
+
+        CheckoutSvc.OrderPaymentResult result =
+                svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL, "pay-key-123");
+
+        assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
+        assertTrue(result.paymentSucceeded());
+        verify(paymentClient).process(
+                eq(5L), eq(42L), eq(new BigDecimal("200.00")), eq(req), eq("pay-key-123"));
+    }
+
+    @Test
     void payOrderCancelsAndReleasesStockOnDecline() {
         Order order = pendingPaymentOrder();
         when(repo.findById(5L)).thenReturn(Optional.of(order));

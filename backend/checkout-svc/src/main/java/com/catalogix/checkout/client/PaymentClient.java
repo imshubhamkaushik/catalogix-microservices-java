@@ -46,10 +46,28 @@ public class PaymentClient {
 
     public record PaymentOutcome(boolean succeeded, String reference, String status) {}
 
+    /**
+     * Backwards-compatible overload for callers that do not have a key.
+     * New browser checkout requests should always pass the key through.
+     */
     public PaymentOutcome process(Long orderId, Long requestedByUserId, BigDecimal amount, PayOrderRequest req) {
+        return process(orderId, requestedByUserId, amount, req, null);
+    }
+
+    public PaymentOutcome process(
+            Long orderId,
+            Long requestedByUserId,
+            BigDecimal amount,
+            PayOrderRequest req,
+            String idempotencyKey
+    ) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateSystemToken());
         headers.setContentType(MediaType.APPLICATION_JSON);
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            headers.set("Idempotency-Key", idempotencyKey.trim());
+        }
 
         var body = new java.util.HashMap<String, Object>();
         body.put("orderId", orderId);

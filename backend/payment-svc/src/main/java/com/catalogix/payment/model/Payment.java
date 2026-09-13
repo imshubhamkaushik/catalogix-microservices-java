@@ -28,6 +28,12 @@ public class Payment {
     @Column(name = "requested_by_user_id", nullable = false)
     private Long requestedByUserId;
 
+    // Client-generated key that makes payment retries safe. Null preserves
+    // backwards compatibility for non-idempotent internal callers; the web
+    // checkout supplies a UUID on every payment attempt.
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
@@ -66,6 +72,9 @@ public class Payment {
 
     public Long getRequestedByUserId() { return requestedByUserId; }
     public void setRequestedByUserId(Long requestedByUserId) { this.requestedByUserId = requestedByUserId; }
+
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }

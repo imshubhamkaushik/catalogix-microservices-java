@@ -18,8 +18,12 @@ public class RestTemplateConfig {
         // which this service needs for its calls to inventory-svc's adjust endpoint.
         return builder
                 .requestFactoryBuilder(ClientHttpRequestFactoryBuilder.httpComponents())
+                // Keep connect failures fast, but allow a cold downstream
+                // Spring/JPA operation a little more time. Payment is
+                // idempotent now, so a timeout can be retried safely with
+                // the same key instead of risking a duplicate charge.
                 .connectTimeout(Duration.ofSeconds(3))
-                .readTimeout(Duration.ofSeconds(5))
+                .readTimeout(Duration.ofSeconds(8))
                 .build();
     }
 }

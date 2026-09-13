@@ -329,12 +329,23 @@ export const cancelOrder = async (id) => {
 
 // method: "CARD" | "UPI" | "COD". cardLast4 "0000" always declines (mock);
 // upiId starting with "fail@" always declines (mock). Neither is needed for COD.
-export const payOrder = async (id, method, cardLast4, upiId) => {
-  const res = await http.post(`${ORDER_API_BASE}/${id}/pay`, {
-    method,
-    cardLast4,
-    upiId,
-  });
+// idempotencyKey is reused when the browser retries the same payment request,
+// preventing a payment-service timeout from creating a second payment.
+export const payOrder = async (
+  id,
+  method,
+  cardLast4,
+  upiId,
+  idempotencyKey,
+) => {
+  const headers = idempotencyKey
+    ? { "Idempotency-Key": idempotencyKey }
+    : undefined;
+  const res = await http.post(
+    `${ORDER_API_BASE}/${id}/pay`,
+    { method, cardLast4, upiId },
+    { headers },
+  );
   return res.data; // { order, payment }
 };
 

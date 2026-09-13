@@ -23,6 +23,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -68,7 +69,8 @@ class PaymentControllerTest {
     void processReturnsCreatedOnSuccess() throws Exception {
         PaymentResponse resp = new PaymentResponse(1L, 5L, new BigDecimal("200.00"), PaymentMethod.CARD,
                 PaymentStatus.SUCCEEDED, "MOCK-REF", Instant.now());
-        when(svc.process(any(ProcessPaymentRequest.class), eq(42L))).thenReturn(resp);
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L), any()))
+                .thenReturn(new PaymentSvc.ProcessResult(resp, false));
 
         mvc.perform(post("/payments")
                 .requestAttr("userRole", "SYSTEM")
@@ -86,7 +88,8 @@ class PaymentControllerTest {
     void processReturnsCreatedWithCodPendingForCod() throws Exception {
         PaymentResponse resp = new PaymentResponse(1L, 5L, new BigDecimal("200.00"), PaymentMethod.COD,
                 PaymentStatus.COD_PENDING, null, Instant.now());
-        when(svc.process(any(ProcessPaymentRequest.class), eq(42L))).thenReturn(resp);
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L), any()))
+                .thenReturn(new PaymentSvc.ProcessResult(resp, false));
 
         ProcessPaymentRequest req = new ProcessPaymentRequest();
         req.setOrderId(5L);
@@ -109,7 +112,7 @@ class PaymentControllerTest {
         // a normal return value here — GlobalExceptionHandler maps it to 402
         // so checkout-svc's PaymentClient can tell "declined" apart from
         // "this call itself failed" by status code alone.
-        when(svc.process(any(ProcessPaymentRequest.class), eq(42L)))
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L), any()))
                 .thenThrow(new DeclinedException("Card declined"));
 
         mvc.perform(post("/payments")
@@ -195,6 +198,45 @@ class PaymentControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(json))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void replayedPaymentReturnsOkWithTheOriginalPayment() throws Exception {
+        PaymentResponse resp = new PaymentResponse(
+                1L, 5L, new BigDecimal("200.00"), PaymentMethod.CARD,
+                PaymentStatus.SUCCEEDED, "MOCK-REF", Instant.now());
+
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L), eq("same-key")))
+                .thenReturn(new PaymentSvc.ProcessResult(resp, true));
+
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
+                .header("Idempotency-Key", "same-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest("4242"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.reference").value("MOCK-REF"));
+    }
+
+    @Test
+    void idempotencyKeyRaceReturnsTheWinningPayment() throws Exception {
+        PaymentResponse resp = new PaymentResponse(
+                1L, 5L, new BigDecimal("200.00"), PaymentMethod.CARD,
+                PaymentStatus.SUCCEEDED, "MOCK-REF", Instant.now());
+
+        when(svc.process(any(ProcessPaymentRequest.class), eq(42L), eq("race-key")))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate"));
+        when(svc.findExistingByIdempotencyKey(42L, "race-key"))
+                .thenReturn(Optional.of(resp));
+
+        mvc.perform(post("/payments")
+                .requestAttr("userRole", "SYSTEM")
+                .header("Idempotency-Key", "race-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest("4242"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1));
     }
 
     // ---- /payments/refund ----

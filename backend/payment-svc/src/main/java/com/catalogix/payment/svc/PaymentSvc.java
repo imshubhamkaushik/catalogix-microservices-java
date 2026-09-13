@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.Comparator;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -60,21 +61,100 @@ public class PaymentSvc {
     // this method makes right before throwing. (notification-svc's EmailSvc
     // has the identical shape and already carries the same annotation for
     // the same reason — see its Javadoc.)
+    /**
+     * Backwards-compatible entry point for internal callers that do not supply
+     * an idempotency key. New payment flows should use the overload below.
+     */
     @Transactional(noRollbackFor = DeclinedException.class)
     public PaymentResponse process(ProcessPaymentRequest req, Long requestedByUserId) {
+        return process(req, requestedByUserId, null).response();
+    }
+
+    /**
+     * Idempotent payment operation.
+     *
+     * Once a key has produced a payment result, reusing that key returns the
+     * same logical payment instead of creating another row. This is the
+     * critical protection for the failure mode where payment-svc commits but
+     * checkout-svc times out before it can persist CONFIRMED.
+     */
+    @Transactional(noRollbackFor = DeclinedException.class)
+    public ProcessResult process(
+            ProcessPaymentRequest req,
+            Long requestedByUserId,
+            String idempotencyKey
+    ) {
+        String key = normalizeIdempotencyKey(idempotencyKey);
+
+        if (key != null) {
+            var existing = repo.findByRequestedByUserIdAndIdempotencyKey(requestedByUserId, key);
+            if (existing.isPresent()) {
+                Payment payment = existing.get();
+                assertCompatibleWithExisting(payment, req, requestedByUserId);
+                if (payment.getStatus() == PaymentStatus.FAILED) {
+                    throw new DeclinedException(declineMessage(payment.getMethod()));
+                }
+                return new ProcessResult(toResponse(payment), true);
+            }
+        }
+
         Payment payment = switch (req.getMethod()) {
             case CARD -> processCard(req, requestedByUserId);
             case UPI -> processUpi(req, requestedByUserId);
             case COD -> processCod(req, requestedByUserId);
         };
+        payment.setIdempotencyKey(key);
 
-        Payment saved = repo.save(payment);
+        // Flush now rather than waiting until transaction commit so the
+        // unique-key race is surfaced to the controller while the request is
+        // still in flight. The controller can then read the winning row.
+        Payment saved = repo.saveAndFlush(payment);
 
         if (saved.getStatus() == PaymentStatus.FAILED) {
             throw new DeclinedException(declineMessage(req.getMethod()));
         }
 
-        return toResponse(saved);
+        return new ProcessResult(toResponse(saved), false);
+    }
+
+    public record ProcessResult(PaymentResponse response, boolean replayed) {}
+
+    @Transactional(readOnly = true)
+    public Optional<PaymentResponse> findExistingByIdempotencyKey(
+            Long requestedByUserId,
+            String idempotencyKey
+    ) {
+        String key = normalizeIdempotencyKey(idempotencyKey);
+        if (key == null) {
+            return Optional.empty();
+        }
+        return repo.findByRequestedByUserIdAndIdempotencyKey(requestedByUserId, key)
+                .map(this::toResponse);
+    }
+
+    private String normalizeIdempotencyKey(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        String normalized = key.trim();
+        if (normalized.length() > 64) {
+            throw new IllegalArgumentException("Idempotency-Key must be at most 64 characters");
+        }
+        return normalized;
+    }
+
+    private void assertCompatibleWithExisting(
+            Payment existing,
+            ProcessPaymentRequest req,
+            Long requestedByUserId
+    ) {
+        if (!existing.getOrderId().equals(req.getOrderId())
+                || !existing.getRequestedByUserId().equals(requestedByUserId)
+                || existing.getMethod() != req.getMethod()
+                || existing.getAmount().compareTo(req.getAmount()) != 0) {
+            throw new com.catalogix.payment.exception.IdempotencyConflictException(
+                    "Idempotency-Key was already used for a different payment request");
+        }
     }
 
     // Called only by checkout-svc's ReturnSvc, only for CARD/UPI orders —

@@ -222,8 +222,33 @@ public class CheckoutSvc {
         }
     }
 
+    /**
+     * Backwards-compatible overload for non-browser callers. Browser traffic
+     * should use the idempotency-key overload so a payment that succeeds but
+     * times out on the response can be replayed safely.
+     */
     @Transactional
-    public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req, String bearerToken, String userEmail) {
+    public OrderPaymentResult payOrder(
+            Long orderId,
+            Long userId,
+            String role,
+            PayOrderRequest req,
+            String bearerToken,
+            String userEmail
+    ) {
+        return payOrder(orderId, userId, role, req, bearerToken, userEmail, null);
+    }
+
+    @Transactional
+    public OrderPaymentResult payOrder(
+            Long orderId,
+            Long userId,
+            String role,
+            PayOrderRequest req,
+            String bearerToken,
+            String userEmail,
+            String idempotencyKey
+    ) {
         Order order = repo.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
         assertCanAccess(order, userId, role);
 
@@ -232,7 +257,11 @@ public class CheckoutSvc {
                     "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
         }
 
-        PaymentClient.PaymentOutcome payment = clients.payment().process(orderId, userId, order.getTotalAmount(), req);
+        PaymentClient.PaymentOutcome payment =
+                (idempotencyKey == null || idempotencyKey.isBlank())
+                        ? clients.payment().process(orderId, userId, order.getTotalAmount(), req)
+                        : clients.payment().process(
+                                orderId, userId, order.getTotalAmount(), req, idempotencyKey);
 
         if (payment.succeeded()) {
             order.setStatus(OrderStatus.CONFIRMED);

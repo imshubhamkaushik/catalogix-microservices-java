@@ -18,6 +18,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,6 +38,11 @@ class PaymentSvcTest {
         svc = new PaymentSvc(repo, refundRepo);
         // Echo back whatever gets saved, with an id assigned, like a real repo would.
         when(repo.save(any(Payment.class))).thenAnswer(inv -> {
+            Payment p = inv.getArgument(0);
+            p.setId(1L);
+            return p;
+        });
+        when(repo.saveAndFlush(any(Payment.class))).thenAnswer(inv -> {
             Payment p = inv.getArgument(0);
             p.setId(1L);
             return p;
@@ -97,7 +103,7 @@ class PaymentSvcTest {
                 .isInstanceOf(DeclinedException.class);
 
         ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
-        verify(repo).save(captor.capture());
+        verify(repo).saveAndFlush(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(PaymentStatus.FAILED);
         assertThat(captor.getValue().getReference()).isNull();
     }
@@ -166,6 +172,54 @@ class PaymentSvcTest {
         PaymentResponse resp = svc.process(codReq("50000.00"), 7L);
 
         assertThat(resp.getStatus()).isEqualTo(PaymentStatus.COD_PENDING);
+    }
+
+    // ---- idempotency ----
+
+    @Test
+    void repeatedSuccessfulPaymentWithSameKeyReturnsExistingPaymentWithoutSavingAgain() {
+        ProcessPaymentRequest req = cardReq("4242");
+        Payment existing = succeededPayment(new BigDecimal("19.99"));
+        existing.setIdempotencyKey("pay-key-1");
+        when(repo.findByRequestedByUserIdAndIdempotencyKey(7L, "pay-key-1"))
+                .thenReturn(Optional.of(existing));
+
+        PaymentSvc.ProcessResult result = svc.process(req, 7L, "pay-key-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().getId()).isEqualTo(1L);
+        verify(repo, never()).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void reusingSameKeyForDifferentOrderIsRejected() {
+        ProcessPaymentRequest req = cardReq("4242");
+        Payment existing = succeededPayment(new BigDecimal("19.99"));
+        existing.setIdempotencyKey("pay-key-2");
+        when(repo.findByRequestedByUserIdAndIdempotencyKey(7L, "pay-key-2"))
+                .thenReturn(Optional.of(existing));
+
+        req.setOrderId(999L);
+
+        assertThatThrownBy(() -> svc.process(req, 7L, "pay-key-2"))
+                .isInstanceOf(com.catalogix.payment.exception.IdempotencyConflictException.class);
+        verify(repo, never()).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    void repeatedDeclinedPaymentWithSameKeyRemainsDeclined() {
+        ProcessPaymentRequest req = cardReq("4242");
+        Payment existing = new Payment(
+                42L, 7L, new BigDecimal("19.99"),
+                PaymentMethod.CARD, PaymentStatus.FAILED, null);
+        existing.setId(2L);
+        existing.setIdempotencyKey("pay-key-3");
+        when(repo.findByRequestedByUserIdAndIdempotencyKey(7L, "pay-key-3"))
+                .thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> svc.process(req, 7L, "pay-key-3"))
+                .isInstanceOf(DeclinedException.class);
+        verify(repo, never()).saveAndFlush(any(Payment.class));
     }
 
     // ---- refund ----

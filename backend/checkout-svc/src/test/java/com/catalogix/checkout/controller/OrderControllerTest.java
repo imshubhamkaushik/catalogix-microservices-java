@@ -340,7 +340,7 @@ class OrderControllerTest {
         req.setCardLast4("4242");
 
         OrderResponse confirmed = sampleResponse(OrderStatus.CONFIRMED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL)))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(confirmed, true));
 
         mvc.perform(post("/orders/1/pay")
@@ -357,13 +357,36 @@ class OrderControllerTest {
 
     @Test
     @SuppressWarnings("null")
+    void payForwardsTheIdempotencyKeyToCheckoutService() throws Exception {
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.CARD);
+        req.setCardLast4("4242");
+
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-123")))
+                .thenReturn(new CheckoutSvc.OrderPaymentResult(
+                        sampleResponse(OrderStatus.CONFIRMED), true));
+
+        mvc.perform(post("/orders/1/pay")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", TOKEN)
+                .requestAttr("userEmail", EMAIL)
+                .header("Idempotency-Key", "pay-key-123")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.payment.status").value("SUCCEEDED"));
+    }
+
+    @Test
+    @SuppressWarnings("null")
     void payReturnsOkWithFailedPaymentStatusOnDecline() throws Exception {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000");
 
         OrderResponse cancelled = sampleResponse(OrderStatus.CANCELLED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL)))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(cancelled, false));
 
         // A decline is a legitimate business outcome, not an HTTP error — the
@@ -388,7 +411,7 @@ class OrderControllerTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
 
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL)))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
                 .thenThrow(new InvalidOrderStateException("Order 1 is not awaiting payment"));
 
         mvc.perform(post("/orders/1/pay")

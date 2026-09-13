@@ -67,7 +67,7 @@ class ProductSvcTest {
     void searchMergesLiveStockIntoEachResult() {
         Pageable pageable = PageRequest.of(0, 20);
         Product p = product(1L, "Phone", "100.00", "ELECTRONICS", 42L);
-        when(repo.search(null, null, null, null, pageable)).thenReturn(new PageImpl<>(List.of(p), pageable, 1));
+        when(repo.search("", "", null, null, pageable)).thenReturn(new PageImpl<>(List.of(p), pageable, 1));
         when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(7);
 
         PagedResponse<ProductResponse> result = svc.search(null, null, null, null, null, pageable, TOKEN);
@@ -80,11 +80,11 @@ class ProductSvcTest {
     @Test
     void searchTrimsBlankFiltersToNull() {
         Pageable pageable = PageRequest.of(0, 20);
-        when(repo.search(null, null, null, null, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+        when(repo.search("", "", null, null, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         svc.search("   ", "  ", null, null, null, pageable, TOKEN);
 
-        verify(repo).search(null, null, null, null, pageable);
+        verify(repo).search("", "", null, null, pageable);
     }
 
     @Test
@@ -102,11 +102,11 @@ class ProductSvcTest {
         Pageable pageable = PageRequest.of(0, 20);
         BigDecimal min = new BigDecimal("50.00");
         BigDecimal max = new BigDecimal("150.00");
-        when(repo.search(null, null, min, max, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+        when(repo.search("", "", min, max, pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
         svc.search(null, null, min, max, null, pageable, TOKEN);
 
-        verify(repo).search(null, null, min, max, pageable);
+        verify(repo).search("", "", min, max, pageable);
     }
 
     // Added with search/filter/sort: sortBy, when present, replaces the
@@ -116,12 +116,13 @@ class ProductSvcTest {
     void searchBuildsAPriceAscendingSortWhenSortByIsGiven() {
         Pageable requested = PageRequest.of(0, 20); // no explicit sort — the default
         Pageable expectedEffective = PageRequest.of(0, 20, com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH.toSort());
-        when(repo.search(null, null, null, null, expectedEffective)).thenReturn(new PageImpl<>(List.of(), expectedEffective, 0));
+        
+        when(repo.search("", "", null, null, expectedEffective)).thenReturn(new PageImpl<>(List.of(), expectedEffective, 0));
 
         svc.search(null, null, null, null,
                 com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH, requested, TOKEN);
 
-        verify(repo).search(null, null, null, null, expectedEffective);
+        verify(repo).search("", "", null, null, expectedEffective);
     }
 
     // ---- create ----
