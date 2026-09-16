@@ -1,5 +1,5 @@
 # Stage 1: Build the React app
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Serve via Nginx (non-root, port 80)
-FROM nginx:1.29.8-alpine
+FROM nginx:stable-alpine3.24
 RUN apk update && apk upgrade --no-cache \
     && sed -i '/^user[[:space:]]/d' /etc/nginx/nginx.conf \
     && sed -i 's|^pid[[:space:]].*;|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \

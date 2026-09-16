@@ -29,6 +29,17 @@ public class RefreshToken {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    // Both added in V6, for the session-list UI (see UserController's
+    // /users/me/sessions endpoints). Nullable at the column level because
+    // existing rows predate this migration — backfilled once, not enforced
+    // NOT NULL, since a token issued by an old build before this deploy
+    // wouldn't have a user agent to backfill.
+    @Column(name = "user_agent")
+    private String userAgent;
+
+    @Column(name = "last_used_at")
+    private Instant lastUsedAt;
+
     public RefreshToken() {
     }
 
@@ -36,6 +47,14 @@ public class RefreshToken {
         this.userId = userId;
         this.tokenHash = tokenHash;
         this.expiresAt = expiresAt;
+    }
+
+    public RefreshToken(Long userId, String tokenHash, Instant expiresAt, String userAgent) {
+        this.userId = userId;
+        this.tokenHash = tokenHash;
+        this.expiresAt = expiresAt;
+        this.userAgent = userAgent;
+        this.lastUsedAt = Instant.now();
     }
 
     public Long getId() {
@@ -78,6 +97,20 @@ public class RefreshToken {
     }
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getUserAgent() {
+        return userAgent;
+    }
+    public void setUserAgent(String userAgent) {
+        this.userAgent = userAgent;
+    }
+
+    public Instant getLastUsedAt() {
+        return lastUsedAt;
+    }
+    public void setLastUsedAt(Instant lastUsedAt) {
+        this.lastUsedAt = lastUsedAt;
     }
 
     public boolean isValid(Instant now) {

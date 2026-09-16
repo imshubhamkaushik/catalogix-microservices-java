@@ -1,23 +1,17 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import PropTypes from "prop-types";
+import { Link } from "react-router-dom";
 import {
-  getProducts,
   getOrders,
   cancelOrder,
   payOrder,
   updateOrderStatus,
-  getCart,
-  addCartItem,
-  updateCartItemQuantity,
-  removeCartItem,
-  applyCartCoupon,
-  removeCartCoupon,
-  checkoutCart,
   getOrderTracking,
   getOrderInvoice,
   requestReturn,
 } from "../api";
 import { useAuth } from "../context/AuthContext";
+import Toast from "./Toast";
 
 function formatPrice(value) {
   return new Intl.NumberFormat("en-IN", {
@@ -37,27 +31,6 @@ function formatDate(value) {
     minute: "2-digit",
   });
 }
-
-function Toast({ message, type, onDone }) {
-  useEffect(() => {
-    const timeoutId = setTimeout(onDone, 3000);
-
-    return () => clearTimeout(timeoutId);
-  }, [onDone]);
-
-  return (
-    <div className={`toast toast-${type}`}>
-      <div className="toast-dot" />
-      {message}
-    </div>
-  );
-}
-
-Toast.propTypes = {
-  message: PropTypes.string.isRequired,
-  type: PropTypes.oneOf(["success", "error"]).isRequired,
-  onDone: PropTypes.func.isRequired,
-};
 
 const STATUS_BADGE_CLASS = {
   PENDING_PAYMENT: "badge-low-stock",
@@ -80,115 +53,6 @@ StatusBadge.propTypes = {
 };
 
 // -------- Product picker --------
-
-function ProductPicker({ onAdd }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const debounceRef = useRef(null);
-
-  useEffect(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    if (!query.trim()) {
-      setResults([]);
-      return undefined;
-    }
-
-    debounceRef.current = setTimeout(async () => {
-      setSearching(true);
-
-      try {
-        const data = await getProducts({
-          search: query,
-          page: 0,
-          size: 5,
-        });
-
-        setResults(data.content || []);
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(debounceRef.current);
-  }, [query]);
-
-  const handleAddProduct = (product) => {
-    onAdd(product);
-    setQuery("");
-    setResults([]);
-  };
-
-  return (
-    <div className="product-picker">
-      <div className="search-box">
-        <svg
-          viewBox="0 0 16 16"
-          width="13"
-          height="13"
-          fill="currentColor"
-          style={{ opacity: 0.4, flexShrink: 0 }}
-        >
-          <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398l3.85 3.85a1 1 0 001.415-1.414l-3.868-3.834zm-5.242 1.156a5 5 0 110-10 5 5 0 010 10z" />
-        </svg>
-
-        <input
-          placeholder="Search products to add to your cart…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
-
-      {(searching || results.length > 0) && (
-        <div className="picker-results">
-          {searching && <div className="picker-result-empty">Searching…</div>}
-
-          {!searching &&
-            results.map((product) => (
-              <button
-                key={product.id}
-                type="button"
-                className="picker-result-row"
-                disabled={(product.stockQuantity ?? 0) === 0}
-                onClick={() => handleAddProduct(product)}
-              >
-                <span className="picker-result-name">{product.name}</span>
-
-                <span className="picker-result-price">
-                  {formatPrice(product.price)}
-                </span>
-
-                <span
-                  className={`badge ${
-                    (product.stockQuantity ?? 0) === 0
-                      ? "badge-out-of-stock"
-                      : "badge-in-stock"
-                  }`}
-                >
-                  {(product.stockQuantity ?? 0) === 0
-                    ? "Out of stock"
-                    : `${product.stockQuantity} in stock`}
-                </span>
-              </button>
-            ))}
-
-          {!searching && results.length === 0 && (
-            <div className="picker-result-empty">No matching products.</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-ProductPicker.propTypes = {
-  onAdd: PropTypes.func.isRequired,
-};
 
 // -------- Payment form --------
 
@@ -776,11 +640,6 @@ ReturnRequestModal.propTypes = {
 export default function Orders() {
   const { isAdmin } = useAuth();
 
-  const [cart, setCart] = useState(null);
-  const [couponInput, setCouponInput] = useState("");
-  const [applyingCoupon, setApplyingCoupon] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -789,14 +648,6 @@ export default function Orders() {
   const [trackingOpenFor, setTrackingOpenFor] = useState(null);
   const [invoiceOpenFor, setInvoiceOpenFor] = useState(null);
   const [returnOpenFor, setReturnOpenFor] = useState(null);
-
-  const fetchCart = useCallback(async () => {
-    try {
-      setCart(await getCart());
-    } catch {
-      setError("Failed to load your cart.");
-    }
-  }, []);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -816,100 +667,8 @@ export default function Orders() {
   }, []);
 
   useEffect(() => {
-    fetchCart();
     fetchOrders();
-  }, [fetchCart, fetchOrders]);
-
-  const handleAddToCart = async (product) => {
-    try {
-      setCart(await addCartItem(product.id, 1));
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message || "Failed to add to cart.",
-      );
-    }
-  };
-
-  const updateQty = async (productId, quantity) => {
-    try {
-      setCart(await updateCartItemQuantity(productId, Math.max(1, quantity)));
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message || "Failed to update quantity.",
-      );
-    }
-  };
-
-  const removeFromCart = async (productId) => {
-    try {
-      setCart(await removeCartItem(productId));
-    } catch {
-      setError("Failed to remove item.");
-    }
-  };
-
-  const handleApplyCoupon = async (event) => {
-    event.preventDefault();
-
-    if (!couponInput.trim()) {
-      return;
-    }
-
-    setApplyingCoupon(true);
-    setError("");
-
-    try {
-      setCart(await applyCartCoupon(couponInput.trim().toUpperCase()));
-
-      setToast({
-        message: "Coupon applied.",
-        type: "success",
-      });
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message || "That coupon code isn't valid.",
-      );
-    } finally {
-      setApplyingCoupon(false);
-    }
-  };
-
-  const handleRemoveCoupon = async () => {
-    try {
-      setCart(await removeCartCoupon());
-    } catch {
-      setError("Failed to remove coupon.");
-    }
-  };
-
-  const handleCheckout = async () => {
-    if (!cart || cart.items.length === 0) {
-      return;
-    }
-
-    setCheckingOut(true);
-    setError("");
-
-    try {
-      await checkoutCart(crypto.randomUUID());
-
-      setCouponInput("");
-
-      await Promise.all([fetchCart(), fetchOrders()]);
-
-      setToast({
-        message: "Order placed — complete payment below to confirm it.",
-        type: "success",
-      });
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message ||
-          "Checkout failed — one or more items may be unavailable.",
-      );
-    } finally {
-      setCheckingOut(false);
-    }
-  };
+  }, [fetchOrders]);
 
   const handlePaid = (result) => {
     fetchOrders();
@@ -995,9 +754,7 @@ export default function Orders() {
           <h1 className="page-title">Orders</h1>
 
           <p className="page-subtitle">
-            {isAdmin
-              ? "Build a cart and manage every order"
-              : "Build a cart and track your orders"}
+            {isAdmin ? "Manage every order" : "Track your orders"}
           </p>
         </div>
       </div>
@@ -1012,121 +769,6 @@ export default function Orders() {
         )}
 
         {error && <div className="toast toast-error">{error}</div>}
-
-        <div className="form-panel">
-          <p className="form-panel-label">Your cart</p>
-
-          <ProductPicker onAdd={handleAddToCart} />
-
-          {cart && cart.items.length > 0 && (
-            <div className="cart-list">
-              {cart.items.map((line) => (
-                <div key={line.productId} className="cart-line">
-                  <span className="cart-line-name">{line.productName}</span>
-
-                  <input
-                    className="qty-input"
-                    type="number"
-                    min="1"
-                    value={line.quantity}
-                    onChange={(event) => {
-                      updateQty(
-                        line.productId,
-                        Number.parseInt(event.target.value, 10) || 1,
-                      );
-                    }}
-                  />
-
-                  <span className="cart-line-subtotal">
-                    {formatPrice(line.subtotal)}
-                  </span>
-
-                  <button
-                    className="icon-btn"
-                    type="button"
-                    onClick={() => removeFromCart(line.productId)}
-                    title="Remove"
-                  >
-                    <svg
-                      viewBox="0 0 16 16"
-                      width="12"
-                      height="12"
-                      fill="currentColor"
-                    >
-                      <path d="M2.146 2.854a.5.5 0 111.415-1.415L8 6.086l4.44-4.647a.5.5 0 01.708.707L8.707 6.793l4.647 4.647a.5.5 0 01-.708.708L8 7.5l-4.44 4.648a.5.5 0 01-.707-.708L7.293 6.793l-4.647-4.647.5.708z" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-
-              <form className="coupon-row" onSubmit={handleApplyCoupon}>
-                {cart.couponCode ? (
-                  <>
-                    <span className="badge badge-in-stock">
-                      Coupon: {cart.couponCode}
-                    </span>
-
-                    <button
-                      className="btn-small"
-                      type="button"
-                      onClick={handleRemoveCoupon}
-                    >
-                      Remove
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      className="field-input"
-                      style={{ maxWidth: 160 }}
-                      placeholder="Coupon code"
-                      value={couponInput}
-                      onChange={(event) => {
-                        setCouponInput(event.target.value);
-                      }}
-                      disabled={applyingCoupon}
-                    />
-
-                    <button
-                      className="btn-small"
-                      type="submit"
-                      disabled={applyingCoupon}
-                    >
-                      {applyingCoupon ? "Applying…" : "Apply"}
-                    </button>
-                  </>
-                )}
-              </form>
-
-              <div className="cart-footer">
-                <div>
-                  <div className="auth-help-text" style={{ margin: 0 }}>
-                    Subtotal: {formatPrice(cart.subtotal)}
-                  </div>
-
-                  {cart.discountAmount > 0 && (
-                    <div className="auth-help-text" style={{ margin: 0 }}>
-                      Discount: -{formatPrice(cart.discountAmount)}
-                    </div>
-                  )}
-
-                  <span className="cart-total">
-                    Total: {formatPrice(cart.total)}
-                  </span>
-                </div>
-
-                <button
-                  className="form-submit cart-submit"
-                  type="button"
-                  onClick={handleCheckout}
-                  disabled={checkingOut}
-                >
-                  {checkingOut ? "Placing order…" : "Checkout"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
 
         <div className="section-header">
           <div className="section-header-left">
@@ -1164,8 +806,11 @@ export default function Orders() {
             <p className="empty-title">No orders yet</p>
 
             <p className="empty-sub">
-              Search for a product above to build your first order.
+              Add items to your cart and check out to place your first order.
             </p>
+            <Link to="/cart" className="btn-outline" style={{ marginTop: 10 }}>
+              Go to Cart
+            </Link>
           </div>
         )}
 

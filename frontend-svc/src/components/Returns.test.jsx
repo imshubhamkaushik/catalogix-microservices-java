@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import Returns from "./Returns";
 import { AuthProvider } from "../context/AuthContext";
 import * as api from "../api";
@@ -16,9 +17,11 @@ function seedUser(role = "USER") {
 
 function renderReturns() {
   return render(
-    <AuthProvider>
-      <Returns />
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <Returns />
+      </AuthProvider>
+    </MemoryRouter>
   );
 }
 

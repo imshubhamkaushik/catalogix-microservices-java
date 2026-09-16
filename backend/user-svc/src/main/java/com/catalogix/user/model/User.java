@@ -32,6 +32,16 @@ public class User {
     @Column(nullable = false)
     private boolean verified = false;
 
+    // Self-service opt-out toggles (see V6 migration). NOT currently
+    // enforced by notification-svc — see UserSvc's notificationPreferences
+    // methods for why. Stored here regardless so the preference itself is
+    // real and persisted, ready for that follow-up.
+    @Column(name = "order_emails_enabled", nullable = false)
+    private boolean orderEmailsEnabled = true;
+
+    @Column(name = "promo_emails_enabled", nullable = false)
+    private boolean promoEmailsEnabled = true;
+
     public User() {
     }
 
@@ -96,5 +106,21 @@ public class User {
 
     public void setVerified(boolean verified) {
         this.verified = verified;
+    }
+
+    public boolean isOrderEmailsEnabled() {
+        return orderEmailsEnabled;
+    }
+
+    public void setOrderEmailsEnabled(boolean orderEmailsEnabled) {
+        this.orderEmailsEnabled = orderEmailsEnabled;
+    }
+
+    public boolean isPromoEmailsEnabled() {
+        return promoEmailsEnabled;
+    }
+
+    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) {
+        this.promoEmailsEnabled = promoEmailsEnabled;
     }
 }

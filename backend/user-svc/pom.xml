@@ -8,19 +8,19 @@
   <parent>
     <groupId>com.catalogix</groupId>
     <artifactId>catalogix</artifactId>
-    <version>1.0</version>
+    <version>2.0</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <artifactId>user-svc</artifactId>
-  <version>1.0</version>
+  <version>2.0</version>
   <packaging>jar</packaging>
 
   <dependencies>
     <dependency>
         <groupId>com.catalogix</groupId>
         <artifactId>security-common</artifactId>
-        <version>1.0</version>
+        <version>2.0</version>
     </dependency>
 
     <dependency>

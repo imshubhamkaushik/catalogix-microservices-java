@@ -1,5 +1,6 @@
 package com.catalogix.user.security;
 
+import com.catalogix.user.exception.ForbiddenException;
 import com.catalogix.user.exception.UnauthorizedException;
 import com.catalogix.user.model.RefreshToken;
 import com.catalogix.user.repository.RefreshTokenRepository;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Issues and validates refresh tokens. A refresh token is a long, random,
@@ -39,16 +41,24 @@ public class RefreshTokenService {
 
     @Transactional
     public String issue(Long userId) {
+        return issue(userId, null);
+    }
+
+    @Transactional
+    public String issue(Long userId, String userAgent) {
         String rawToken = tokenHasher.generateRawToken();
         RefreshToken entity = new RefreshToken(
-                userId, tokenHasher.hash(rawToken), Instant.now().plusMillis(expirationMs));
+                userId, tokenHasher.hash(rawToken), Instant.now().plusMillis(expirationMs), userAgent);
         repo.save(entity);
         return rawToken;
     }
 
     /**
      * Validates the raw token, revokes it, and issues a fresh replacement for
-     * the same user — the standard "rotate on use" pattern.
+     * the same user — the standard "rotate on use" pattern. The new token
+     * carries forward the same user agent as the one being rotated (it's the
+     * same physical device continuing to refresh, not a new login), so
+     * callers don't need to re-supply it on every refresh call.
      *
      * @throws UnauthorizedException if the token is unknown, expired, or already revoked.
      */
@@ -64,7 +74,7 @@ public class RefreshTokenService {
         existing.setRevoked(true);
         repo.save(existing);
 
-        String newToken = issue(existing.getUserId());
+        String newToken = issue(existing.getUserId(), existing.getUserAgent());
         return new RotationResult(existing.getUserId(), newToken);
     }
 
@@ -79,6 +89,37 @@ public class RefreshTokenService {
     @Transactional
     public void revokeAllForUser(Long userId) {
         repo.revokeAllForUser(userId);
+    }
+
+    // For the session-list UI. Only returns sessions that are actually still
+    // usable (not revoked, not expired) — a revoked/expired row isn't a
+    // "session" from the user's point of view, it's just historical noise.
+    @Transactional(readOnly = true)
+    public List<RefreshToken> listActiveSessions(Long userId) {
+        Instant now = Instant.now();
+        return repo.findByUserIdAndRevokedFalseOrderByLastUsedAtDesc(userId)
+                .stream()
+                .filter(t -> t.isValid(now))
+                .toList();
+    }
+
+    /**
+     * Revokes one specific session by its own database id — for "log out
+     * this one device" rather than logout()'s "log out the device making
+     * this request" or revokeAllForUser's "log out everywhere".
+     *
+     * @throws com.catalogix.user.exception.ForbiddenException if the session belongs to a different user
+     *         (never leaks whether the id exists at all to someone who doesn't own it)
+     */
+    @Transactional
+    public void revokeById(Long sessionId, Long requesterId) {
+        repo.findById(sessionId).ifPresent(session -> {
+            if (!session.getUserId().equals(requesterId)) {
+                throw new ForbiddenException("You may only revoke your own sessions");
+            }
+            session.setRevoked(true);
+            repo.save(session);
+        });
     }
 
     public long getExpirationMs() {

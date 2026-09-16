@@ -1,20 +1,12 @@
 // =============================================================================
-// DRAFT — NOT ACTIVE. This file is not referenced by jcasc.yaml's jobs: block,
-// so no Jenkins job runs it and nothing triggers it. It exists so the stages
-// are ready to go when you decide to turn this on — at that point:
-//   1. Add a pipelineJob('lint') entry to jcasc.yaml (model it on the
-//      existing 'app-cicd' job — same githubPush() trigger pattern).
-//   2. Decide whether to move 'Secrets Scanning' out of Jenkinsfile.app-cicd
-//      into here instead, or leave it duplicated in both. Moving it is more
-//      correct (it's a full-repo scan either way, so running it twice is
-//      redundant work, not extra protection) but duplicating it costs
-//      nothing except a slightly slower app-cicd run, and means secret
-//      scanning doesn't depend on this file actually being wired up
-//      correctly on day one. Your call once this is real.
-//   3. Run terraform fmt -check and helm lint by hand once, locally, before
-//      trusting them as gates — see the comment on those two stages below
-//      for why those two specifically haven't been verified the way the
-//      others have.
+// Wired into jcasc.yaml's jobs: block as the 'lint' pipeline (githubPush()
+// trigger, same pattern as app-cicd). Two stages below still carry a
+// caveat worth reading before trusting them as hard gates on a real PR:
+//   - Terraform Format Check and Helm Lint: neither was run against a real
+//     terraform/helm binary in the environment this was authored in — run
+//     both once by hand before trusting them as gates.
+// Ansible Lint and Python Lint WERE run and confirmed passing locally
+// before this was wired up — see their own stage comments below.
 // =============================================================================
 
 pipeline {

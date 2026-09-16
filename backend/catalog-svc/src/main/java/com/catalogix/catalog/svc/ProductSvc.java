@@ -67,6 +67,7 @@ public class ProductSvc {
         p.setPrice(req.getPrice());
         p.setCategory(StringUtils.hasText(req.getCategory()) ? req.getCategory().trim() : "GENERAL");
         p.setOwnerId(ownerId);
+        p.setImageUrl(req.getImageUrl());
         Product saved = repo.save(p);
 
         int initialStock = req.getStockQuantity() != null ? req.getStockQuantity() : 0;
@@ -81,6 +82,7 @@ public class ProductSvc {
         response.setCategory(saved.getCategory());
         response.setStockQuantity(initialStock);
         response.setOwnerId(saved.getOwnerId());
+        response.setImageUrl(saved.getImageUrl());
         response.setCreatedAt(saved.getCreatedAt());
 
         return response;
@@ -106,6 +108,7 @@ public class ProductSvc {
             response.setCategory(core.category());
             response.setStockQuantity(stock);
             response.setOwnerId(core.ownerId());
+            response.setImageUrl(core.imageUrl());
             response.setCreatedAt(core.createdAt());
 
             ReviewClient.Summary rating = reviewClient.fetchSummary(id, bearerToken);
@@ -120,7 +123,7 @@ public class ProductSvc {
     public Optional<ProductCore> cacheCore(long id) {
         return repo.findById(id).map(p -> new ProductCore(
                 p.getId(), p.getName(), p.getDescription(), p.getPrice(),
-                p.getCategory(), p.getOwnerId(), p.getCreatedAt()));
+                p.getCategory(), p.getOwnerId(), p.getImageUrl(), p.getCreatedAt()));
     }
 
     @CacheEvict(value = "products", key = "#id")
@@ -171,6 +174,7 @@ public class ProductSvc {
         response.setCategory(product.getCategory());
         response.setStockQuantity(newQuantity);
         response.setOwnerId(product.getOwnerId());
+        response.setImageUrl(product.getImageUrl());
         response.setCreatedAt(product.getCreatedAt());
 
         ReviewClient.Summary rating =
@@ -184,7 +188,7 @@ public class ProductSvc {
 
     private record ProductCore(Long id, String name, String description,
                                 java.math.BigDecimal price, String category,
-                                Long ownerId, java.time.Instant createdAt) {}
+                                Long ownerId, String imageUrl, java.time.Instant createdAt) {}
 
     private ProductResponse toResponse(Product p, String bearerToken) {
         Integer stock = inventoryClient.fetchQuantity(p.getId(), bearerToken);
@@ -197,6 +201,7 @@ public class ProductSvc {
         response.setCategory(p.getCategory());
         response.setStockQuantity(stock);
         response.setOwnerId(p.getOwnerId());
+        response.setImageUrl(p.getImageUrl());
         response.setCreatedAt(p.getCreatedAt());
 
         ReviewClient.Summary rating = reviewClient.fetchSummary(p.getId(), bearerToken);

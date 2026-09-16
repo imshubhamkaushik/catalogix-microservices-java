@@ -286,7 +286,7 @@ public class CheckoutSvc {
         Order saved = repo.save(order);
         if (payment.succeeded()) {
             eventPublisher.publishEvent(new OrderConfirmedEvent(
-                    saved.getId(), userEmail, toEventItems(saved), saved.getTotalAmount()));
+                    saved.getId(), saved.getUserId(), userEmail, toEventItems(saved), saved.getTotalAmount()));
         }
         return new OrderPaymentResult(toResponse(saved), payment.succeeded());
     }
@@ -433,7 +433,7 @@ public class CheckoutSvc {
         order.addStatusEvent(OrderStatus.CANCELLED, isOwnCancellation ? "Cancelled by customer" : "Cancelled by admin");
 
         Order saved = repo.save(order);
-        eventPublisher.publishEvent(new OrderCancelledEvent(saved.getId(), userEmail));
+        eventPublisher.publishEvent(new OrderCancelledEvent(saved.getId(), saved.getUserId(), userEmail));
         return toResponse(saved);
     }
 

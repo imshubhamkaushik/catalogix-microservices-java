@@ -13,7 +13,15 @@ metadata:
     alb.ingress.kubernetes.io/group.order: "10"
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
+    {{ if .Values.ingress.tlsCertArn }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.tlsCertArn }}
+    # Auto-adds an HTTP->HTTPS redirect action on the :80 listener so plain
+    # http:// links still work instead of hanging/erroring.
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{ else }}
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    {{ end }}
     alb.ingress.kubernetes.io/healthcheck-path: /gateway/health
     alb.ingress.kubernetes.io/healthcheck-port: traffic-port
     alb.ingress.kubernetes.io/success-codes: "200-399"

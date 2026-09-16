@@ -12,6 +12,7 @@ public class ProductResponse {
     private String category;
     private Integer stockQuantity;
     private Long ownerId;
+    private String imageUrl;
     private Instant createdAt;
     private BigDecimal averageRating;
     private long reviewCount;
@@ -84,6 +85,14 @@ public class ProductResponse {
 
     public void setOwnerId(Long ownerId) {
         this.ownerId = ownerId;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
+    }
+
+    public void setImageUrl(String imageUrl) {
+        this.imageUrl = imageUrl;
     }
 
     public Instant getCreatedAt() {

@@ -77,6 +77,30 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 3
+        # nginx-prometheus-exporter sidecar — scrapes the gateway's own
+        # internal-only stub_status endpoint (nginx.conf's :8081 server
+        # block, never exposed via the gateway Service) over localhost
+        # (shared pod network namespace) and re-exposes it in Prometheus
+        # format on :9113 for servicemonitors.yaml to scrape. Gives request
+        # rate / active connections / dropped connections at the edge —
+        # the one place in the request path with no metrics today, since
+        # this is nginx, not a Spring Boot service with /actuator/prometheus.
+        - name: nginx-exporter
+          image: "nginx/nginx-prometheus-exporter:1.4.2"
+          args:
+            - "--nginx.scrape-uri=http://127.0.0.1:8081/stub_status"
+          ports:
+            - name: metrics
+              containerPort: 9113
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "50m", memory: "32Mi" }
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
       volumes:
         - name: nginx-cache
           emptyDir: {}
@@ -97,6 +121,11 @@ spec:
   selector:
     app: gateway
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: {{ .Values.gateway.service.port }}
       targetPort: {{ .Values.gateway.service.port }}
+    - name: metrics
+      protocol: TCP
+      port: 9113
+      targetPort: 9113

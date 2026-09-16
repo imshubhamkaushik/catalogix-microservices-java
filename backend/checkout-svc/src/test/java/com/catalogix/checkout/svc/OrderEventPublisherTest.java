@@ -34,7 +34,7 @@ class OrderEventPublisherTest {
     @Test
     void onOrderConfirmedPublishesToTheEventsExchangeWithTheRightRoutingKey() {
         OrderConfirmedEvent event = new OrderConfirmedEvent(
-                5L, "buyer@example.com",
+                5L, 1L, "buyer@example.com",
                 List.of(new OrderItemEventData("Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"))),
                 new BigDecimal("200.00"));
 
@@ -45,7 +45,7 @@ class OrderEventPublisherTest {
 
     @Test
     void onOrderCancelledPublishesToTheEventsExchangeWithTheRightRoutingKey() {
-        OrderCancelledEvent event = new OrderCancelledEvent(5L, "buyer@example.com");
+        OrderCancelledEvent event = new OrderCancelledEvent(5L, 1L, "buyer@example.com");
 
         publisher.onOrderCancelled(event);
 
@@ -56,6 +56,7 @@ class OrderEventPublisherTest {
     void aBrokerFailureDuringPublishIsSwallowedNotThrown() {
         OrderConfirmedEvent event = new OrderConfirmedEvent(
                 5L,
+                1L,
                 "buyer@example.com",
                 List.of(),
                 BigDecimal.ZERO

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 import Account from "./Account";
 import { AuthProvider } from "../context/AuthContext";
 import * as api from "../api";
@@ -9,9 +10,11 @@ vi.mock("../api");
 
 function renderAccount() {
   return render(
-    <AuthProvider>
-      <Account />
-    </AuthProvider>
+    <MemoryRouter>
+      <AuthProvider>
+        <Account />
+      </AuthProvider>
+    </MemoryRouter>
   );
 }
 
@@ -35,8 +38,11 @@ describe("Account page", () => {
     localStorage.clear();
     vi.clearAllMocks();
     await loginFirst();
-    // Fetched unconditionally on mount (see Account.jsx's address book section).
+    // Fetched unconditionally on mount (see Account.jsx's address book,
+    // profile summary, and sessions sections).
     api.getAddresses.mockResolvedValue([]);
+    api.getOrders.mockResolvedValue({ content: [], page: 0, size: 1, totalElements: 3, totalPages: 3 });
+    api.getSessions.mockResolvedValue([]);
   });
 
   it("pre-fills the form with the current user's name and email", async () => {
@@ -144,5 +150,63 @@ describe("Account page", () => {
     await userEvent.click(await screen.findByRole("button", { name: /set default/i }));
 
     await waitFor(() => expect(api.setDefaultAddress).toHaveBeenCalledWith(1));
+  });
+
+  it("shows the order count and member-since date in the profile summary", async () => {
+    renderAccount();
+    expect(await screen.findByText(/3 orders/i)).toBeInTheDocument();
+  });
+
+  it("saves notification preferences", async () => {
+    api.updateNotificationPreferences.mockResolvedValue({
+      id: 1, name: "Alice", email: "alice@example.com", role: "USER", verified: false,
+      orderEmailsEnabled: false, promoEmailsEnabled: true,
+    });
+    renderAccount();
+
+    const orderEmailsCheckbox = screen.getByLabelText(/order status emails/i);
+    await userEvent.click(orderEmailsCheckbox);
+    await userEvent.click(screen.getByRole("button", { name: /save preferences/i }));
+
+    await waitFor(() => expect(api.updateNotificationPreferences).toHaveBeenCalledWith({
+      orderEmailsEnabled: false, promoEmailsEnabled: true,
+    }));
+  });
+
+  it("lists active sessions and lets you revoke a non-current one", async () => {
+    api.getSessions.mockResolvedValue([
+      { id: 10, userAgent: "Mozilla/5.0 Chrome/120 Windows", createdAt: "2026-01-01T10:00:00Z", lastUsedAt: "2026-01-02T10:00:00Z", expiresAt: "2026-01-08T10:00:00Z", current: true },
+      { id: 11, userAgent: "Mozilla/5.0 Safari/17 iPhone", createdAt: "2026-01-01T09:00:00Z", lastUsedAt: "2026-01-01T09:00:00Z", expiresAt: "2026-01-08T09:00:00Z", current: false },
+    ]);
+    api.revokeSession.mockResolvedValue(undefined);
+    renderAccount();
+
+    expect(await screen.findByText(/this device/i)).toBeInTheDocument();
+    expect(screen.getByText(/chrome on windows/i)).toBeInTheDocument();
+    expect(screen.getByText(/safari on ios/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
+    await waitFor(() => expect(api.revokeSession).toHaveBeenCalledWith(11));
+  });
+
+  it("deletes the account, logs out, and redirects to login after confirming", async () => {
+    vi.spyOn(globalThis, "confirm").mockReturnValue(true);
+    api.deleteUser.mockResolvedValue(undefined);
+    api.logout.mockResolvedValue(undefined);
+    renderAccount();
+
+    await userEvent.click(await screen.findByRole("button", { name: /delete my account/i }));
+
+    await waitFor(() => expect(api.deleteUser).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(api.logout).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not delete the account if the confirmation is cancelled", async () => {
+    vi.spyOn(globalThis, "confirm").mockReturnValue(false);
+    renderAccount();
+
+    await userEvent.click(await screen.findByRole("button", { name: /delete my account/i }));
+
+    expect(api.deleteUser).not.toHaveBeenCalled();
   });
 });

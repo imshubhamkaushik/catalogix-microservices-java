@@ -299,6 +299,44 @@ kube-prometheus-stack:
                 summary: "checkout-svc has dead-lettered compensation entries"
                 description: "{{ $value }} outbox entries in DEAD_LETTER — failed refunds/stock-releases/coupon-restores needing manual review. See GET /admin/outbox on checkout-svc."
 
+        - name: rabbitmq
+          rules:
+            # rabbitmq_queue_consumers / rabbitmq_queue_messages_ready come
+            # from the rabbitmq_prometheus plugin (see
+            # helm/monitoring/templates/servicemonitors.yaml's
+            # catalogix-rabbitmq ServiceMonitor) — no separate exporter.
+            - alert: RabbitMQQueueBacklogGrowing
+              # A queue building up faster than it's being drained. Doesn't
+              # fire on brief bursts (for: 10m) — only a sustained backlog,
+              # which usually means a consumer is stuck, crashed, or too
+              # slow, not just normal traffic variance.
+              expr: |
+                rabbitmq_queue_messages_ready{namespace="catalogix"} > 500
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Queue {{ $labels.queue }} has a growing backlog"
+                description: "{{ $value }} messages ready and waiting in {{ $labels.queue }} for over 10 minutes — a consumer may be stuck or too slow."
+
+            - alert: RabbitMQQueueNoConsumers
+              # The dangerous combination specifically: messages waiting
+              # AND nobody listening. A queue with 0 consumers but also 0
+              # messages is fine (idle) — this only fires when work is
+              # actually piling up with nothing to process it, e.g. a
+              # consumer pod crash-looping or a deployment that broke
+              # queue binding.
+              expr: |
+                rabbitmq_queue_consumers{namespace="catalogix"} == 0
+                and on (queue)
+                rabbitmq_queue_messages_ready{namespace="catalogix"} > 0
+              for: 5m
+              labels:
+                severity: critical
+              annotations:
+                summary: "Queue {{ $labels.queue }} has messages but no consumers"
+                description: "{{ $labels.queue }} has had 0 consumers for 5+ minutes while messages are waiting — nothing is processing this queue."
+
 # ─── Loki — log aggregation ───────────────────────────────────────────────
 # Single-binary mode: one Loki process handles ingestion, storage, and
 # queries. This is the right choice at this scale — the distributed

@@ -37,6 +37,12 @@ rabbitmq:
 ingress:
   enabled: true
   host: ""
+  # ACM certificate ARN for the ALB's HTTPS:443 listener. Empty by
+  # default (HTTP:80 only) until a real cert exists for this env's
+  # domain — set at deploy time with --set ingress.tlsCertArn=<arn>,
+  # same pattern as database.host. Once set, flip REFRESH_COOKIE_SECURE
+  # back to true (or remove the override) in this file's user-svc block.
+  tlsCertArn: ""
   paths:
     frontend: /
 
@@ -67,6 +73,14 @@ services:
         value: "true"
       - name: ADMIN_EMAILS
         value: "admin@example.com"
+      # TEMPORARY: the ALB ingress (templates/ingress-alb.yaml) currently
+      # only listens on HTTP:80 — there's no ACM cert/443 listener wired up
+      # yet (see ingress.tlsCertArn below). Until that's added, this must
+      # stay false or the browser silently drops the Secure-flagged refresh
+      # cookie, exactly like the local docker-compose issue. Flip this back
+      # to true (or just delete the override) once ingress.tlsCertArn is set.
+      - name: REFRESH_COOKIE_SECURE
+        value: "false"
 
   catalog-svc:
     dbName: catalogix_catalog
@@ -197,6 +211,8 @@ services:
         value: "noreply@catalogix.local"
       # MAIL_HOST/MAIL_PORT point at a real SMTP provider in staging/prod;
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
+      - name: USER_SVC_URL
+        value: "http://user-svc:11001"
 
   review-svc:
     dbName: catalogix_reviews

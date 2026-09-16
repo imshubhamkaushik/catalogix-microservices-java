@@ -1,0 +1,85 @@
+# Local-cluster overlay for kind / minikube / Docker Desktop Kubernetes.
+#
+# This is NOT a standalone values file — it only overrides the keys that
+# need to differ for a laptop cluster. Everything else (per-service image
+# repos, JVM resource shapes, ingressPaths, etc.) is inherited from
+# values-dev.yaml. Helm deep-merges nested maps across multiple -f files
+# (last file wins per-key), so install with BOTH files, in this order:
+#
+#   helm install catalogix ./helm/catalogix-hc \
+#     -f helm/catalogix-hc/values-dev.yaml \
+#     -f helm/catalogix-hc/values-local.yaml \
+#     --set global.imageRegistry=<your local registry or image repo prefix> \
+#     -n catalogix --create-namespace
+#
+# What this actually removes vs. values-dev.yaml + AWS:
+#   - No RDS: templates/postgres-local.yaml spins up an in-cluster Postgres
+#     instead (single shared role, database-per-service — same model as
+#     local docker-compose; see that template's header comment).
+#   - No AWS Secrets Manager / ESO: templates/local-secrets.yaml creates the
+#     'catalogix-secrets' K8s Secret directly, generated on first install
+#     and kept stable across `helm upgrade` (same pattern the chart already
+#     uses for the RabbitMQ Erlang cookie).
+#   - No ALB / WAF / TLS: ingress disabled entirely. Reach the app with:
+#       kubectl port-forward -n catalogix svc/gateway 11000:80
+#     then open http://localhost:11000 — same port your local docker-compose
+#     setup already uses.
+#   - No autoscaling: HPA off, every service pinned to 1 replica. This is
+#     the main thing that makes footprint "fit" a laptop — 9 backend
+#     services + gateway + frontend + rabbitmq + postgres at 2 replicas
+#     each would ask for far more CPU/memory than most dev machines have
+#     free alongside everything else running on it.
+#   - No tracing backend: global.otlpEndpoint still points at a `monitoring`
+#     namespace Tempo Service that won't exist unless you also install
+#     helm/monitoring locally. This is harmless — the OTLP exporter just
+#     logs connection-refused warnings in the background, it doesn't block
+#     app startup — but worth knowing if you see those in the logs.
+
+global:
+  cloudProvider: "local"
+
+database:
+  host: "postgres-local"
+  local:
+    # Most local clusters ship a default StorageClass under one of these
+    # names — kind and Docker Desktop Kubernetes both use "standard" by
+    # default. Run `kubectl get storageclass` if installs get stuck
+    # Pending on the PVC, and change this (or rabbitmq.storageClass below)
+    # to whatever your cluster actually has.
+    storageClass: "standard"
+    storageSize: "1Gi"
+
+rabbitmq:
+  storageClass: "standard"
+  storageSize: "1Gi"
+
+ingress:
+  enabled: false
+
+hpa:
+  # Disables HPA for all 9 backend services AND frontend-svc — the
+  # frontend-svc HPA block in templates/hpa.yaml is nested inside this same
+  # top-level flag rather than having its own independent one like
+  # gateway.hpa does below. Worth knowing if you ever want frontend
+  # autoscaling on while the backend services' is off — today that's not
+  # possible without editing the template, only this shared switch exists.
+  enabled: false
+
+services:
+  user-svc: { replicaCount: 1 }
+  catalog-svc: { replicaCount: 1 }
+  inventory-svc: { replicaCount: 1 }
+  cart-svc: { replicaCount: 1 }
+  promotions-svc: { replicaCount: 1 }
+  payment-svc: { replicaCount: 1 }
+  checkout-svc: { replicaCount: 1 }
+  notification-svc: { replicaCount: 1 }
+  review-svc: { replicaCount: 1 }
+
+gateway:
+  replicaCount: 1
+  hpa:
+    enabled: false
+
+frontendSvc:
+  replicaCount: 1

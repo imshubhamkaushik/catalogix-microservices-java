@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import PropTypes from "prop-types";
+import { Link } from "react-router-dom";
 import {
   getMyReturns,
   getAllReturns,
@@ -265,6 +266,9 @@ export default function Returns() {
             <p className="empty-sub">
               Request a return from any delivered order on the Orders page.
             </p>
+            <Link to="/orders" className="btn-outline" style={{ marginTop: 10 }}>
+              Go to Orders
+            </Link>
           </div>
         )}
         {!myLoading && myReturns.length > 0 && (

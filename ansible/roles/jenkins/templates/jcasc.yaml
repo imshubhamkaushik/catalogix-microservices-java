@@ -129,3 +129,30 @@ jobs:
           }
         }
       }
+
+  # Lint Pipeline — terraform fmt/validate, ansible-lint, and (per
+  # Jenkinsfile.lint's own header) whatever else gets added to it over time.
+  # Was previously a draft with no job wired to run it at all — same
+  # githubPush() trigger pattern as app-cicd above, per that file's own
+  # activation instructions.
+  - script: >
+      pipelineJob('lint') {
+        description('Static checks - Terraform, Ansible, and other repo-wide lint/format gates')
+        triggers {
+          githubPush()
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('${GIT_REPO_URL}')
+                  credentials('github-token')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile.lint')
+          }
+        }
+      }

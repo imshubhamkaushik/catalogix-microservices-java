@@ -24,10 +24,10 @@ export default function HomePage() {
               <path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/>
             </svg>
           </div>
-          <h2 className="hero-title">Product catalogue manager</h2>
+          <h2 className="hero-title">Welcome to Catalogix</h2>
           <p className="hero-desc">
-            Browse the catalogue, manage inventory, and place orders — all
-            scoped to your signed-in account.
+            Browse the catalogue, save favourites to your wishlist, and check
+            out — all scoped to your signed-in account.
           </p>
           <div className="hero-actions">
             <button className="btn-primary" type="button" onClick={() => navigate("/products")}>

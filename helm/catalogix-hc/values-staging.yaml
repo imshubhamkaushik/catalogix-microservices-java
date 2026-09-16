@@ -37,6 +37,12 @@ rabbitmq:
 ingress:
   enabled: true
   host: ""
+  # ACM certificate ARN for the ALB's HTTPS:443 listener. Empty by
+  # default (HTTP:80 only) until a real cert exists for this env's
+  # domain — set at deploy time with --set ingress.tlsCertArn=<arn>,
+  # same pattern as database.host. Once set, flip REFRESH_COOKIE_SECURE
+  # back to true (or remove the override) in this file's user-svc block.
+  tlsCertArn: ""
   paths:
     frontend: /
 
@@ -67,6 +73,11 @@ services:
         value: "true"
       - name: ADMIN_EMAILS
         value: "admin@example.com"
+      # TEMPORARY: see the matching comment in values-dev.yaml — the ALB
+      # ingress has no 443/ACM listener yet, so this must stay false until
+      # ingress.tlsCertArn is set, or the refresh cookie is silently dropped.
+      - name: REFRESH_COOKIE_SECURE
+        value: "false"
 
   catalog-svc:
     dbName: catalogix_catalog
@@ -197,6 +208,8 @@ services:
         value: "noreply@catalogix.local"
       # MAIL_HOST/MAIL_PORT point at a real SMTP provider in staging/prod;
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
+      - name: USER_SVC_URL
+        value: "http://user-svc:11001"
 
   review-svc:
     dbName: catalogix_reviews

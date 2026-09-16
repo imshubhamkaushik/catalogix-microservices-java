@@ -55,3 +55,30 @@ spec:
       path: /metrics
       interval: 15s
       scrapeTimeout: 10s
+---
+# Gateway — nginx-prometheus-exporter sidecar (see
+# helm/catalogix-hc/templates/gateway.yaml) re-exposes nginx's stub_status
+# as Prometheus metrics on the gateway pod's :9113 "metrics" Service port.
+# Covers request rate, active/reading/writing/waiting connections, and
+# dropped ("accepts - handled") connections at the one hop in the request
+# path with no metrics today — everything downstream is Spring Boot with
+# /actuator/prometheus, this is nginx, which doesn't expose that natively.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: catalogix-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    release: monitoring
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.global.targetNamespace | default "catalogix" }}
+  selector:
+    matchLabels:
+      app: gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

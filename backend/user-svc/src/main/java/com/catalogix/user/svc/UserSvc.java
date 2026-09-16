@@ -3,6 +3,9 @@ package com.catalogix.user.svc;
 import com.catalogix.user.dto.AuthResponse;
 import com.catalogix.user.dto.CreateUserRequest;
 import com.catalogix.user.dto.LoginRequest;
+import com.catalogix.user.dto.NotificationPreferencesRequest;
+import com.catalogix.user.dto.NotificationPreferencesResponse;
+import com.catalogix.user.dto.SessionResponse;
 import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
 import com.catalogix.user.dto.UserResponse;
@@ -96,6 +99,11 @@ public class UserSvc {
     // preventing a race where two concurrent requests register the same email.
     @Transactional
     public AuthResponse register(CreateUserRequest req) {
+        return register(req, null);
+    }
+
+    @Transactional
+    public AuthResponse register(CreateUserRequest req, String userAgent) {
         if (repo.findByEmail(req.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Email already registered");
         }
@@ -108,7 +116,7 @@ public class UserSvc {
 
         User saved = repo.save(user);
         sendVerificationEmail(saved);
-        return issueAuthResponse(saved);
+        return issueAuthResponse(saved, userAgent);
     }
 
     // Login user: returns fresh tokens + profile if credentials are valid.
@@ -117,6 +125,11 @@ public class UserSvc {
     // the password given this time is actually correct.
     @Transactional
     public AuthResponse login(LoginRequest req) {
+        return login(req, null);
+    }
+
+    @Transactional
+    public AuthResponse login(LoginRequest req, String userAgent) {
         loginAttemptTracker.assertNotLocked(req.getEmail());
 
         User user = repo.findByEmail(req.getEmail()).orElse(null);
@@ -128,7 +141,7 @@ public class UserSvc {
         }
 
         loginAttemptTracker.recordSuccess(req.getEmail());
-        return issueAuthResponse(user);
+        return issueAuthResponse(user, userAgent);
     }
 
     // Exchange a valid refresh token for a new access token (and a rotated refresh token).
@@ -305,13 +318,68 @@ public class UserSvc {
         return true;
     }
 
-    private AuthResponse issueAuthResponse(User user) {
+    private AuthResponse issueAuthResponse(User user, String userAgent) {
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), user.getRole());
-        String refreshToken = refreshTokenService.issue(user.getId());
+        String refreshToken = refreshTokenService.issue(user.getId(), userAgent);
         return new AuthResponse(accessToken, jwtService.getExpirationMs(), refreshToken, toResponse(user));
     }
 
     private UserResponse toResponse(User u) {
-        return new UserResponse(u.getId(), u.getName(), u.getEmail(), u.getRole(), u.isVerified());
+        return new UserResponse(
+                u.getId(), u.getName(), u.getEmail(), u.getRole(), u.isVerified(),
+                u.getCreatedAt(), u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled());
+    }
+
+    // ---- Sessions (see RefreshTokenService for the underlying storage) ----
+
+    // currentRawToken is the raw refresh token from THIS request's cookie
+    // (may be null, e.g. an access-token-only request with no cookie sent) —
+    // used only to flag which returned session is "this device"; never
+    // itself returned to the client. See SessionResponse's Javadoc.
+    @Transactional(readOnly = true)
+    public List<SessionResponse> listSessions(Long userId, String currentRawToken) {
+        String currentHash = currentRawToken != null && !currentRawToken.isBlank()
+                ? tokenHasher.hash(currentRawToken)
+                : null;
+
+        return refreshTokenService.listActiveSessions(userId).stream()
+                .map(t -> new SessionResponse(
+                        t.getId(), t.getUserAgent(), t.getCreatedAt(), t.getLastUsedAt(), t.getExpiresAt(),
+                        t.getTokenHash().equals(currentHash)))
+                .toList();
+    }
+
+    // Ownership is checked inside RefreshTokenService.revokeById — this is
+    // just a pass-through, kept here so the controller only ever talks to
+    // UserSvc, same as every other endpoint.
+    public void revokeSession(Long sessionId, Long userId) {
+        refreshTokenService.revokeById(sessionId, userId);
+    }
+
+    // ---- Notification preferences ----
+    // Enforced by notification-svc before sending an order-status email —
+    // see getNotificationPreferences below and notification-svc's
+    // UserPreferenceClient/OrderEventListener.
+    @Transactional
+    public UserResponse updateNotificationPreferences(Long userId, NotificationPreferencesRequest req) {
+        User user = repo.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
+        user.setOrderEmailsEnabled(req.isOrderEmailsEnabled());
+        user.setPromoEmailsEnabled(req.isPromoEmailsEnabled());
+        return toResponse(repo.save(user));
+    }
+
+    // Internal-only lookup for notification-svc (see UserController's
+    // GET /users/{id}/notification-preferences, SYSTEM-role-gated same as
+    // inventory-svc's /adjust) — read before sending an order-status email;
+    // see notification-svc's UserPreferenceClient.
+    // Defaults to true/true (send everything) if the user no longer exists,
+    // matching this endpoint's fail-open contract: a deleted-account race
+    // shouldn't be the reason a legitimate notification silently vanishes.
+    @Transactional(readOnly = true)
+    public NotificationPreferencesResponse getNotificationPreferences(Long userId) {
+        return repo.findById(userId)
+                .map(u -> new NotificationPreferencesResponse(u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled()))
+                .orElse(new NotificationPreferencesResponse(true, true));
     }
 }

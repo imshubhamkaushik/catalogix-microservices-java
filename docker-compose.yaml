@@ -374,6 +374,7 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      USER_SVC_URL: http://user-svc:11001
     expose:
       - "11008"
     depends_on:
@@ -382,6 +383,12 @@ services:
       rabbitmq:
         condition: service_healthy
       mailpit:
+        condition: service_started
+      user-svc:
+        # Not a hard requirement to function (see UserPreferenceClient's
+        # fail-open behavior), but starting after it avoids a burst of
+        # failed connection attempts during the first few seconds of every
+        # fresh `docker compose up`.
         condition: service_started
     networks: [catalogix]
 

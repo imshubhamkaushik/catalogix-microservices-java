@@ -33,6 +33,12 @@ public class Product {
     @Column(name = "owner_id", nullable = false)
     private Long ownerId;
 
+    // Optional — no upload pipeline behind this yet, just a plain URL a
+    // product's creator can paste in. See V5 migration for the full
+    // reasoning on why this is a URL field and not a file upload.
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -64,6 +70,8 @@ public class Product {
     public void setCategory(String category) { this.category = category; }
     public Long getOwnerId() { return ownerId; }
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

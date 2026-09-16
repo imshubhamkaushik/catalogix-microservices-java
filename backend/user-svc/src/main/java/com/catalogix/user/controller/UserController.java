@@ -4,7 +4,10 @@ import com.catalogix.user.dto.AuthResponse;
 import com.catalogix.user.dto.CreateUserRequest;
 import com.catalogix.user.dto.ForgotPasswordRequest;
 import com.catalogix.user.dto.LoginRequest;
+import com.catalogix.user.dto.NotificationPreferencesRequest;
+import com.catalogix.user.dto.NotificationPreferencesResponse;
 import com.catalogix.user.dto.ResetPasswordRequest;
+import com.catalogix.user.dto.SessionResponse;
 import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
 import com.catalogix.user.dto.UserResponse;
@@ -54,17 +57,27 @@ public class UserController {
     // Register endpoint: creates a new user, sends a verification email, and
     // immediately returns tokens so the frontend can log the user straight in.
     // The refresh token is never in the JSON body — see AuthResponse's Javadoc.
+    // User-Agent is captured purely for the session-list UI (see
+    // GET /users/me/sessions) — never validated or required.
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody CreateUserRequest req, HttpServletResponse response) {
-        AuthResponse created = svc.register(req);
+    public ResponseEntity<AuthResponse> register(
+            @Valid @RequestBody CreateUserRequest req,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            HttpServletResponse response
+    ) {
+        AuthResponse created = svc.register(req, userAgent);
         setRefreshCookie(response, created.getRefreshToken());
         return ResponseEntity.status(201).body(created);
     }
 
     // Login endpoint: validates credentials and returns tokens + profile on success.
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest req, HttpServletResponse response) {
-        AuthResponse result = svc.login(req);
+    public ResponseEntity<AuthResponse> login(
+            @Valid @RequestBody LoginRequest req,
+            @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            HttpServletResponse response
+    ) {
+        AuthResponse result = svc.login(req, userAgent);
         setRefreshCookie(response, result.getRefreshToken());
         return ResponseEntity.ok(result);
     }
@@ -194,6 +207,58 @@ public class UserController {
             throw new ForbiddenException("Only admins may list all users");
         }
         return svc.listAll();
+    }
+
+    // Every active session (unexpired, unrevoked refresh token) for the
+    // current user, newest-activity first. Flags which one is this device
+    // by comparing against the refresh-token cookie on THIS request — see
+    // UserSvc.listSessions and SessionResponse's Javadoc.
+    @GetMapping("/me/sessions")
+    public List<SessionResponse> listSessions(
+            @RequestAttribute("userId") Long userId,
+            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken
+    ) {
+        return svc.listSessions(userId, refreshToken);
+    }
+
+    // Revokes one specific session (not "this device", not "everywhere" —
+    // see /logout and /logout-all for those). A no-op, not an error, if the
+    // id doesn't exist or already isn't active — same "logout should never
+    // fail loudly" reasoning as /logout.
+    @DeleteMapping("/me/sessions/{id}")
+    public ResponseEntity<Void> revokeSession(
+            @PathVariable("id") Long sessionId,
+            @RequestAttribute("userId") Long userId
+    ) {
+        svc.revokeSession(sessionId, userId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // Updates both notification preference toggles for the current user.
+    // See UserSvc.updateNotificationPreferences's Javadoc for the honest
+    // caveat on what this does and doesn't do yet.
+    @PatchMapping("/me/notification-preferences")
+    public ResponseEntity<UserResponse> updateNotificationPreferences(
+            @RequestAttribute("userId") Long userId,
+            @Valid @RequestBody NotificationPreferencesRequest req
+    ) {
+        return ResponseEntity.ok(svc.updateNotificationPreferences(userId, req));
+    }
+
+    // Internal-only: notification-svc calls this (with a SYSTEM-minted
+    // token, same mechanism as checkout-svc -> inventory-svc's /adjust) to
+    // decide whether an order-status email should actually be sent. Not for
+    // any regular user token — a user has no business learning another
+    // user's preferences, and their own are already available via GET /me.
+    @GetMapping("/{id}/notification-preferences")
+    public NotificationPreferencesResponse getNotificationPreferences(
+            @PathVariable("id") Long id,
+            @RequestAttribute("userRole") String role
+    ) {
+        if (!"SYSTEM".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("This lookup is for internal service calls only");
+        }
+        return svc.getNotificationPreferences(id);
     }
 
     // Delete user by id. Allowed for the account owner or an ADMIN.

@@ -5,7 +5,10 @@ import com.catalogix.user.dto.AuthResponse;
 import com.catalogix.user.dto.CreateUserRequest;
 import com.catalogix.user.dto.ForgotPasswordRequest;
 import com.catalogix.user.dto.LoginRequest;
+import com.catalogix.user.dto.NotificationPreferencesRequest;
+import com.catalogix.user.dto.NotificationPreferencesResponse;
 import com.catalogix.user.dto.ResetPasswordRequest;
+import com.catalogix.user.dto.SessionResponse;
 import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
 import com.catalogix.user.dto.UserResponse;
@@ -86,7 +89,7 @@ class UserControllerTest {
         req.setEmail("john@example.com");
         req.setPassword("Password1");
 
-        when(svc.register(any())).thenReturn(sampleAuthResponse());
+        when(svc.register(any(), any())).thenReturn(sampleAuthResponse());
         when(refreshTokenService.getExpirationMs()).thenReturn(REFRESH_EXPIRATION_MS);
 
         mvc.perform(post("/users/register")
@@ -112,7 +115,7 @@ class UserControllerTest {
         req.setEmail("john@example.com");
         req.setPassword("Password1");
 
-        when(svc.register(any())).thenThrow(new IllegalArgumentException("Email already registered"));
+        when(svc.register(any(), any())).thenThrow(new IllegalArgumentException("Email already registered"));
 
         mvc.perform(post("/users/register")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -128,7 +131,7 @@ class UserControllerTest {
         req.setEmail("john@example.com");
         req.setPassword("Password1");
 
-        when(svc.login(any())).thenReturn(sampleAuthResponse());
+        when(svc.login(any(), any())).thenReturn(sampleAuthResponse());
         when(refreshTokenService.getExpirationMs()).thenReturn(REFRESH_EXPIRATION_MS);
 
         mvc.perform(post("/users/login")
@@ -149,7 +152,7 @@ class UserControllerTest {
         req.setEmail("x@x.com");
         req.setPassword("wrongpass");
 
-        when(svc.login(any())).thenThrow(new UnauthorizedException("Invalid email or password"));
+        when(svc.login(any(), any())).thenThrow(new UnauthorizedException("Invalid email or password"));
 
         mvc.perform(post("/users/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -164,7 +167,7 @@ class UserControllerTest {
         req.setEmail("locked@x.com");
         req.setPassword("whatever");
 
-        when(svc.login(any())).thenThrow(new AccountLockedException(Duration.ofSeconds(120)));
+        when(svc.login(any(), any())).thenThrow(new AccountLockedException(Duration.ofSeconds(120)));
 
         mvc.perform(post("/users/login")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -401,5 +404,88 @@ class UserControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // GET /users/me/sessions
+    @Test
+    void listSessionsReturnsSessionsForCurrentUser() throws Exception {
+        SessionResponse session = new SessionResponse(
+                10L, "Chrome on Windows", java.time.Instant.now(), java.time.Instant.now(),
+                java.time.Instant.now().plusSeconds(3600), true);
+        when(svc.listSessions(eq(1L), any())).thenReturn(List.of(session));
+
+        mvc.perform(get("/users/me/sessions")
+                .requestAttr("userId", 1L)
+                .cookie(new Cookie(REFRESH_COOKIE, "raw-token")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(10))
+                .andExpect(jsonPath("$[0].current").value(true));
+    }
+
+    @Test
+    void listSessionsWorksWithoutARefreshCookie() throws Exception {
+        when(svc.listSessions(eq(1L), any())).thenReturn(List.of());
+
+        mvc.perform(get("/users/me/sessions").requestAttr("userId", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+    }
+
+    // DELETE /users/me/sessions/{id}
+    @Test
+    void revokeSessionReturnsNoContent() throws Exception {
+        mvc.perform(delete("/users/me/sessions/10").requestAttr("userId", 1L))
+                .andExpect(status().isNoContent());
+
+        verify(svc).revokeSession(10L, 1L);
+    }
+
+    @Test
+    void revokeSessionReturnsForbiddenForAnotherUsersSession() throws Exception {
+        doThrow(new ForbiddenException("You may only revoke your own sessions"))
+                .when(svc).revokeSession(10L, 1L);
+
+        mvc.perform(delete("/users/me/sessions/10").requestAttr("userId", 1L))
+                .andExpect(status().isForbidden());
+    }
+
+    // PATCH /users/me/notification-preferences
+    @Test
+    @SuppressWarnings("null")
+    void updateNotificationPreferencesReturnsUpdatedUser() throws Exception {
+        NotificationPreferencesRequest req = new NotificationPreferencesRequest();
+        req.setOrderEmailsEnabled(false);
+        req.setPromoEmailsEnabled(true);
+
+        UserResponse updated = new UserResponse(1L, "John", "john@example.com", "USER", true,
+                java.time.Instant.now(), false, true);
+        when(svc.updateNotificationPreferences(eq(1L), any(NotificationPreferencesRequest.class)))
+                .thenReturn(updated);
+
+        mvc.perform(patch("/users/me/notification-preferences")
+                .requestAttr("userId", 1L)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderEmailsEnabled").value(false))
+                .andExpect(jsonPath("$.promoEmailsEnabled").value(true));
+    }
+
+    // GET /users/{id}/notification-preferences — internal, SYSTEM-only
+    @Test
+    void getNotificationPreferencesReturnsForASystemCaller() throws Exception {
+        when(svc.getNotificationPreferences(5L))
+                .thenReturn(new NotificationPreferencesResponse(false, true));
+
+        mvc.perform(get("/users/5/notification-preferences").requestAttr("userRole", "SYSTEM"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orderEmailsEnabled").value(false))
+                .andExpect(jsonPath("$.promoEmailsEnabled").value(true));
+    }
+
+    @Test
+    void getNotificationPreferencesRejectsARegularUserToken() throws Exception {
+        mvc.perform(get("/users/5/notification-preferences").requestAttr("userRole", "USER"))
+                .andExpect(status().isForbidden());
     }
 }

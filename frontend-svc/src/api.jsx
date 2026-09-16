@@ -148,6 +148,20 @@ export const updateProfile = async (updates) => {
   return res.data;
 };
 
+export const getSessions = async () => {
+  const res = await http.get(`${USER_API_BASE}/me/sessions`);
+  return res.data;
+};
+
+export const revokeSession = async (id) => {
+  await http.delete(`${USER_API_BASE}/me/sessions/${id}`);
+};
+
+export const updateNotificationPreferences = async (preferences) => {
+  const res = await http.patch(`${USER_API_BASE}/me/notification-preferences`, preferences);
+  return res.data;
+};
+
 // -------- USER APIs (admin directory) --------
 
 export const getUsers = async () => {

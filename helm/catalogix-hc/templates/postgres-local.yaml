@@ -1,0 +1,116 @@
+{{- if ne .Values.global.cloudProvider "aws" }}
+# Local-cluster stand-in for RDS. A single-replica, single-database-instance
+# Postgres, database-per-service on one shared role — same model
+# postgres-init/01-create-databases.sh uses for local docker-compose (see
+# that file's header comment for the honest scope note on what this is and
+# isn't). Not for staging/prod: no backups, no Multi-AZ, no per-service
+# roles — purely so `helm install -f values-dev.yaml -f values-local.yaml`
+# works on a laptop cluster (kind/minikube/Docker Desktop) with zero AWS
+# dependency.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-local-init
+  namespace: {{ .Release.Namespace }}
+data:
+  01-create-databases.sh: |
+    #!/bin/bash
+    set -e
+    for db in {{ range $name, $svc := .Values.services }}{{ $svc.dbName }} {{ end }}; do
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+        SELECT 'CREATE DATABASE $db OWNER $POSTGRES_USER'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
+    EOSQL
+    done
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-local
+  namespace: {{ .Release.Namespace }}
+spec:
+  serviceName: postgres-local
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-local
+  template:
+    metadata:
+      labels:
+        app: postgres-local
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: "postgres:18-alpine"   # same image/version as docker-compose.yaml, for parity
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: local_db_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: local_db_password
+            # Postgres requires SOME initial DB name at first boot. Never
+            # used by any service — same reasoning as terraform's rds
+            # module's catalogix_admin db_name, see env/dev/main.tf.
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-local-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.database.local.storageClass }}
+        storageClassName: {{ .Values.database.local.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.database.local.storageSize | default "1Gi" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-local
+  namespace: {{ .Release.Namespace }}
+spec:
+  clusterIP: None   # headless — StatefulSet pod DNS, single pod so no discovery complexity needed
+  selector:
+    app: postgres-local
+  ports:
+    - port: 5432
+{{- end }}

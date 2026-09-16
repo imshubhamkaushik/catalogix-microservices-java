@@ -3,6 +3,8 @@ package com.catalogix.user.svc;
 import com.catalogix.user.dto.AuthResponse;
 import com.catalogix.user.dto.CreateUserRequest;
 import com.catalogix.user.dto.LoginRequest;
+import com.catalogix.user.dto.NotificationPreferencesRequest;
+import com.catalogix.user.dto.SessionResponse;
 import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
 import com.catalogix.user.dto.UserResponse;
@@ -13,6 +15,7 @@ import com.catalogix.user.exception.ForbiddenException;
 import com.catalogix.user.exception.UnauthorizedException;
 import com.catalogix.user.model.EmailVerificationToken;
 import com.catalogix.user.model.PasswordResetToken;
+import com.catalogix.user.model.RefreshToken;
 import com.catalogix.user.model.User;
 import com.catalogix.user.repository.EmailVerificationTokenRepository;
 import com.catalogix.user.repository.PasswordResetTokenRepository;
@@ -81,7 +84,11 @@ class UserSvcTest {
                 "http://localhost:8080", "admin@example.com");
         lenient().when(jwtService.generateToken(any(), any(), any())).thenReturn(FAKE_ACCESS_TOKEN);
         lenient().when(jwtService.getExpirationMs()).thenReturn(900_000L);
-        lenient().when(refreshTokenService.issue(any())).thenReturn(FAKE_REFRESH_TOKEN);
+        // UserSvc.issueAuthResponse always calls the 2-arg overload now (even
+        // when userAgent is null, via register(req)/login(req)'s 1-arg
+        // convenience wrappers) — stubbing only the 1-arg issue(Long) here
+        // would leave this mock unstubbed for every register/login test.
+        lenient().when(refreshTokenService.issue(any(), any())).thenReturn(FAKE_REFRESH_TOKEN);
         lenient().when(tokenHasher.generateRawToken()).thenReturn(RAW_TOKEN);
         lenient().when(tokenHasher.hash(anyString())).thenAnswer(inv -> "hash(" + inv.getArgument(0) + ")");
     }
@@ -397,5 +404,149 @@ class UserSvcTest {
     void deleteByIdRejectsOtherNonAdminUsers() {
         assertThrows(ForbiddenException.class, () -> svc.deleteById(1L, 2L, ROLE_USER));
         verify(repo, never()).deleteById(anyLong());
+    }
+
+    // ---- register/login user-agent threading ----
+
+    @Test
+    void registerPassesUserAgentThroughToRefreshTokenService() {
+        CreateUserRequest req = new CreateUserRequest();
+        req.setName("Name");
+        req.setEmail("name@example.com");
+        req.setPassword(VALID_SECRET);
+
+        when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
+        when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
+        when(repo.save(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            u.setId(1L);
+            return u;
+        });
+
+        svc.register(req, "Mozilla/5.0 Chrome/120");
+
+        verify(refreshTokenService).issue(1L, "Mozilla/5.0 Chrome/120");
+    }
+
+    @Test
+    void registerWithoutUserAgentPassesNull() {
+        CreateUserRequest req = new CreateUserRequest();
+        req.setName("Name");
+        req.setEmail("name@example.com");
+        req.setPassword(VALID_SECRET);
+
+        when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
+        when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
+        when(repo.save(any(User.class))).thenAnswer(inv -> {
+            User u = inv.getArgument(0);
+            u.setId(1L);
+            return u;
+        });
+
+        // The original 1-arg register(req) — kept for any caller that
+        // doesn't have a User-Agent to offer — should still work end to end.
+        AuthResponse resp = svc.register(req);
+
+        assertEquals(FAKE_REFRESH_TOKEN, resp.getRefreshToken());
+        verify(refreshTokenService).issue(1L, null);
+    }
+
+    @Test
+    void loginPassesUserAgentThroughToRefreshTokenService() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        when(repo.findByEmail(TEST_EMAIL)).thenReturn(Optional.of(u));
+        when(encoder.matches(VALID_SECRET, HASHED_SECRET)).thenReturn(true);
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail(TEST_EMAIL);
+        req.setPassword(VALID_SECRET);
+
+        svc.login(req, "Mozilla/5.0 Safari/17");
+
+        verify(refreshTokenService).issue(1L, "Mozilla/5.0 Safari/17");
+    }
+
+    // ---- sessions ----
+
+    @Test
+    void listSessionsMapsToDtosAndFlagsTheCurrentOne() {
+        RefreshToken current = new RefreshToken(1L, "hash(current-raw-token)", Instant.now().plusSeconds(3600), "Chrome");
+        current.setId(10L);
+        RefreshToken other = new RefreshToken(1L, "hash(other-token)", Instant.now().plusSeconds(3600), "Safari");
+        other.setId(11L);
+        when(refreshTokenService.listActiveSessions(1L)).thenReturn(List.of(current, other));
+
+        List<SessionResponse> sessions = svc.listSessions(1L, "current-raw-token");
+
+        assertEquals(2, sessions.size());
+        assertTrue(sessions.stream().filter(s -> s.getId().equals(10L)).findFirst().orElseThrow().isCurrent());
+        assertFalse(sessions.stream().filter(s -> s.getId().equals(11L)).findFirst().orElseThrow().isCurrent());
+    }
+
+    @Test
+    void listSessionsWithNoCookieFlagsNothingAsCurrent() {
+        RefreshToken token = new RefreshToken(1L, "hash(some-token)", Instant.now().plusSeconds(3600), "Chrome");
+        token.setId(10L);
+        when(refreshTokenService.listActiveSessions(1L)).thenReturn(List.of(token));
+
+        List<SessionResponse> sessions = svc.listSessions(1L, null);
+
+        assertFalse(sessions.get(0).isCurrent());
+    }
+
+    @Test
+    void revokeSessionDelegatesToRefreshTokenServiceWithBothIds() {
+        svc.revokeSession(10L, 1L);
+        verify(refreshTokenService).revokeById(10L, 1L);
+    }
+
+    // ---- notification preferences ----
+
+    @Test
+    void updateNotificationPreferencesUpdatesAndReturnsBothFlags() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        NotificationPreferencesRequest req = new NotificationPreferencesRequest();
+        req.setOrderEmailsEnabled(false);
+        req.setPromoEmailsEnabled(true);
+
+        UserResponse resp = svc.updateNotificationPreferences(1L, req);
+
+        assertFalse(resp.isOrderEmailsEnabled());
+        assertTrue(resp.isPromoEmailsEnabled());
+    }
+
+    @Test
+    void updateNotificationPreferencesThrowsForUnknownUser() {
+        when(repo.findById(99L)).thenReturn(Optional.empty());
+        NotificationPreferencesRequest req = new NotificationPreferencesRequest();
+
+        assertThrows(UnauthorizedException.class, () -> svc.updateNotificationPreferences(99L, req));
+    }
+
+    @Test
+    void getNotificationPreferencesReturnsStoredValues() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        u.setOrderEmailsEnabled(false);
+        u.setPromoEmailsEnabled(true);
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+
+        var prefs = svc.getNotificationPreferences(1L);
+
+        assertFalse(prefs.isOrderEmailsEnabled());
+        assertTrue(prefs.isPromoEmailsEnabled());
+    }
+
+    @Test
+    void getNotificationPreferencesDefaultsToSendEverythingForUnknownUser() {
+        // Fail-open on purpose — see UserSvc.getNotificationPreferences's Javadoc.
+        when(repo.findById(99L)).thenReturn(Optional.empty());
+
+        var prefs = svc.getNotificationPreferences(99L);
+
+        assertTrue(prefs.isOrderEmailsEnabled());
+        assertTrue(prefs.isPromoEmailsEnabled());
     }
 }

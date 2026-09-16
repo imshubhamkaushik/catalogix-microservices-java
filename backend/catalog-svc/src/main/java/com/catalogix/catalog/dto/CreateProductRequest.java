@@ -24,6 +24,10 @@ public class CreateProductRequest {
     @Min(value = 0, message = "Stock quantity cannot be negative")
     private Integer stockQuantity;
 
+    // Optional. See Product entity / V5 migration for why this is a plain
+    // URL rather than a file upload.
+    private String imageUrl;
+
     public CreateProductRequest() {
         // No-argument constructor required for framework instantiation (e.g., Jackson deserialization)
     }
@@ -61,5 +65,12 @@ public class CreateProductRequest {
     }
     public void setStockQuantity(Integer stockQuantity) {
         this.stockQuantity = stockQuantity;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
+    }
+    public void setImageUrl(String imageUrl) {
+        this.imageUrl = imageUrl;
     }
 }

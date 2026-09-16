@@ -174,6 +174,7 @@ export default function Products() {
   const [price, setPrice]               = useState("");
   const [category, setCategory]         = useState("");
   const [stockQuantity, setStockQuantity] = useState("");
+  const [imageUrl, setImageUrl]         = useState("");
 
   // Search / filter / pagination (server-side)
   const [search, setSearch]     = useState("");
@@ -281,8 +282,9 @@ export default function Products() {
         price: numericPrice,
         category: category.trim() || undefined,
         stockQuantity: stockQuantity === "" ? undefined : Number.parseInt(stockQuantity, 10),
+        imageUrl: imageUrl.trim() || undefined,
       });
-      setName(""); setDescription(""); setPrice(""); setCategory(""); setStockQuantity("");
+      setName(""); setDescription(""); setPrice(""); setCategory(""); setStockQuantity(""); setImageUrl("");
       await fetchProducts({ page: 0 });
       setPage(0);
       setToast({ message: "Product added successfully.", type: "success" });
@@ -392,6 +394,18 @@ export default function Products() {
                 />
               </div>
             </div>
+            <div className="field-wrap field-wide">
+              <label className="field-label" htmlFor="prod-image">Image URL (optional)</label>
+              <input
+                id="prod-image"
+                className="field-input"
+                type="url"
+                placeholder="https://example.com/photo.jpg"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                disabled={submitting}
+              />
+            </div>
             <button className="form-submit" type="submit" disabled={submitting}>
               {submitting ? "Saving…" : "Add product"}
             </button>
@@ -475,22 +489,54 @@ export default function Products() {
           </div>
         )}
 
-        {/* Product rows */}
+        {/* Product cards */}
         {!loading && products.length > 0 && (
           <>
-            <div className="item-list">
+            <div className="product-grid">
               {products.map((product) => {
                 const canManage = isAdmin || product.ownerId === currentUser?.id;
 
                 return (
-                  <div key={product.id} className="item-row">
-                    <div className="product-icon-wrap">
-                      <ProductIcon />
+                  <div key={product.id} className="product-card">
+                    <div className="product-card-media">
+                      {product.imageUrl ? (
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="product-card-image"
+                          loading="lazy"
+                          onError={(e) => {
+                            // Broken/unreachable URL — fall back to the icon
+                            // rather than showing the browser's broken-image
+                            // glyph. Swap the whole media block's content
+                            // instead of just hiding the <img>, so the
+                            // fallback icon still renders in its place.
+                            e.currentTarget.style.display = "none";
+                            e.currentTarget.nextSibling.style.display = "flex";
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        className="product-card-icon-fallback"
+                        style={{ display: product.imageUrl ? "none" : "flex" }}
+                      >
+                        <ProductIcon />
+                      </div>
+                      <div className="product-card-wishlist">
+                        <WishlistButton
+                          saved={wishlistIds.has(product.id)}
+                          onToggle={() => toggleWishlist(product)}
+                        />
+                      </div>
                     </div>
 
-                    <div className="item-meta">
+                    <div className="product-card-body">
+                      <span className="badge badge-category product-card-category">
+                        {product.category}
+                      </span>
+
                       <button
-                        className="item-name item-name-button"
+                        className="product-card-name"
                         type="button"
                         onClick={() => setActiveProduct(product)}
                         title="View details and reviews"
@@ -499,38 +545,33 @@ export default function Products() {
                         {product.name}
                       </button>
 
-                      <div className="item-sub">
+                      <div className="product-card-desc">
                         {product.description || `ID #${product.id}`}
-                        <span className="badge badge-category">
-                          {product.category}
-                        </span>
                       </div>
 
                       <RatingStars
                         averageRating={product.averageRating}
                         reviewCount={product.reviewCount}
                       />
+
+                      <div className="product-card-footer">
+                        <div className="product-card-price-row">
+                          <span className="price-tag">{formatPrice(product.price)}</span>
+                          <StockBadge quantity={product.stockQuantity} />
+                        </div>
+
+                        <div className="product-card-actions">
+                          <AddToCartControl
+                            product={product}
+                            onAdded={handleAdded}
+                            onError={setError}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="item-actions item-actions-product">
-                      <StockBadge quantity={product.stockQuantity} />
-
-                      <span className="price-tag">
-                        {formatPrice(product.price)}
-                      </span>
-
-                      <WishlistButton
-                        saved={wishlistIds.has(product.id)}
-                        onToggle={() => toggleWishlist(product)}
-                      />
-
-                      <AddToCartControl
-                        product={product}
-                        onAdded={handleAdded}
-                        onError={setError}
-                      />
-
-                      {canManage && (
+                    {canManage && (
+                      <div className="product-card-manage">
                         <button
                           className="icon-btn"
                           type="button"
@@ -548,8 +589,8 @@ export default function Products() {
                             <path d="M11 1.5v1h3.5a.5.5 0 010 1H13v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9H1.5a.5.5 0 010-1H5v-1A1.5 1.5 0 016.5 0h3A1.5 1.5 0 0111 1.5zm-5 0v1h4v-1a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5zM5.5 5.5a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6z" />
                           </svg>
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

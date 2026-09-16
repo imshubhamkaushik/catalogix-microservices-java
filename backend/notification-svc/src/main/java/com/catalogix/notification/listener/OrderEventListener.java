@@ -1,5 +1,6 @@
 package com.catalogix.notification.listener;
 
+import com.catalogix.notification.client.UserPreferenceClient;
 import com.catalogix.notification.config.RabbitMQConfig;
 import com.catalogix.notification.event.OrderCancelledEvent;
 import com.catalogix.notification.event.OrderConfirmedEvent;
@@ -22,14 +23,19 @@ import java.math.RoundingMode;
 public class OrderEventListener {
 
     private final EmailSvc emailSvc;
+    private final UserPreferenceClient userPreferenceClient;
 
-    public OrderEventListener(EmailSvc emailSvc) {
+    public OrderEventListener(EmailSvc emailSvc, UserPreferenceClient userPreferenceClient) {
         this.emailSvc = emailSvc;
+        this.userPreferenceClient = userPreferenceClient;
     }
 
     @RabbitListener(queues = RabbitMQConfig.ORDER_CONFIRMED_QUEUE)
     public void onOrderConfirmed(OrderConfirmedEvent event) {
         if (event.userEmail() == null || event.userEmail().isBlank()) {
+            return;
+        }
+        if (!userPreferenceClient.isOrderEmailsEnabled(event.userId())) {
             return;
         }
 
@@ -47,6 +53,9 @@ public class OrderEventListener {
     @RabbitListener(queues = RabbitMQConfig.ORDER_CANCELLED_QUEUE)
     public void onOrderCancelled(OrderCancelledEvent event) {
         if (event.userEmail() == null || event.userEmail().isBlank()) {
+            return;
+        }
+        if (!userPreferenceClient.isOrderEmailsEnabled(event.userId())) {
             return;
         }
         String body = "Your order #" + event.orderId() + " has been cancelled. "

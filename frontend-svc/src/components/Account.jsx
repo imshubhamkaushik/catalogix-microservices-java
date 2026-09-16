@@ -1,14 +1,49 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
   updateProfile, resendVerification, logoutEverywhere,
   getAddresses, createAddress, updateAddress, setDefaultAddress, deleteAddress,
+  getOrders, getSessions, revokeSession, updateNotificationPreferences, deleteUser,
 } from "../api";
 
 const EMPTY_ADDRESS_FORM = { label: "", line1: "", line2: "", city: "", state: "", pincode: "", phone: "", makeDefault: false };
 
+function formatDate(value) {
+  return new Date(value).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// Lightweight, dependency-free User-Agent summary — not a full parser, just
+// enough to tell sessions apart in a list ("Chrome on macOS" beats a raw
+// 150-character UA string). Falls back to the raw string if nothing matches.
+function describeUserAgent(userAgent) {
+  if (!userAgent) return "Unknown device";
+
+  let browser = "Unknown browser";
+  if (userAgent.includes("Edg/")) browser = "Edge";
+  else if (userAgent.includes("Chrome/")) browser = "Chrome";
+  else if (userAgent.includes("Firefox/")) browser = "Firefox";
+  else if (userAgent.includes("Safari/")) browser = "Safari";
+
+  let os = "Unknown OS";
+  if (userAgent.includes("Windows")) os = "Windows";
+  else if (userAgent.includes("Mac OS")) os = "macOS";
+  else if (userAgent.includes("Android")) os = "Android";
+  else if (userAgent.includes("iPhone") || userAgent.includes("iPad")) os = "iOS";
+  else if (userAgent.includes("Linux")) os = "Linux";
+
+  return `${browser} on ${os}`;
+}
+
 export default function Account() {
   const { user, updateUser, logout } = useAuth();
+  const navigate = useNavigate();
 
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
@@ -18,6 +53,81 @@ export default function Account() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [resending, setResending] = useState(false);
+
+  // ---- Profile summary ----
+  const [orderCount, setOrderCount] = useState(null);
+
+  useEffect(() => {
+    getOrders({ page: 0, size: 1 })
+      .then((data) => setOrderCount(data.totalElements ?? 0))
+      .catch(() => setOrderCount(null)); // summary is a nice-to-have, never blocks the page on failure
+  }, []);
+
+  // ---- Notification preferences ----
+  const [orderEmailsEnabled, setOrderEmailsEnabled] = useState(user?.orderEmailsEnabled ?? true);
+  const [promoEmailsEnabled, setPromoEmailsEnabled] = useState(user?.promoEmailsEnabled ?? true);
+  const [prefsSubmitting, setPrefsSubmitting] = useState(false);
+
+  const handleSavePreferences = async () => {
+    setPrefsSubmitting(true);
+    setError("");
+    try {
+      const updated = await updateNotificationPreferences({ orderEmailsEnabled, promoEmailsEnabled });
+      updateUser(updated);
+      setToast("Notification preferences saved.");
+    } catch {
+      setError("Failed to save notification preferences.");
+    } finally {
+      setPrefsSubmitting(false);
+    }
+  };
+
+  // ---- Sessions ----
+  const [sessions, setSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokingId, setRevokingId] = useState(null);
+
+  const fetchSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      setSessions(await getSessions());
+    } catch {
+      setError("Failed to load your sessions.");
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchSessions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRevokeSession = async (id) => {
+    setRevokingId(id);
+    try {
+      await revokeSession(id);
+      await fetchSessions();
+    } catch {
+      setError("Failed to revoke that session.");
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  // ---- Account deletion ----
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  const handleDeleteAccount = async () => {
+    if (!globalThis.confirm("Delete your account permanently? This cannot be undone.")) return;
+    setDeletingAccount(true);
+    setError("");
+    try {
+      await deleteUser(user.id);
+      await logout();
+      navigate("/login", { replace: true });
+    } catch {
+      setError("Failed to delete your account. Please try again.");
+      setDeletingAccount(false);
+    }
+  };
 
   // ---- Address book ----
   const [addresses, setAddresses] = useState([]);
@@ -175,6 +285,26 @@ export default function Account() {
             </button>
           </div>
         )}
+
+        <div className="form-panel">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{user?.name}</p>
+              <p className="auth-help-text" style={{ margin: "2px 0 0" }}>
+                {user?.email}
+                {user?.createdAt ? ` · Member since ${formatDate(user.createdAt)}` : ""}
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <span className={`badge ${user?.verified ? "badge-in-stock" : "badge-out-of-stock"}`}>
+                {user?.verified ? "Email verified" : "Email not verified"}
+              </span>
+              <span className="badge badge-category">
+                {orderCount === null ? "…" : orderCount} order{orderCount === 1 ? "" : "s"}
+              </span>
+            </div>
+          </div>
+        </div>
 
         <div className="form-panel">
           <p className="form-panel-label">Profile</p>
@@ -367,13 +497,102 @@ export default function Account() {
         </div>
 
         <div className="form-panel">
+          <p className="form-panel-label">Notification preferences</p>
+          <label className="field-wrap" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={orderEmailsEnabled}
+              onChange={(e) => setOrderEmailsEnabled(e.target.checked)}
+              disabled={prefsSubmitting}
+            />
+            <span className="field-label" style={{ margin: 0 }}>
+              Order status emails (confirmation, shipped, delivered, cancelled)
+            </span>
+          </label>
+          <label className="field-wrap" style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={promoEmailsEnabled}
+              onChange={(e) => setPromoEmailsEnabled(e.target.checked)}
+              disabled={prefsSubmitting}
+            />
+            <span className="field-label" style={{ margin: 0 }}>
+              Promotional emails and offers
+            </span>
+          </label>
+          <button
+            className="btn-small"
+            style={{ marginTop: 10 }}
+            onClick={handleSavePreferences}
+            disabled={prefsSubmitting}
+            type="button"
+          >
+            {prefsSubmitting ? "Saving…" : "Save preferences"}
+          </button>
+        </div>
+
+        <div className="form-panel">
           <p className="form-panel-label">Sessions</p>
+
+          {sessionsLoading && <p className="auth-help-text">Loading…</p>}
+
+          {!sessionsLoading && sessions.length === 0 && (
+            <p className="auth-help-text">No active sessions found.</p>
+          )}
+
+          {!sessionsLoading && sessions.length > 0 && (
+            <div className="item-list" style={{ marginBottom: 12 }}>
+              {sessions.map((s) => (
+                <div key={s.id} className="item-row">
+                  <div className="item-meta">
+                    <div className="item-name">
+                      {describeUserAgent(s.userAgent)}
+                      {s.current && <span className="badge badge-in-stock">This device</span>}
+                    </div>
+                    <div className="item-sub">
+                      Last active {formatDate(s.lastUsedAt)} · Signed in {formatDate(s.createdAt)}
+                    </div>
+                  </div>
+                  <div className="item-actions">
+                    {!s.current && (
+                      <button
+                        className="btn-small"
+                        onClick={() => handleRevokeSession(s.id)}
+                        disabled={revokingId === s.id}
+                        type="button"
+                      >
+                        {revokingId === s.id ? "Revoking…" : "Revoke"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <p className="auth-help-text">
-            Signed in on this device. If you think another device might have access to your account,
+            If you think another device might have access to your account,
             you can sign out everywhere at once.
           </p>
           <button className="btn-small" onClick={handleLogoutEverywhere} type="button">
             Log out of all devices
+          </button>
+        </div>
+
+        <div className="form-panel" style={{ borderColor: "var(--red-200)" }}>
+          <p className="form-panel-label" style={{ color: "var(--red-600)" }}>Danger zone</p>
+          <p className="auth-help-text">
+            Deleting your account is permanent and cannot be undone. Your saved
+            addresses and sessions are removed immediately.
+          </p>
+          <button
+            className="btn-outline"
+            style={{ borderColor: "var(--red-600)", color: "var(--red-600)" }}
+            onClick={handleDeleteAccount}
+            disabled={deletingAccount}
+            type="button"
+          >
+            {deletingAccount ? "Deleting…" : "Delete my account"}
           </button>
         </div>
       </div>
