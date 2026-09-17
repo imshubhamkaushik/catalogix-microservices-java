@@ -549,4 +549,48 @@ class UserSvcTest {
         assertTrue(prefs.isOrderEmailsEnabled());
         assertTrue(prefs.isPromoEmailsEnabled());
     }
+
+    // ---- becomeSeller ----
+
+    @Test
+    void becomeSellerUpgradesAPlainUserAccount() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        u.setRole("USER");
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+
+        UserResponse resp = svc.becomeSeller(1L);
+
+        assertEquals("SELLER", resp.getRole());
+        verify(repo).save(argThat(saved -> "SELLER".equals(saved.getRole())));
+    }
+
+    @Test
+    void becomeSellerIsANoOpForAnExistingSeller() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        u.setRole("SELLER");
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+
+        UserResponse resp = svc.becomeSeller(1L);
+
+        assertEquals("SELLER", resp.getRole());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void becomeSellerDoesNotDowngradeAnAdmin() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        u.setRole("ADMIN");
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+
+        UserResponse resp = svc.becomeSeller(1L);
+
+        assertEquals("ADMIN", resp.getRole());
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void becomeSellerThrowsForUnknownUser() {
+        when(repo.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(UnauthorizedException.class, () -> svc.becomeSeller(99L));
+    }
 }

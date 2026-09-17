@@ -99,11 +99,15 @@ public class UserSvc {
     // preventing a race where two concurrent requests register the same email.
     @Transactional
     public AuthResponse register(CreateUserRequest req) {
-        return register(req, null);
+        return registerInternal(req, null);
     }
 
     @Transactional
     public AuthResponse register(CreateUserRequest req, String userAgent) {
+        return registerInternal(req, userAgent);
+    }
+
+    private AuthResponse registerInternal(CreateUserRequest req, String userAgent) {
         if (repo.findByEmail(req.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Email already registered");
         }
@@ -125,11 +129,15 @@ public class UserSvc {
     // the password given this time is actually correct.
     @Transactional
     public AuthResponse login(LoginRequest req) {
-        return login(req, null);
+        return loginInternal(req, null);
     }
 
     @Transactional
     public AuthResponse login(LoginRequest req, String userAgent) {
+        return loginInternal(req, userAgent);
+    }
+
+    private AuthResponse loginInternal(LoginRequest req, String userAgent) {
         loginAttemptTracker.assertNotLocked(req.getEmail());
 
         User user = repo.findByEmail(req.getEmail()).orElse(null);
@@ -354,6 +362,23 @@ public class UserSvc {
     // UserSvc, same as every other endpoint.
     public void revokeSession(Long sessionId, Long userId) {
         refreshTokenService.revokeById(sessionId, userId);
+    }
+
+    // Self-serve seller opt-in — no admin approval step. Only actually
+    // changes anything for a plain USER account: an existing SELLER is a
+    // no-op (idempotent, same reasoning as every other seed/toggle method
+    // in this class), and an ADMIN is deliberately left as ADMIN rather
+    // than "downgraded" to SELLER, since ADMIN already has every
+    // capability SELLER does and then some.
+    @Transactional
+    public UserResponse becomeSeller(Long userId) {
+        User user = repo.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
+        if ("USER".equalsIgnoreCase(user.getRole())) {
+            user.setRole("SELLER");
+            repo.save(user);
+        }
+        return toResponse(user);
     }
 
     // ---- Notification preferences ----

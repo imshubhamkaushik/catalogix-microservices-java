@@ -1,0 +1,1920 @@
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+# Self-hosted RabbitMQ, clustered (3 replicas) for HA. See the upgrade
+# plan's RabbitMQ hosting decision for why self-hosted over Amazon MQ.
+#
+# Three things had to be true simultaneously for this to be real HA, not
+# just "more pods" — see the conversation this was built in for the full
+# explanation:
+#   1. Peer discovery (rabbitmq_peer_discovery_k8s plugin + RBAC below) so
+#      the 3 pods can actually find and join each other.
+#   2. A shared Erlang cookie (all 3 pods need the IDENTICAL cookie file,
+#      or they refuse to cluster even if they can see each other).
+#   3. Quorum queues at the APP level (backend/notification-svc/.../RabbitMQConfig.java
+#      — QueueBuilder.durable(...).quorum()). Clustering the BROKER doesn't
+#      make an individual QUEUE survive a node failure unless it's declared
+#      quorum — this is the part that's easy to build infra for and still
+#      not actually have HA.
+
+# ─── RBAC — lets the peer-discovery plugin list pods/endpoints via the K8s API ───
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rabbitmq-sa
+  namespace: default
+---
+# Source: catalogix-hc/templates/local-secrets.yaml
+# Local-cluster equivalent of external-secrets.yaml. Creates the exact same
+# 'catalogix-secrets' Secret with the exact same keys, so every template
+# that reads from it (see _helpers.tpl's commonEnv, and rabbitmq.yaml)
+# works completely unchanged — they have no idea whether ESO or this
+# template created the Secret.
+#
+# Simplification vs. the AWS path: Terraform's db-roles module gives every
+# service its OWN Postgres role (db_user_<svc>/db_password_<svc>, distinct
+# credentials, least-privilege). Reproducing that locally would mean this
+# chart also running SQL (CREATE ROLE + GRANT) at install time — real, but
+# more moving parts than local dev needs. Instead this mirrors
+# docker-compose's model (see postgres-init/01-create-databases.sh's header
+# comment): one shared Postgres role, isolation by database name only. The
+# SAME shared username/password is written under every db_user_<svc> /
+# db_password_<svc> key below, so commonEnv's per-service key lookups still
+# resolve correctly — it just always resolves to the one shared credential.
+#
+# lookup + randAlphaNum, same pattern already used for the RabbitMQ Erlang
+# cookie in rabbitmq.yaml: reuse existing values across `helm upgrade` so
+# a redeploy doesn't rotate every credential out from under a running app
+# (which would orphan the Postgres role's password and JWT-invalidate every
+# live session). Only generates fresh values on first install.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalogix-secrets
+  namespace: default
+type: Opaque
+stringData:
+  jwt_secret: "pB3FHRSM3MfE0iFVsF8jaoGUKFeHJhzDYDGEN5oGYau5YoOQ"
+  rabbitmq_user: "catalogix"
+  rabbitmq_password: "FuxV3KP3ZKAQ0D9HPvUY"
+  # One shared role, written under every service's expected key — see the
+  # header comment above.
+  db_user_cart_svc: "catalogix"
+  db_password_cart_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_catalog_svc: "catalogix"
+  db_password_catalog_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_checkout_svc: "catalogix"
+  db_password_checkout_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_inventory_svc: "catalogix"
+  db_password_inventory_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_notification_svc: "catalogix"
+  db_password_notification_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_payment_svc: "catalogix"
+  db_password_payment_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_promotions_svc: "catalogix"
+  db_password_promotions_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_review_svc: "catalogix"
+  db_password_review_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  db_user_user_svc: "catalogix"
+  db_password_user_svc: "aRKGdZ3kAzPLq9TtrDxs"
+  # Also exposed under the plain names postgres-local.yaml's init script
+  # and the Postgres container itself use to create the role.
+  local_db_user: "catalogix"
+  local_db_password: "aRKGdZ3kAzPLq9TtrDxs"
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+# ─── Erlang cookie — generated once, kept stable across `helm upgrade` via
+# `lookup` (if it already exists, reuse it; only generate fresh on first
+# install). Without this stability, every `helm upgrade` would silently
+# regenerate the cookie and make all 3 pods unable to re-cluster with
+# each other on their next restart. ───
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-erlang-cookie
+  namespace: default
+type: Opaque
+data:
+  cookie: ODc3WlVWNXZWWGFkem83dFFVYmJaa2JjcFAzdG50SUY=
+---
+# Source: catalogix-hc/templates/secrets-local.yaml
+# Local-cluster equivalent of external-secrets.yaml. Creates the exact same
+# 'catalogix-secrets' Secret with the exact same keys, so every template
+# that reads from it (see _helpers.tpl's commonEnv, and rabbitmq.yaml)
+# works completely unchanged — they have no idea whether ESO or this
+# template created the Secret.
+#
+# Simplification vs. the AWS path: Terraform's db-roles module gives every
+# service its OWN Postgres role (db_user_<svc>/db_password_<svc>, distinct
+# credentials, least-privilege). Reproducing that locally would mean this
+# chart also running SQL (CREATE ROLE + GRANT) at install time — real, but
+# more moving parts than local dev needs. Instead this mirrors
+# docker-compose's model (see postgres-init/01-create-databases.sh's header
+# comment): one shared Postgres role, isolation by database name only. The
+# SAME shared username/password is written under every db_user_<svc> /
+# db_password_<svc> key below, so commonEnv's per-service key lookups still
+# resolve correctly — it just always resolves to the one shared credential.
+#
+# lookup + randAlphaNum, same pattern already used for the RabbitMQ Erlang
+# cookie in rabbitmq.yaml: reuse existing values across `helm upgrade` so
+# a redeploy doesn't rotate every credential out from under a running app
+# (which would orphan the Postgres role's password and JWT-invalidate every
+# live session). Only generates fresh values on first install.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: catalogix-secrets
+  namespace: default
+type: Opaque
+stringData:
+  jwt_secret: "VKF5Dm3lsxjAW1Gs67VJAtocEZbh94o6Ksj0FiiSJYS2fjmE"
+  rabbitmq_user: "catalogix"
+  rabbitmq_password: "d7GwFxxVhTT0UVtVhVOu"
+  # One shared role, written under every service's expected key — see the
+  # header comment above.
+  db_user_cart_svc: "catalogix"
+  db_password_cart_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_catalog_svc: "catalogix"
+  db_password_catalog_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_checkout_svc: "catalogix"
+  db_password_checkout_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_inventory_svc: "catalogix"
+  db_password_inventory_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_notification_svc: "catalogix"
+  db_password_notification_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_payment_svc: "catalogix"
+  db_password_payment_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_promotions_svc: "catalogix"
+  db_password_promotions_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_review_svc: "catalogix"
+  db_password_review_svc: "raHcpqgjRujGFD77DGdi"
+  db_user_user_svc: "catalogix"
+  db_password_user_svc: "raHcpqgjRujGFD77DGdi"
+  # Also exposed under the plain names postgres-local.yaml's init script
+  # and the Postgres container itself use to create the role.
+  local_db_user: "catalogix"
+  local_db_password: "raHcpqgjRujGFD77DGdi"
+---
+# Source: catalogix-hc/templates/postgres-local.yaml
+# Local-cluster stand-in for RDS. A single-replica, single-database-instance
+# Postgres, database-per-service on one shared role — same model
+# postgres-init/01-create-databases.sh uses for local docker-compose (see
+# that file's header comment for the honest scope note on what this is and
+# isn't). Not for staging/prod: no backups, no Multi-AZ, no per-service
+# roles — purely so `helm install -f values-dev.yaml -f values-local.yaml`
+# works on a laptop cluster (kind/minikube/Docker Desktop) with zero AWS
+# dependency.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-local-init
+  namespace: default
+data:
+  01-create-databases.sh: |
+    #!/bin/bash
+    set -e
+    for db in catalogix_cart catalogix_catalog catalogix_checkout catalogix_inventory catalogix_notification catalogix_payment catalogix_promotions catalogix_reviews catalogix_users ; do
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+        SELECT 'CREATE DATABASE $db OWNER $POSTGRES_USER'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
+    EOSQL
+    done
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+# ─── Cluster config — enables the peer discovery plugin + tells it how to find peers ───
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: default
+data:
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_peer_discovery_k8s,rabbitmq_prometheus].
+  rabbitmq.conf: |
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.k8s.service_name = rabbitmq
+    cluster_formation.k8s.namespace = default
+    cluster_formation.node_cleanup.interval = 30
+    cluster_formation.node_cleanup.only_log_warning = true
+    # pause_minority (not autoheal/ignore) — on a network partition, the
+    # minority side stops accepting operations rather than risk two halves
+    # of the cluster diverging. Safer default for a 3-node cluster than
+    # letting both sides keep serving and reconcile later.
+    cluster_partition_handling = pause_minority
+    loopback_users.guest = false
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints", "pods"]
+    verbs: ["get", "list"]
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: rabbitmq-sa
+    namespace: default
+roleRef:
+  kind: Role
+  name: rabbitmq-peer-discovery
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: catalogix-hc/templates/frontend.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+  namespace: default
+  labels:
+    app: frontend-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend-svc
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+---
+# Source: catalogix-hc/templates/gateway.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: default
+  labels:
+    app: gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: gateway
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+    - name: metrics
+      protocol: TCP
+      port: 9113
+      targetPort: 9113
+---
+# Source: catalogix-hc/templates/postgres-local.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-local
+  namespace: default
+spec:
+  clusterIP: None   # headless — StatefulSet pod DNS, single pod so no discovery complexity needed
+  selector:
+    app: postgres-local
+  ports:
+    - port: 5432
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  clusterIP: None   # headless — required for both StatefulSet pod DNS AND peer discovery to enumerate all 3 pods
+  publishNotReadyAddresses: true  # peer discovery needs to see pods that aren't ready YET (they're not ready until clustered) — without this, a pod could never discover its not-yet-ready peers to cluster with in the first place
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
+    - name: clustering
+      port: 25672
+    - name: epmd
+      port: 4369
+    - name: metrics
+      port: 15692
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-svc
+  namespace: default
+  labels:
+    app: cart-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: cart-svc
+  ports:
+    - name: http
+      port: 11004
+      targetPort: 11004
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: catalog-svc
+  namespace: default
+  labels:
+    app: catalog-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: catalog-svc
+  ports:
+    - name: http
+      port: 11002
+      targetPort: 11002
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-svc
+  namespace: default
+  labels:
+    app: checkout-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: checkout-svc
+  ports:
+    - name: http
+      port: 11007
+      targetPort: 11007
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-svc
+  namespace: default
+  labels:
+    app: inventory-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: inventory-svc
+  ports:
+    - name: http
+      port: 11003
+      targetPort: 11003
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-svc
+  namespace: default
+  labels:
+    app: notification-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: notification-svc
+  ports:
+    - name: http
+      port: 11008
+      targetPort: 11008
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-svc
+  namespace: default
+  labels:
+    app: payment-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-svc
+  ports:
+    - name: http
+      port: 11006
+      targetPort: 11006
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: promotions-svc
+  namespace: default
+  labels:
+    app: promotions-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: promotions-svc
+  ports:
+    - name: http
+      port: 11005
+      targetPort: 11005
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-svc
+  namespace: default
+  labels:
+    app: review-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: review-svc
+  ports:
+    - name: http
+      port: 11009
+      targetPort: 11009
+---
+# Source: catalogix-hc/templates/services.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-svc
+  namespace: default
+  labels:
+    app: user-svc
+spec:
+  type: ClusterIP
+  selector:
+    app: user-svc
+  ports:
+    - name: http
+      port: 11001
+      targetPort: 11001
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-svc
+  namespace: default
+  labels:
+    app: cart-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-svc
+  template:
+    metadata:
+      labels:
+        app: cart-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11004"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: cart-svc
+          image: "/cart-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11004
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_cart"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_cart_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_cart_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+            - name: CATALOG_SVC_URL
+              value: http://catalog-svc:11002
+            - name: INVENTORY_SVC_URL
+              value: http://inventory-svc:11003
+            - name: PROMOTIONS_SVC_URL
+              value: http://promotions-svc:11005
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11004
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11004
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11004
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-svc
+  namespace: default
+  labels:
+    app: catalog-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalog-svc
+  template:
+    metadata:
+      labels:
+        app: catalog-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11002"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: catalog-svc
+          image: "/catalog-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11002
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_catalog"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_catalog_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_catalog_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+            - name: INVENTORY_SVC_URL
+              value: http://inventory-svc:11003
+            - name: SEED_DATA
+              value: "true"
+          resources: 
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11002
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11002
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11002
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-svc
+  namespace: default
+  labels:
+    app: checkout-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: checkout-svc
+  template:
+    metadata:
+      labels:
+        app: checkout-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11007"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: checkout-svc
+          image: "/checkout-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11007
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_checkout"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_checkout_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_checkout_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+            - name: CATALOG_SVC_URL
+              value: http://catalog-svc:11002
+            - name: INVENTORY_SVC_URL
+              value: http://inventory-svc:11003
+            - name: PROMOTIONS_SVC_URL
+              value: http://promotions-svc:11005
+            - name: PAYMENT_SVC_URL
+              value: http://payment-svc:11006
+            - name: CART_SVC_URL
+              value: http://cart-svc:11004
+          resources: 
+            limits:
+              cpu: 600m
+              memory: 640Mi
+            requests:
+              cpu: 150m
+              memory: 192Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11007
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11007
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11007
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-svc
+  namespace: default
+  labels:
+    app: inventory-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-svc
+  template:
+    metadata:
+      labels:
+        app: inventory-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11003"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: inventory-svc
+          image: "/inventory-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11003
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_inventory"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_inventory_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_inventory_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11003
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11003
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11003
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-svc
+  namespace: default
+  labels:
+    app: notification-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-svc
+  template:
+    metadata:
+      labels:
+        app: notification-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11008"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: notification-svc
+          image: "/notification-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11008
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_notification"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_notification_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_notification_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+            - name: MAIL_FROM
+              value: noreply@catalogix.local
+            - name: USER_SVC_URL
+              value: http://user-svc:11001
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11008
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11008
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11008
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-svc
+  namespace: default
+  labels:
+    app: payment-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-svc
+  template:
+    metadata:
+      labels:
+        app: payment-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11006"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: payment-svc
+          image: "/payment-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11006
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_payment"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_payment_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_payment_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11006
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11006
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11006
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promotions-svc
+  namespace: default
+  labels:
+    app: promotions-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promotions-svc
+  template:
+    metadata:
+      labels:
+        app: promotions-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11005"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: promotions-svc
+          image: "/promotions-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11005
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_promotions"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_promotions_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_promotions_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11005
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11005
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-svc
+  namespace: default
+  labels:
+    app: review-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-svc
+  template:
+    metadata:
+      labels:
+        app: review-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11009"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: review-svc
+          image: "/review-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11009
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_reviews"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_review_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_review_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+          resources: 
+            limits:
+              cpu: 400m
+              memory: 384Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11009
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11009
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11009
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/deployments.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-svc
+  namespace: default
+  labels:
+    app: user-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-svc
+  template:
+    metadata:
+      labels:
+        app: user-svc
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "11001"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: user-svc
+          image: "/user-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11001
+          env:
+            
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres-local:5432/catalogix_users"
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_user_user_svc
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: db_password_user_svc
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: jwt_secret
+            - name: RABBITMQ_HOST
+              value: "rabbitmq"
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_user
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: OTLP_ENDPOINT
+              value: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"   # Tempo's OTLP HTTP receiver, monitoring namespace
+            - name: ALLOWED_ORIGINS
+              value: '*'
+            - name: CORS_ALLOW_CREDENTIALS
+              value: "true"
+            - name: ADMIN_EMAILS
+              value: admin@example.com
+            - name: REFRESH_COOKIE_SECURE
+              value: "false"
+            - name: SEED_DATA
+              value: "true"
+            - name: SEED_ADMIN_EMAIL
+              value: admin@catalogix.local
+            - name: SEED_ADMIN_PASSWORD
+              value: Admin@12345
+          resources: 
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 11001
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 11001
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 11001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/frontend.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-svc
+  namespace: default
+  labels:
+    app: frontend-svc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-svc
+  template:
+    metadata:
+      labels:
+        app: frontend-svc
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: frontend-svc
+          image: "/frontend-svc:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources: 
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: nginx-log
+              mountPath: /var/log/nginx
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-log
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/gateway.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: default
+  labels:
+    app: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: gateway
+          image: "/gateway:1.0-0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources: 
+            limits:
+              cpu: 250m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            # gateway/Dockerfile chowns this to UID 1000 at build time and
+            # nginx writes proxy temp files here at runtime.
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-log
+              mountPath: /var/log/nginx
+            # gateway/Dockerfile relocates the pid file to /tmp/nginx.pid
+            # specifically because /var/run isn't guaranteed writable by a
+            # non-root UID on this base image — this mount is what makes
+            # that relocation actually work under readOnlyRootFilesystem.
+            - name: tmp
+              mountPath: /tmp
+          # Gateway listens on port 80 (a privileged port) as non-root UID
+          # 1000 — unlike frontend-svc, which listens on 11000 and needs no
+          # extra capability, gateway needs NET_BIND_SERVICE added back or
+          # nginx can't bind the port at all and crash-loops. Documented in
+          # DEVOPS.md's "NET_BIND_SERVICE on the gateway" section — copying
+          # frontend.yaml's securityContext verbatim here would silently
+          # break this, since frontend correctly needs no addition.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          # Matches the Dockerfile's own HEALTHCHECK exactly (/gateway/health,
+          # defined in gateway/nginx.conf) rather than '/' — '/' would proxy
+          # to frontend-svc per nginx.conf's routing and isn't a meaningful
+          # gateway-liveness check on its own.
+          readinessProbe:
+            httpGet:
+              path: /gateway/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /gateway/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 3
+        # nginx-prometheus-exporter sidecar — scrapes the gateway's own
+        # internal-only stub_status endpoint (nginx.conf's :8081 server
+        # block, never exposed via the gateway Service) over localhost
+        # (shared pod network namespace) and re-exposes it in Prometheus
+        # format on :9113 for servicemonitors.yaml to scrape. Gives request
+        # rate / active connections / dropped connections at the edge —
+        # the one place in the request path with no metrics today, since
+        # this is nginx, not a Spring Boot service with /actuator/prometheus.
+        - name: nginx-exporter
+          image: "nginx/nginx-prometheus-exporter:1.4.2"
+          args:
+            - "--nginx.scrape-uri=http://127.0.0.1:8081/stub_status"
+          ports:
+            - name: metrics
+              containerPort: 9113
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "50m", memory: "32Mi" }
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-log
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+# Source: catalogix-hc/templates/postgres-local.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-local
+  namespace: default
+spec:
+  serviceName: postgres-local
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-local
+  template:
+    metadata:
+      labels:
+        app: postgres-local
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: "postgres:18-alpine"   # same image/version as docker-compose.yaml, for parity
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: local_db_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: local_db_password
+            # Postgres requires SOME initial DB name at first boot. Never
+            # used by any service — same reasoning as terraform's rds
+            # module's catalogix_admin db_name, see env/dev/main.tf.
+            - name: POSTGRES_DB
+              value: "postgres"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { cpu: "500m", memory: "512Mi" }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "$(POSTGRES_USER)"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-local-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Source: catalogix-hc/templates/rabbitmq.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  podManagementPolicy: Parallel  # nodes need to come up together to cluster, not one-at-a-time like a typical StatefulSet rollout
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq-sa
+      # Soft, not hard, anti-affinity: with a small node group (see
+      # env/dev's node group sizing, 2/6/3), REQUIRING 3 distinct nodes
+      # could leave a replica permanently Pending if the cluster is
+      # temporarily scaled down. Preferred still steers the scheduler away
+      # from stacking all 3 on one node under normal conditions.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: rabbitmq
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      # RabbitMQ requires its Erlang cookie file to be owned by the
+      # rabbitmq user with strict 600 permissions. A Secret volume mount
+      # can't express "root-owned file, then chown/chmod it" on its own —
+      # this initContainer does that copy+chmod+chown once, as root,
+      # before the main container (which runs as non-root 999) starts.
+      # Same PVC is mounted in both, so the fix persists into the main container.
+      initContainers:
+        - name: erlang-cookie-setup
+          image: busybox:1.36
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+            - |
+              cp /secret-cookie/cookie /var/lib/rabbitmq/.erlang.cookie
+              chmod 600 /var/lib/rabbitmq/.erlang.cookie
+              chown 999:999 /var/lib/rabbitmq/.erlang.cookie
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: erlang-cookie-secret
+              mountPath: /secret-cookie
+              readOnly: true
+      containers:
+        - name: rabbitmq
+          image: "rabbitmq:4-management-alpine"
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+            - name: clustering
+              containerPort: 25672
+            - name: epmd
+              containerPort: 4369
+            - name: metrics
+              containerPort: 15692
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  # Lowercase — matches the AWS Secrets Manager JSON key
+                  # exactly, since templates/external-secrets.yaml's
+                  # app-secrets ExternalSecret uses dataFrom.extract, which
+                  # copies keys verbatim (no renaming). Was RABBITMQ_USER
+                  # (uppercase) here before — that stopped matching the
+                  # moment external-secrets.yaml switched to dataFrom.extract
+                  # and was never updated here. Same bug class already fixed
+                  # once in _helpers.tpl's commonEnv, missed here until now.
+                  key: rabbitmq_user
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: catalogix-secrets
+                  key: rabbitmq_password
+            - name: RABBITMQ_ERLANG_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-erlang-cookie
+                  key: cookie
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@$(POD_NAME).rabbitmq.default.svc.cluster.local"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources: 
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 40
+            periodSeconds: 30
+            timeoutSeconds: 10
+      volumes:
+        - name: erlang-cookie-secret
+          secret:
+            secretName: rabbitmq-erlang-cookie
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi

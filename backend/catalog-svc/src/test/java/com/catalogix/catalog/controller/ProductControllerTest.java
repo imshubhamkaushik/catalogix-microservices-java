@@ -29,6 +29,8 @@ import java.util.Optional;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -121,6 +123,7 @@ class ProductControllerTest {
 
         mvc.perform(post("/products")
                 .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SELLER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest())))
@@ -136,6 +139,7 @@ class ProductControllerTest {
 
         mvc.perform(post("/products")
                 .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SELLER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
@@ -149,10 +153,39 @@ class ProductControllerTest {
 
         mvc.perform(post("/products")
                 .requestAttr("userId", 42L)
+                .requestAttr("userRole", "SELLER")
                 .requestAttr("bearerToken", "Bearer token")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRejectsARegularBuyerAccount() throws Exception {
+        mvc.perform(post("/products")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
+                .andExpect(status().isForbidden());
+
+        verify(svc, never()).create(any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void createAllowsAnAdminAccountToo() throws Exception {
+        when(svc.create(any(CreateProductRequest.class), eq(42L), eq("Bearer token")))
+                .thenReturn(sampleResponse());
+
+        mvc.perform(post("/products")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "ADMIN")
+                .requestAttr("bearerToken", "Bearer token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(sampleRequest())))
+                .andExpect(status().isCreated());
     }
 
     @Test

@@ -488,4 +488,17 @@ class UserControllerTest {
         mvc.perform(get("/users/5/notification-preferences").requestAttr("userRole", "USER"))
                 .andExpect(status().isForbidden());
     }
+
+    // POST /users/me/become-seller
+    @Test
+    @SuppressWarnings("null")
+    void becomeSellerReturnsTheUpgradedProfile() throws Exception {
+        UserResponse upgraded = new UserResponse(1L, "John", "john@example.com", "SELLER", true,
+                java.time.Instant.now(), true, true);
+        when(svc.becomeSeller(1L)).thenReturn(upgraded);
+
+        mvc.perform(post("/users/me/become-seller").requestAttr("userId", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("SELLER"));
+    }
 }

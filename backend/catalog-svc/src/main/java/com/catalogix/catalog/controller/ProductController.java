@@ -5,6 +5,7 @@ import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
 import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.dto.StockAdjustmentRequest;
+import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.svc.ProductSvc;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -44,12 +45,21 @@ public class ProductController {
         return ResponseEntity.ok(svc.search(search, category, minPrice, maxPrice, sortBy, pageable, bearer(request)));
     }
 
+    // Only sellers and admins may list products — a plain buyer account has
+    // no "create" capability at all now that there's a real distinction
+    // between shopping and selling. See UserSvc's becomeSeller for how a
+    // buyer opts into selling.
     @PostMapping
     public ResponseEntity<ProductResponse> create(
             @RequestAttribute("userId") Long userId,
+            @RequestAttribute("userRole") String role,
             @Valid @RequestBody CreateProductRequest req,
             HttpServletRequest request
     ) {
+        if (!"SELLER".equalsIgnoreCase(role) && !"ADMIN".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Only sellers and admins may list products");
+        }
+
         ProductResponse created = svc.create(req, userId, bearer(request));
 
         URI location = ServletUriComponentsBuilder

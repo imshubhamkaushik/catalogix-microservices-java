@@ -78,6 +78,14 @@ services:
       # ingress.tlsCertArn is set, or the refresh cookie is silently dropped.
       - name: REFRESH_COOKIE_SECURE
         value: "false"
+      # See backend/user-svc's AdminSeeder Javadoc / values-dev.yaml's
+      # matching comment for the full reasoning — same pattern here.
+      - name: SEED_DATA
+        value: "true"
+      - name: SEED_ADMIN_EMAIL
+        value: "admin@catalogix.local"
+      - name: SEED_ADMIN_PASSWORD
+        value: ""
 
   catalog-svc:
     dbName: catalogix_catalog
@@ -94,6 +102,8 @@ services:
     extraEnv:
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
+      - name: SEED_DATA
+        value: "true"
 
   inventory-svc:
     dbName: catalogix_inventory

@@ -66,7 +66,32 @@ hpa:
   enabled: false
 
 services:
-  user-svc: { replicaCount: 1 }
+  user-svc:
+    replicaCount: 1
+    # Full re-declaration, not just the password — Helm REPLACES (doesn't
+    # merge) list values across -f files, so overriding just one entry's
+    # value here would silently drop ALLOWED_ORIGINS/CORS_ALLOW_CREDENTIALS/
+    # ADMIN_EMAILS/REFRESH_COOKIE_SECURE from values-dev.yaml's version of
+    # this same list. Keep this in sync with values-dev.yaml's user-svc
+    # extraEnv if that one ever changes. Only actual difference from it:
+    # SEED_ADMIN_PASSWORD has a real fixed value here instead of requiring
+    # --set, since this file never leaves your machine (see docker-compose.yaml's
+    # matching comment on its own SEED_ADMIN_PASSWORD for the same reasoning).
+    extraEnv:
+      - name: ALLOWED_ORIGINS
+        value: "*"
+      - name: CORS_ALLOW_CREDENTIALS
+        value: "true"
+      - name: ADMIN_EMAILS
+        value: "admin@example.com"
+      - name: REFRESH_COOKIE_SECURE
+        value: "false"
+      - name: SEED_DATA
+        value: "true"
+      - name: SEED_ADMIN_EMAIL
+        value: "admin@catalogix.local"
+      - name: SEED_ADMIN_PASSWORD
+        value: "Admin@12345"
   catalog-svc: { replicaCount: 1 }
   inventory-svc: { replicaCount: 1 }
   cart-svc: { replicaCount: 1 }

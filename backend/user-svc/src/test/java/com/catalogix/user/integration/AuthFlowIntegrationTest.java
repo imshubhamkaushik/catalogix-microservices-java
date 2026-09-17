@@ -3,13 +3,15 @@ package com.catalogix.user.integration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -47,7 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuthFlowIntegrationTest {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:18-alpine");
+    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18-alpine");
 
     @DynamicPropertySource
     static void configureDatasource(DynamicPropertyRegistry registry) {
@@ -94,15 +96,8 @@ class AuthFlowIntegrationTest {
         // that class directly, not assumed.
     }
 
-    @LocalServerPort
-    int port;
-
     @Autowired
     TestRestTemplate rest;
-
-    private String url(String path) {
-        return "http://localhost:" + port + path;
-    }
 
     @Test
     void aBrandNewUserCanRegisterAndThenLogIn_withNoAuthorizationHeaderOnEitherCall() {
@@ -120,8 +115,13 @@ class AuthFlowIntegrationTest {
                 "email", email,
                 "password", "Password1"
         );
-        ResponseEntity<Map> registerResponse =
-                rest.postForEntity("/users/register", registerBody, Map.class);
+        ResponseEntity<Map<String, Object>> registerResponse =
+                rest.exchange(
+                "/users/register",
+                HttpMethod.POST,
+                new HttpEntity<>(registerBody),
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
 
         System.out.println("REGISTER STATUS = " + registerResponse.getStatusCode().value());
         System.out.println("REGISTER BODY   = " + registerResponse.getBody());
@@ -133,8 +133,14 @@ class AuthFlowIntegrationTest {
         assertThat(registerResponse.getBody()).containsKey("accessToken");
 
         Map<String, String> loginBody = Map.of("email", email, "password", "Password1");
-        ResponseEntity<Map> loginResponse =
-                rest.postForEntity("/users/login", loginBody, Map.class);
+        
+        ResponseEntity<Map<String, Object>> loginResponse =
+                rest.exchange(
+                        "/users/login",
+                        HttpMethod.POST,
+                        new HttpEntity<>(loginBody),
+                        new ParameterizedTypeReference<Map<String, Object>>() {}
+                );
 
         assertThat(loginResponse.getStatusCode().value())
                 .as("login must succeed with no Authorization header — "
@@ -149,7 +155,13 @@ class AuthFlowIntegrationTest {
         // publicPaths check must exempt only the exact configured paths,
         // not accidentally the whole service. /users/me is deliberately
         // not in security.public-paths.
-        ResponseEntity<Map> response = rest.getForEntity("/users/me", Map.class);
+        ResponseEntity<Map<String, Object>> response =
+        rest.exchange(
+                "/users/me",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
 
         assertThat(response.getStatusCode().value()).isEqualTo(401);
     }
@@ -162,15 +174,31 @@ class AuthFlowIntegrationTest {
         // required, not what UserSvc.login() does once the request
         // arrives.
         String email = "wrongpass-" + System.nanoTime() + "@example.com";
-        rest.postForEntity(
+        rest.exchange(
                 "/users/register",
-                Map.of("name", "Wrong Pass", "email", email, "password", "Password1"),
-                Map.class);
+                HttpMethod.POST,
+                new HttpEntity<>(
+                        Map.of(
+                                "name", "Wrong Pass",
+                                "email", email,
+                                "password", "Password1"
+                        )
+                ),
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
 
-        ResponseEntity<Map> response = rest.postForEntity(
+        ResponseEntity<Map<String, Object>> response =
+        rest.exchange(
                 "/users/login",
-                Map.of("email", email, "password", "DefinitelyNotThePassword1"),
-                Map.class);
+                HttpMethod.POST,
+                new HttpEntity<>(
+                        Map.of(
+                                "email", email,
+                                "password", "DefinitelyNotThePassword1"
+                        )
+                ),
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
 
         assertThat(response.getStatusCode().value()).isEqualTo(401);
     }

@@ -17,6 +17,7 @@ function renderProducts() {
 
 describe("Products page", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
     api.getProducts.mockResolvedValue({
       content: [{ id: 1, name: "Phone", description: "A phone", price: 100, category: "electronics",
@@ -71,5 +72,44 @@ describe("Products page", () => {
     renderProducts();
 
     expect(await screen.findByRole("button", { name: /remove from wishlist/i })).toBeInTheDocument();
+  });
+
+  describe("the 'Add new product' form", () => {
+    function loginAs(role) {
+      localStorage.setItem("catalogix.auth", JSON.stringify({
+        accessToken: "tok",
+        accessTokenExpiresInMs: 900000,
+        user: { id: 1, name: "Sam", email: "sam@example.com", role, verified: true },
+      }));
+    }
+
+    it("is hidden for a plain buyer account", async () => {
+      loginAs("USER");
+      renderProducts();
+
+      await screen.findByText("Phone"); // wait for the page to finish loading
+      expect(screen.queryByText(/add new product/i)).not.toBeInTheDocument();
+    });
+
+    it("is hidden when nobody is logged in", async () => {
+      renderProducts();
+
+      await screen.findByText("Phone");
+      expect(screen.queryByText(/add new product/i)).not.toBeInTheDocument();
+    });
+
+    it("is shown for a seller account", async () => {
+      loginAs("SELLER");
+      renderProducts();
+
+      expect(await screen.findByText(/add new product/i)).toBeInTheDocument();
+    });
+
+    it("is shown for an admin account", async () => {
+      loginAs("ADMIN");
+      renderProducts();
+
+      expect(await screen.findByText(/add new product/i)).toBeInTheDocument();
+    });
   });
 });

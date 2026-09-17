@@ -209,4 +209,16 @@ describe("Account page", () => {
 
     expect(api.deleteUser).not.toHaveBeenCalled();
   });
+
+  it("lets a buyer become a seller", async () => {
+    api.becomeSeller.mockResolvedValue({
+      id: 1, name: "Alice", email: "alice@example.com", role: "SELLER", verified: false,
+    });
+    renderAccount();
+
+    await userEvent.click(await screen.findByRole("button", { name: /become a seller/i }));
+
+    await waitFor(() => expect(api.becomeSeller).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/you're now a seller/i)).toBeInTheDocument();
+  });
 });

@@ -39,12 +39,7 @@
         <springdoc.version>3.1.0</springdoc.version>
         <httpclient5.version>5.6.4</httpclient5.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        
-        <!-- UNVERIFIED: picked from training data, not confirmed against
-             Spring Boot 4.1.1 / Java 21 — Maven Central isn't reachable
-             from the sandbox this was written in. Check for a newer
-             release and actual compatibility before trusting this in CI. -->
-        <testcontainers.version>1.20.4</testcontainers.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <!-- Dependency Management -->

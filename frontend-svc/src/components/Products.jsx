@@ -160,7 +160,7 @@ AddToCartControl.propTypes = {
 };
 
 export default function Products() {
-  const { user: currentUser, isAdmin } = useAuth();
+  const { user: currentUser, isAdmin, isSeller } = useAuth();
 
   const [products, setProducts]     = useState([]);
   const [loading, setLoading]       = useState(false);
@@ -324,7 +324,9 @@ export default function Products() {
         {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
         {error && <div className="toast toast-error">{error}</div>}
 
-        {/* Add product form */}
+        {/* Add product form — sellers and admins only; a buyer account has
+            no listing capability at all. */}
+        {(isSeller || isAdmin) && (
         <div className="form-panel">
           <p className="form-panel-label">Add new product</p>
           <form className="form-fields form-fields-product" onSubmit={handleAdd}>
@@ -411,6 +413,7 @@ export default function Products() {
             </button>
           </form>
         </div>
+        )}
 
         {/* List header */}
         <div className="section-header">

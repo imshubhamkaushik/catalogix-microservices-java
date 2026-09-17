@@ -145,6 +145,26 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      # Local compose serves the app over plain HTTP (http://localhost:11000,
+      # no TLS). A Secure-flagged cookie set over a non-HTTPS response is
+      # silently dropped by the browser — see UserController's cookieSecure
+      # Javadoc. Real deployments (behind the ALB's TLS) should NOT set this
+      # and must keep the true default.
+      #
+      # NOTE: this exact fix was applied once before in this conversation,
+      # to this exact file, then silently lost when a fresh zip was
+      # re-uploaded and this session switched to working from that copy
+      # instead — the re-uploaded zip simply predated this fix. Re-applying
+      # it now while already in this block for the seed-data wiring below.
+      # If register/login mysteriously "work but don't stay logged in"
+      # again in the future, this line is the first thing to check exists.
+      REFRESH_COOKIE_SECURE: "false"
+      # See AdminSeeder's Javadoc. Fixed local-only credentials — this file
+      # never leaves your machine, unlike the Helm values files where the
+      # same password is deliberately left for `helm install --set` instead.
+      SEED_DATA: "true"
+      SEED_ADMIN_EMAIL: admin@catalogix.local
+      SEED_ADMIN_PASSWORD: Admin@12345
     expose:
       - "11001"
     depends_on:
@@ -175,12 +195,24 @@ services:
       INVENTORY_SVC_URL: http://inventory-svc:11003
       REVIEW_SVC_URL: http://review-svc:11009
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      SEED_DATA: "true"
     expose:
       - "11002"
     depends_on:
       postgres:
         condition: service_healthy
       review-svc:
+        condition: service_started
+      inventory-svc:
+        # Doesn't guarantee inventory-svc is actually ready to receive
+        # requests yet (no real healthcheck on it — see the note further
+        # down on why), only that its container has started. Reduces, but
+        # doesn't eliminate, the race between ProductSeeder's startup-time
+        # calls to InventoryClient.init() and inventory-svc's own JVM boot.
+        # ProductSeeder itself is written to survive this race regardless
+        # (catches and logs rather than failing catalog-svc's own startup)
+        # — this depends_on entry just makes the race less likely to fire
+        # on a normal `docker compose up`.
         condition: service_started
     networks: [catalogix]
 

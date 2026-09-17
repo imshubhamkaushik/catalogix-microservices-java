@@ -90,6 +90,7 @@ export function AuthProvider({ children }) {
     user: auth?.user ?? null,
     isAuthenticated: Boolean(auth?.accessToken),
     isAdmin: auth?.user?.role === "ADMIN",
+    isSeller: auth?.user?.role === "SELLER",
     login,
     register,
     logout,

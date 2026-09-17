@@ -162,6 +162,11 @@ export const updateNotificationPreferences = async (preferences) => {
   return res.data;
 };
 
+export const becomeSeller = async () => {
+  const res = await http.post(`${USER_API_BASE}/me/become-seller`);
+  return res.data;
+};
+
 // -------- USER APIs (admin directory) --------
 
 export const getUsers = async () => {

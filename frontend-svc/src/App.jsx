@@ -8,6 +8,7 @@ import Products from "./components/Products";
 import Wishlist from "./components/Wishlist";
 import Cart from "./components/Cart";
 import Orders from "./components/Orders";
+import MyProducts from "./components/MyProducts";
 import Returns from "./components/Returns";
 import Coupons from "./components/Coupons";
 import Login from "./components/Login";
@@ -94,7 +95,7 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-function UserMenu({ user, isAdmin, isEmailVerified, onLogout }) {
+function UserMenu({ user, isAdmin, isSeller, isEmailVerified, onLogout }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -137,7 +138,7 @@ function UserMenu({ user, isAdmin, isEmailVerified, onLogout }) {
           <div className="user-menu-status">
             <div className={`active-dot ${activeDotClass}`} />
             <span className="user-menu-status-text">
-              {userStatusLabel}{isAdmin ? " · admin" : ""}
+              {userStatusLabel}{isAdmin ? " · admin" : isSeller ? " · seller" : ""}
             </span>
           </div>
 
@@ -148,6 +149,16 @@ function UserMenu({ user, isAdmin, isEmailVerified, onLogout }) {
           >
             <AccountIcon /> Account
           </NavLink>
+
+          {(isSeller || isAdmin) && (
+            <NavLink
+              to="/my-products"
+              className={({ isActive }) => `user-menu-item${isActive ? " active" : ""}`}
+              onClick={() => setOpen(false)}
+            >
+              <ProductsIcon /> My Products
+            </NavLink>
+          )}
 
           {isAdmin && (
             <>
@@ -198,7 +209,7 @@ function UserMenu({ user, isAdmin, isEmailVerified, onLogout }) {
 }
 
 function Layout() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isSeller, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [cartCount, setCartCount] = useState(0);
@@ -268,6 +279,7 @@ function Layout() {
           <UserMenu
             user={user}
             isAdmin={isAdmin}
+            isSeller={isSeller}
             isEmailVerified={isEmailVerified}
             onLogout={handleLogout}
           />
@@ -282,6 +294,7 @@ function Layout() {
           <Route path="wishlist" element={<Wishlist />} />
           <Route path="cart" element={<Cart />} />
           <Route path="orders" element={<Orders />} />
+          {(isSeller || isAdmin) && <Route path="my-products" element={<MyProducts />} />}
           <Route path="returns" element={<Returns />} />
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}

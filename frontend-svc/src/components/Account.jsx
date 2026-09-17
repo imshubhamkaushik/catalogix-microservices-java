@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   updateProfile, resendVerification, logoutEverywhere,
   getAddresses, createAddress, updateAddress, setDefaultAddress, deleteAddress,
-  getOrders, getSessions, revokeSession, updateNotificationPreferences, deleteUser,
+  getOrders, getSessions, revokeSession, updateNotificationPreferences, deleteUser, becomeSeller,
 } from "../api";
 
 const EMPTY_ADDRESS_FORM = { label: "", line1: "", line2: "", city: "", state: "", pincode: "", phone: "", makeDefault: false };
@@ -44,6 +44,22 @@ function describeUserAgent(userAgent) {
 export default function Account() {
   const { user, updateUser, logout } = useAuth();
   const navigate = useNavigate();
+
+  const [becomingSeller, setBecomingSeller] = useState(false);
+
+  const handleBecomeSeller = async () => {
+    setBecomingSeller(true);
+    setError("");
+    try {
+      const updated = await becomeSeller();
+      updateUser(updated);
+      setToast("You're now a seller — find \"My Products\" in the account menu.");
+    } catch {
+      setError("Failed to become a seller. Please try again.");
+    } finally {
+      setBecomingSeller(false);
+    }
+  };
 
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
@@ -305,6 +321,24 @@ export default function Account() {
             </div>
           </div>
         </div>
+
+        {user?.role === "USER" && (
+          <div className="form-panel">
+            <p className="form-panel-label">Sell on Catalogix</p>
+            <p className="auth-help-text">
+              Become a seller to list your own products and manage their stock.
+              No approval needed — you can start right away.
+            </p>
+            <button
+              className="btn-small"
+              onClick={handleBecomeSeller}
+              disabled={becomingSeller}
+              type="button"
+            >
+              {becomingSeller ? "Upgrading…" : "Become a seller"}
+            </button>
+          </div>
+        )}
 
         <div className="form-panel">
           <p className="form-panel-label">Profile</p>

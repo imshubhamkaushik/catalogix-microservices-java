@@ -245,6 +245,14 @@ public class UserController {
         return ResponseEntity.ok(svc.updateNotificationPreferences(userId, req));
     }
 
+    // Self-serve: a buyer opts into selling, no admin approval needed. See
+    // UserSvc.becomeSeller's Javadoc for exactly what this does and doesn't
+    // change.
+    @PostMapping("/me/become-seller")
+    public ResponseEntity<UserResponse> becomeSeller(@RequestAttribute("userId") Long userId) {
+        return ResponseEntity.ok(svc.becomeSeller(userId));
+    }
+
     // Internal-only: notification-svc calls this (with a SYSTEM-minted
     // token, same mechanism as checkout-svc -> inventory-svc's /adjust) to
     // decide whether an order-status email should actually be sent. Not for
