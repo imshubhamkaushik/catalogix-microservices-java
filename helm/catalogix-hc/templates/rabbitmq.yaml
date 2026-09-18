@@ -60,7 +60,6 @@ data:
     cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
     cluster_formation.k8s.address_type = hostname
     cluster_formation.k8s.service_name = rabbitmq
-    cluster_formation.k8s.namespace = {{ .Release.Namespace }}
     cluster_formation.node_cleanup.interval = 30
     cluster_formation.node_cleanup.only_log_warning = true
     # pause_minority (not autoheal/ignore) — on a network partition, the
@@ -167,6 +166,10 @@ spec:
             - name: metrics
               containerPort: 15692
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: RABBITMQ_DEFAULT_USER
               valueFrom:
                 secretKeyRef:
@@ -190,12 +193,10 @@ spec:
                 secretKeyRef:
                   name: rabbitmq-erlang-cookie
                   key: cookie
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
             - name: RABBITMQ_NODENAME
               value: "rabbit@$(POD_NAME).rabbitmq.{{ .Release.Namespace }}.svc.cluster.local"
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
           resources: {{ toYaml .Values.rabbitmq.resources | nindent 12 }}
           volumeMounts:
             - name: rabbitmq-data

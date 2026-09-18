@@ -29,7 +29,7 @@ def BACKEND_SERVICES = [
 // a byte-for-byte duplicate of frontend.yaml (so no gateway Deployment
 // existed even if the image had pushed successfully). Both fixed now —
 // this comment mismatch was the last remaining loose end.
-def ALL_IMAGES = BACKEND_SERVICES + ['frontend-svc', 'gateway']
+def ALL_IMAGES = BACKEND_SERVICES + ['frontend', 'gateway']
 
 // Populated by 'Determine Per-Service Image Tags' below: svc name -> the tag
 // it should run at after this deploy (either this run's new IMAGE_TAG, if
@@ -211,13 +211,13 @@ pipeline {
                         : (env.CHANGED_BACKEND ? env.CHANGED_BACKEND.split(',') as List : [])
 
                     def frontendChanged = getChangedServices(
-                        ['frontend-svc'], [prefix: '']
-                    ).contains('frontend-svc')
+                        ['frontend'], [prefix: '']
+                    ).contains('frontend')
                     def gatewayChanged = getChangedServices(
                         ['gateway'], [prefix: '']
                     ).contains('gateway')
 
-                    def imagesToBuild = (changedBackendForBuild + (frontendChanged ? ['frontend-svc'] : []) + (gatewayChanged ? ['gateway'] : [])) as Set
+                    def imagesToBuild = (changedBackendForBuild + (frontendChanged ? ['frontend'] : []) + (gatewayChanged ? ['gateway'] : [])) as Set
 
                     // First-ever deploy: there's no previously-deployed release
                     // to read existing tags from (see 'Determine Per-Service
@@ -268,11 +268,11 @@ pipeline {
                             IMAGE_TAGS[svc] = env.IMAGE_TAG
                             return
                         }
-                        def jsonPath = (svc == 'frontend-svc')
-                            ? '.frontendSvc.image.tag'
+                        def jsonPath = (svc == 'frontend')
+                            ? '.frontend.image.tag'
                             : (svc == 'gateway')
                                 ? '.gateway.image.tag'
-                                : ".services.\"${svc}\".image.tag"
+                                : ".backendServices.\"${svc}\".image.tag"
                         def prevTag = sh(
                             script: "jq -r '(${jsonPath} // .global.imageTag // empty)' prev-values.json",
                             returnStdout: true
@@ -297,7 +297,7 @@ pipeline {
             steps {
                 script {
                     def branches = ALL_IMAGES.collectEntries { svc ->
-                        def dockerfilePath = (svc == 'frontend-svc') ? 'frontend-svc/Dockerfile' : ((svc == 'gateway') ? 'gateway/Dockerfile' : "backend/${svc}/Dockerfile")
+                        def dockerfilePath = (svc == 'frontend') ? 'frontend/Dockerfile' : ((svc == 'gateway') ? 'gateway/Dockerfile' : "backend/${svc}/Dockerfile")
                         [ "${svc}": {
                             sh "docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --config /dev/null - < ${dockerfilePath}"
                         } ]
@@ -342,8 +342,8 @@ pipeline {
                 script {
                     def branches = ALL_IMAGES.collectEntries { svc ->
                         [ "${svc}": {
-                            if (svc == 'frontend-svc') {
-                                dir('frontend-svc') {
+                            if (svc == 'frontend') {
+                                dir('frontend') {
                                     sh """
                                     npm ci --cache ${NPM_CACHE}
                                     npm run build
@@ -448,11 +448,11 @@ pipeline {
                     def branches = toBuild.collectEntries { svc ->
                         [ "${svc}": {
                             def imageRef = "${env.ECR_REGISTRY}/${svc}:${IMAGE_TAGS[svc]}"
-                            if (svc == 'frontend-svc') {
+                            if (svc == 'frontend') {
                                 buildAndScanImage(
                                     imageRef: imageRef,
-                                    dockerfile: 'frontend-svc/Dockerfile',
-                                    context: 'frontend-svc',
+                                    dockerfile: 'frontend/Dockerfile',
+                                    context: 'frontend',
                                     trivyImage: env.TRIVY_IMAGE
                                 )
                             } else if (svc == 'gateway') {
@@ -530,7 +530,7 @@ pipeline {
             steps {
                 script {
                     def tagArgs = ALL_IMAGES.collect { svc ->
-                        def key = (svc == 'frontend-svc') ? 'frontendSvc.image.tag' : ((svc == 'gateway') ? 'gateway.image.tag' : "services.${svc}.image.tag")
+                        def key = (svc == 'frontend') ? 'frontend.image.tag' : ((svc == 'gateway') ? 'gateway.image.tag' : "services.${svc}.image.tag")
                         "--set ${key}=${IMAGE_TAGS[svc]}"
                     }.join(' ')
                     env.HELM_TAG_ARGS = tagArgs

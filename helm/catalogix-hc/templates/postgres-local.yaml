@@ -16,11 +16,21 @@ data:
   01-create-databases.sh: |
     #!/bin/bash
     set -e
-    for db in {{ range $name, $svc := .Values.services }}{{ $svc.dbName }} {{ end }}; do
-      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
-        SELECT 'CREATE DATABASE $db OWNER $POSTGRES_USER'
-        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
-    EOSQL
+
+    for db in {{ range $name, $svc := .Values.backendServices }}{{ $svc.dbName }} {{ end }}; do
+      psql \
+        -v ON_ERROR_STOP=1 \
+        --username "$POSTGRES_USER" \
+        --dbname postgres <<-EOSQL
+          SELECT format(
+            'CREATE DATABASE %I OWNER %I',
+            '$db',
+            '$POSTGRES_USER'
+          )
+          WHERE NOT EXISTS (
+            SELECT FROM pg_database WHERE datname = '$db'
+          )\gexec
+        EOSQL
     done
 ---
 apiVersion: apps/v1
@@ -41,8 +51,8 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        fsGroup: 999
+        runAsUser: 70
+        fsGroup: 70
       containers:
         - name: postgres
           image: "postgres:18-alpine"   # same image/version as docker-compose.yaml, for parity

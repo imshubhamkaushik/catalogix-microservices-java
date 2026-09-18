@@ -30,7 +30,7 @@ startupProbe:
     path: /actuator/health
     port: {{ .port }}
   periodSeconds: 5
-  failureThreshold: 30
+  failureThreshold: 60
   timeoutSeconds: 5
 readinessProbe:
   httpGet:

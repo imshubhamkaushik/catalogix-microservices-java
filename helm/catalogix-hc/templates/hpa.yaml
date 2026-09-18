@@ -1,5 +1,6 @@
 {{- if and .Values.hpa .Values.hpa.enabled }}
-{{- range $name, $svc := .Values.services }}
+# HPA for backend services
+{{- range $name, $svc := .Values.backendServices }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -25,29 +26,31 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ $svc.hpa.memoryUtilization }}
----
 {{- end }}
+---
+# HPA for frontend 
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: frontend-svc-hpa
+  name: frontend-hpa
   namespace: {{ .Release.Namespace }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: frontend-svc
-  minReplicas: {{ .Values.frontendSvc.hpa.minReplicas }}
-  maxReplicas: {{ .Values.frontendSvc.hpa.maxReplicas }}
+    name: frontend
+  minReplicas: {{ .Values.frontend.hpa.minReplicas }}
+  maxReplicas: {{ .Values.frontend.hpa.maxReplicas }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.frontendSvc.hpa.cpuUtilization }}
+          averageUtilization: {{ .Values.frontend.hpa.cpuUtilization }}
 {{- end }}
 ---
+# HPA for gateway
 {{- if and .Values.gateway.hpa .Values.gateway.hpa.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

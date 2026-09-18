@@ -6,11 +6,14 @@
 # values-dev.yaml. Helm deep-merges nested maps across multiple -f files
 # (last file wins per-key), so install with BOTH files, in this order:
 #
-#   helm install catalogix ./helm/catalogix-hc \
+#   helm upgrade --install catalogix ./helm/catalogix-hc \
 #     -f helm/catalogix-hc/values-dev.yaml \
 #     -f helm/catalogix-hc/values-local.yaml \
-#     --set global.imageRegistry=<your local registry or image repo prefix> \
 #     -n catalogix --create-namespace
+#
+# For Docker Desktop Kubernetes, global.imageRegistry stays empty. The image
+# repositories below point directly at images already present in Docker's
+# local image store.
 #
 # What this actually removes vs. values-dev.yaml + AWS:
 #   - No RDS: templates/postgres-local.yaml spins up an in-cluster Postgres
@@ -26,7 +29,7 @@
 #     setup already uses.
 #   - No autoscaling: HPA off, every service pinned to 1 replica. This is
 #     the main thing that makes footprint "fit" a laptop — 9 backend
-#     services + gateway + frontend + rabbitmq + postgres at 2 replicas
+#     backend services + gateway + frontend + rabbitmq + postgres at 2 replicas
 #     each would ask for far more CPU/memory than most dev machines have
 #     free alongside everything else running on it.
 #   - No tracing backend: global.otlpEndpoint still points at a `monitoring`
@@ -46,18 +49,18 @@ database:
     # default. Run `kubectl get storageclass` if installs get stuck
     # Pending on the PVC, and change this (or rabbitmq.storageClass below)
     # to whatever your cluster actually has.
-    storageClass: "standard"
+    storageClass: "hostpath" # "standard" is the default for kind and "hostpath" is for Docker Desktop K8s
     storageSize: "1Gi"
 
 rabbitmq:
-  storageClass: "standard"
+  storageClass: "hostpath" # "standard" is the default for kind and "hostpath" is for Docker Desktop K8s
   storageSize: "1Gi"
 
 ingress:
   enabled: false
 
 hpa:
-  # Disables HPA for all 9 backend services AND frontend-svc — the
+  # Disables HPA for all 9 backend services AND frontend — the
   # frontend-svc HPA block in templates/hpa.yaml is nested inside this same
   # top-level flag rather than having its own independent one like
   # gateway.hpa does below. Worth knowing if you ever want frontend
@@ -65,7 +68,7 @@ hpa:
   # possible without editing the template, only this shared switch exists.
   enabled: false
 
-services:
+backendServices:
   user-svc:
     replicaCount: 1
     # Full re-declaration, not just the password — Helm REPLACES (doesn't
@@ -92,19 +95,68 @@ services:
         value: "admin@catalogix.local"
       - name: SEED_ADMIN_PASSWORD
         value: "Admin@12345"
-  catalog-svc: { replicaCount: 1 }
-  inventory-svc: { replicaCount: 1 }
-  cart-svc: { replicaCount: 1 }
-  promotions-svc: { replicaCount: 1 }
-  payment-svc: { replicaCount: 1 }
-  checkout-svc: { replicaCount: 1 }
-  notification-svc: { replicaCount: 1 }
-  review-svc: { replicaCount: 1 }
+    image:
+      repository: "catalogix_user-svc"
+      tag: "latest"
+  
+  catalog-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_catalog-svc"
+      tag: "latest"
+  
+  inventory-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_inventory-svc"
+      tag: "latest"
+  
+  cart-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_cart-svc"
+      tag: "latest"
+  
+  promotions-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_promotions-svc"
+      tag: "latest"
+  
+  payment-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_payment-svc"
+      tag: "latest"
+  
+  checkout-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_checkout-svc"
+      tag: "latest"
+  
+  notification-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_notification-svc"
+      tag: "latest"
+  
+  review-svc: 
+    replicaCount: 1
+    image:
+      repository: "catalogix_review-svc"
+      tag: "latest"
 
 gateway:
   replicaCount: 1
   hpa:
     enabled: false
+  image:
+      repository: "catalogix_gateway"
+      tag: "latest"
 
-frontendSvc:
+frontend:
   replicaCount: 1
+  image:
+      repository: "catalogix_frontend"
+      tag: "latest"

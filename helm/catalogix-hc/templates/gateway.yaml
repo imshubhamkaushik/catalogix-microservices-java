@@ -23,7 +23,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: gateway
-          image: "{{ .Values.global.imageRegistry }}/{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag | default .Values.global.imageTag }}"
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag | default .Values.global.imageTag }}"
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           ports:
             - name: http
@@ -43,7 +43,7 @@ spec:
             - name: tmp
               mountPath: /tmp
           # Gateway listens on port 80 (a privileged port) as non-root UID
-          # 1000 — unlike frontend-svc, which listens on 11000 and needs no
+          # 1000 — unlike frontend, which listens on 11000 and needs no
           # extra capability, gateway needs NET_BIND_SERVICE added back or
           # nginx can't bind the port at all and crash-loops. Documented in
           # DEVOPS.md's "NET_BIND_SERVICE on the gateway" section — copying
@@ -61,7 +61,7 @@ spec:
                 - NET_BIND_SERVICE
           # Matches the Dockerfile's own HEALTHCHECK exactly (/gateway/health,
           # defined in gateway/nginx.conf) rather than '/' — '/' would proxy
-          # to frontend-svc per nginx.conf's routing and isn't a meaningful
+          # to frontend per nginx.conf's routing and isn't a meaningful
           # gateway-liveness check on its own.
           readinessProbe:
             httpGet:

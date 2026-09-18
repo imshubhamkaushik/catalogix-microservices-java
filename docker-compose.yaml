@@ -17,7 +17,7 @@
 # WITHOUT a cgroup CPU quota returns the HOST's full core count. Every one
 # of the 9 JVMs was independently sizing its background thread pools as if
 # it alone owned all 6 host cores — which is exactly why CPU usage was high
-# even on services with zero real traffic (frontend-svc/gateway showed 0%
+# even on services with zero real traffic (frontend/gateway showed 0%
 # while catalog-svc/inventory-svc/notification-svc sat at 74-87% idle).
 # Setting `cpus:` gives each container a real cgroup quota, so the JVM
 # correctly sizes its thread pools to a SMALLER number instead.
@@ -115,7 +115,7 @@ services:
     networks: [catalogix]
 
   sec-shared:
-    image: catalogix/sec-shared:1.0
+    image: catalogix_sec-shared:1.0
     build:
       context: .
       dockerfile: backend/Dockerfile.sec-shared
@@ -123,6 +123,7 @@ services:
   user-svc:
     mem_limit: 512m
     cpus: 0.325
+    image: catalogix_user-svc:latest
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
@@ -180,6 +181,7 @@ services:
   catalog-svc:
     mem_limit: 512m
     cpus: 0.325
+    image: catalogix_catalog-svc:latest
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
@@ -222,6 +224,7 @@ services:
   inventory-svc:
     mem_limit: 384m
     cpus: 0.275
+    image: catalogix_inventory-svc:latest
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
@@ -249,6 +252,7 @@ services:
   cart-svc:
     mem_limit: 384m
     cpus: 0.275
+    image: catalogix_cart-svc:latest
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
@@ -279,6 +283,7 @@ services:
   promotions-svc:
     mem_limit: 384m
     cpus: 0.275
+    image: catalogix_promotions-svc:latest
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
@@ -307,6 +312,7 @@ services:
   payment-svc:
     mem_limit: 384m
     cpus: 0.275
+    image: catalogix_payment-svc:latest
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
@@ -334,6 +340,7 @@ services:
   checkout-svc:
     mem_limit: 640m
     cpus: 0.25
+    image: catalogix_checkout-svc:latest
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
@@ -386,6 +393,7 @@ services:
   notification-svc:
     mem_limit: 384m
     cpus: 0.25
+    image: catalogix_notification-svc:latest
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
@@ -439,12 +447,13 @@ services:
   # (checkout-svc -> catalog-svc -> review-svc -> checkout-svc), which
   # Compose rejects outright at startup. Since none of these containers have
   # healthchecks anyway (distroless, no shell — see the note near
-  # frontend-svc), depends_on here only sequences container *start*, not
+  # frontend), depends_on here only sequences container *start*, not
   # readiness, so dropping this one edge costs nothing beyond what
   # OrderClient's circuit breaker already handles.
   review-svc:
     mem_limit: 384m
     cpus: 0.25
+    image: catalogix_review-svc:latest
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile
@@ -466,17 +475,18 @@ services:
         condition: service_healthy
     networks: [catalogix]
 
-  # frontend-svc and gateway both run on nginx:alpine (real HEALTHCHECK, has
+  # frontend and gateway both run on nginx:alpine (real HEALTHCHECK, has
   # wget) — every Java service above is distroless with no shell, so a
   # container-level healthcheck isn't practical for them; they rely on
   # depends_on + restart: unless-stopped instead.
 
-  frontend-svc:
+  frontend:
     # Internal service port; only gateway publishes host port 11000.
     mem_limit: 256m
     cpus: 0.1
+    image: catalogix_frontend:latest
     build:
-      context: ./frontend-svc
+      context: ./frontend
     restart: unless-stopped
     expose:
       - "11000"
@@ -486,6 +496,7 @@ services:
     # Sole browser-facing host endpoint: localhost:11000 -> gateway:80.
     mem_limit: 128m
     cpus: 0.1
+    image: catalogix_gateway:latest
     build:
       context: ./gateway
     restart: unless-stopped
@@ -506,7 +517,7 @@ services:
         condition: service_started
       review-svc:
         condition: service_started
-      frontend-svc:
+      frontend:
         condition: service_healthy
     networks: [catalogix]
 

@@ -1,34 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-svc
+  name: frontend
   namespace: {{ .Release.Namespace }}
   labels:
-    app: frontend-svc
+    app: frontend
 spec:
   {{- if not .Values.hpa.enabled }}
-  replicas: {{ .Values.frontendSvc.replicaCount | default 2 }}
+  replicas: {{ .Values.frontend.replicaCount | default 2 }}
   {{- end }}
   selector:
     matchLabels:
-      app: frontend-svc
+      app: frontend
   template:
     metadata:
       labels:
-        app: frontend-svc
+        app: frontend
     spec:
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
       containers:
-        - name: frontend-svc
-          image: "{{ .Values.global.imageRegistry }}/{{ .Values.frontendSvc.image.repository }}:{{ .Values.frontendSvc.image.tag | default .Values.global.imageTag }}"
-          imagePullPolicy: {{ .Values.frontendSvc.image.pullPolicy }}
+        - name: frontend
+          image: "{{ if .Values.global.imageRegistry }}{{ .Values.global.imageRegistry }}/{{ end }}{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.frontendSvc.service.port | default 80 }}
-          resources: {{ toYaml .Values.frontendSvc.resources | nindent 12 }}
+              containerPort: {{ .Values.frontend.service.port | default 80 }}
+          resources: {{ toYaml .Values.frontend.resources | nindent 12 }}
           volumeMounts:
             - name: nginx-cache
               mountPath: /var/cache/nginx
@@ -36,6 +36,8 @@ spec:
               mountPath: /var/run
             - name: nginx-log
               mountPath: /var/log/nginx
+            - name: tmp
+              mountPath: /tmp
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -65,19 +67,21 @@ spec:
           emptyDir: {}
         - name: nginx-log
           emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: frontend-svc
+  name: frontend
   namespace: {{ .Release.Namespace }}
   labels:
-    app: frontend-svc
+    app: frontend
 spec:
-  type: {{ .Values.frontendSvc.service.type | default "ClusterIP" }}
+  type: {{ .Values.frontend.service.type | default "ClusterIP" }}
   selector:
-    app: frontend-svc
+    app: frontend
   ports:
     - protocol: TCP
-      port: {{ .Values.frontendSvc.service.port }}
-      targetPort: {{ .Values.frontendSvc.service.port }}
+      port: {{ .Values.frontend.service.port }}
+      targetPort: {{ .Values.frontend.service.port }}

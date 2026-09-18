@@ -7,7 +7,7 @@ global:
   otlpEndpoint: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
 database:
-  host: ""          # set at deploy time: --set database.host=<RDS endpoint from SSM>
+  host: "" # set at deploy time: --set database.host=<RDS endpoint from SSM>
   port: 5432
   # No shared username here anymore — each service authenticates with its
   # own role (db_user_<svc>/db_password_<svc>, see
@@ -21,15 +21,15 @@ database:
 # (templates/external-secrets.yaml) into the 'catalogix-secrets' K8s Secret.
 secretsManager:
   dbSecretName: "catalogix-cluster-dev/db-credentials"
-  appSecretName: "catalogix-cluster-dev/app-secrets"   # JWT_SECRET + RabbitMQ creds
+  appSecretName: "catalogix-cluster-dev/app-secrets" # JWT_SECRET + RabbitMQ creds
 
 rabbitmq:
-  host: "rabbitmq"        # in-cluster headless Service, see templates/rabbitmq.yaml
+  host: "rabbitmq" # in-cluster headless Service, see templates/rabbitmq.yaml
   port: 5672
-  replicas: 1   # See templates/rabbitmq.yaml header comment: 3-replica clustering only gives real HA on >=3 nodes (each node hosting exactly 1 replica). On a small dev/minikube cluster, 3 replicas often just means multiple replicas stacked on the same node(s), which protects against a POD crashing but not a NODE dying — theater, not real HA. Bump this back to 3 once the node count actually supports it; the clustering code (RBAC, Erlang cookie, quorum queues) stays correct either way.
+  replicas: 1 # See templates/rabbitmq.yaml header comment: 3-replica clustering only gives real HA on >=3 nodes (each node hosting exactly 1 replica). On a small dev/minikube cluster, 3 replicas often just means multiple replicas stacked on the same node(s), which protects against a POD crashing but not a NODE dying — theater, not real HA. Bump this back to 3 once the node count actually supports it; the clustering code (RBAC, Erlang cookie, quorum queues) stays correct either way.
   image: "rabbitmq:4-management-alpine"
   storageClass: "gp3-sc"
-  storageSize: "2Gi"   # per-replica — StatefulSet volumeClaimTemplates provisions one PVC of this size PER pod, so 3 replicas = 3x 2Gi, not one shared 2Gi
+  storageSize: "2Gi" # per-replica — StatefulSet volumeClaimTemplates provisions one PVC of this size PER pod, so 3 replicas = 3x 2Gi, not one shared 2Gi
   resources:
     requests: { cpu: "100m", memory: "256Mi" }
     limits: { cpu: "500m", memory: "512Mi" }
@@ -50,13 +50,12 @@ hpa:
   enabled: true
 
 # One entry per backend service. Every field here is consumed generically by
-# templates/deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
+# templates/backend-deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
 # a 10th service is a new map entry, not a new template.
-services:
-
+backendServices:
   user-svc:
     dbName: catalogix_users
-    image: { repository: "user-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_user-svc", pullPolicy: "IfNotPresent" }
     port: 11001
     replicaCount: 2
     routeToALB: true
@@ -65,7 +64,13 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "500m", memory: "512Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv:
       - name: ALLOWED_ORIGINS
         value: "*"
@@ -86,7 +91,7 @@ services:
       # here — AdminSeeder skips seeding entirely rather than create an
       # admin with an empty password. Supply the real one at deploy time —
       # with this array in its current order, that's:
-      #   helm install ... --set services.user-svc.extraEnv[6].value=<password>
+      #   helm install ... --set backendServices.user-svc.extraEnv[6].value=<password>
       # (index 6 = this entry's position below; re-count if this array's
       # order ever changes). See values-local.yaml for the fully-fixed
       # local equivalent of this same block, which doesn't need --set.
@@ -99,7 +104,7 @@ services:
 
   catalog-svc:
     dbName: catalogix_catalog
-    image: { repository: "catalog-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_catalog-svc", pullPolicy: "IfNotPresent" }
     port: 11002
     replicaCount: 2
     routeToALB: true
@@ -108,7 +113,13 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "500m", memory: "512Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv:
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
@@ -117,7 +128,7 @@ services:
 
   inventory-svc:
     dbName: catalogix_inventory
-    image: { repository: "inventory-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_inventory-svc", pullPolicy: "IfNotPresent" }
     port: 11003
     replicaCount: 2
     # Internal-only, service-to-service — no ALB path, mirrors the gateway's
@@ -126,12 +137,18 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv: []
 
   cart-svc:
     dbName: catalogix_cart
-    image: { repository: "cart-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_cart-svc", pullPolicy: "IfNotPresent" }
     port: 11004
     replicaCount: 2
     routeToALB: true
@@ -140,7 +157,13 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv:
       - name: CATALOG_SVC_URL
         value: "http://catalog-svc:11002"
@@ -151,7 +174,8 @@ services:
 
   promotions-svc:
     dbName: catalogix_promotions
-    image: { repository: "promotions-svc", pullPolicy: "IfNotPresent" }
+    image:
+      { repository: "catalogix_promotions-svc", pullPolicy: "IfNotPresent" }
     port: 11005
     replicaCount: 2
     routeToALB: true
@@ -160,12 +184,18 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv: []
 
   payment-svc:
     dbName: catalogix_payment
-    image: { repository: "payment-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_payment-svc", pullPolicy: "IfNotPresent" }
     port: 11006
     replicaCount: 2
     # Internal-only — checkout-svc is its ONLY caller. No ALB path.
@@ -175,12 +205,18 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv: []
 
   checkout-svc:
     dbName: catalogix_checkout
-    image: { repository: "checkout-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_checkout-svc", pullPolicy: "IfNotPresent" }
     port: 11007
     replicaCount: 2
     routeToALB: true
@@ -188,9 +224,15 @@ services:
       - /orders
       - /admin
     resources:
-      requests: { cpu: "150m", memory: "192Mi" }   # orchestrates 5 downstream calls per checkout — a bit more headroom
+      requests: { cpu: "150m", memory: "192Mi" } # orchestrates 5 downstream calls per checkout — a bit more headroom
       limits: { cpu: "600m", memory: "640Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 70, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 70,
+        memoryUtilization: 75,
+      }
     extraEnv:
       - name: CATALOG_SVC_URL
         value: "http://catalog-svc:11002"
@@ -205,7 +247,8 @@ services:
 
   notification-svc:
     dbName: catalogix_notification
-    image: { repository: "notification-svc", pullPolicy: "IfNotPresent" }
+    image:
+      { repository: "catalogix_notification-svc", pullPolicy: "IfNotPresent" }
     port: 11008
     replicaCount: 2
     # CORRECTED: this was routeToALB: false with the reasoning "pure
@@ -222,7 +265,13 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv:
       - name: MAIL_FROM
         value: "noreply@catalogix.local"
@@ -233,7 +282,7 @@ services:
 
   review-svc:
     dbName: catalogix_reviews
-    image: { repository: "review-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_review-svc", pullPolicy: "IfNotPresent" }
     port: 11009
     replicaCount: 2
     routeToALB: true
@@ -242,12 +291,18 @@ services:
     resources:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 2, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
+    hpa:
+      {
+        minReplicas: 2,
+        maxReplicas: 4,
+        cpuUtilization: 75,
+        memoryUtilization: 75,
+      }
     extraEnv: []
 
 gateway:
   image:
-    repository: "gateway"
+    repository: "catalogix_gateway"
     pullPolicy: "IfNotPresent"
   replicaCount: 2
   service:
@@ -262,14 +317,14 @@ gateway:
     maxReplicas: 4
     cpuUtilization: 75
 
-frontendSvc:
+frontend:
   image:
-    repository: "frontend-svc"
+    repository: "catalogix_frontend"
     pullPolicy: "IfNotPresent"
   replicaCount: 2
   service:
     type: "ClusterIP"
-    port: 80
+    port: 11000
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "256Mi" }

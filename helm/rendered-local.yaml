@@ -23,64 +23,6 @@ metadata:
   name: rabbitmq-sa
   namespace: default
 ---
-# Source: catalogix-hc/templates/local-secrets.yaml
-# Local-cluster equivalent of external-secrets.yaml. Creates the exact same
-# 'catalogix-secrets' Secret with the exact same keys, so every template
-# that reads from it (see _helpers.tpl's commonEnv, and rabbitmq.yaml)
-# works completely unchanged — they have no idea whether ESO or this
-# template created the Secret.
-#
-# Simplification vs. the AWS path: Terraform's db-roles module gives every
-# service its OWN Postgres role (db_user_<svc>/db_password_<svc>, distinct
-# credentials, least-privilege). Reproducing that locally would mean this
-# chart also running SQL (CREATE ROLE + GRANT) at install time — real, but
-# more moving parts than local dev needs. Instead this mirrors
-# docker-compose's model (see postgres-init/01-create-databases.sh's header
-# comment): one shared Postgres role, isolation by database name only. The
-# SAME shared username/password is written under every db_user_<svc> /
-# db_password_<svc> key below, so commonEnv's per-service key lookups still
-# resolve correctly — it just always resolves to the one shared credential.
-#
-# lookup + randAlphaNum, same pattern already used for the RabbitMQ Erlang
-# cookie in rabbitmq.yaml: reuse existing values across `helm upgrade` so
-# a redeploy doesn't rotate every credential out from under a running app
-# (which would orphan the Postgres role's password and JWT-invalidate every
-# live session). Only generates fresh values on first install.
-apiVersion: v1
-kind: Secret
-metadata:
-  name: catalogix-secrets
-  namespace: default
-type: Opaque
-stringData:
-  jwt_secret: "pB3FHRSM3MfE0iFVsF8jaoGUKFeHJhzDYDGEN5oGYau5YoOQ"
-  rabbitmq_user: "catalogix"
-  rabbitmq_password: "FuxV3KP3ZKAQ0D9HPvUY"
-  # One shared role, written under every service's expected key — see the
-  # header comment above.
-  db_user_cart_svc: "catalogix"
-  db_password_cart_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_catalog_svc: "catalogix"
-  db_password_catalog_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_checkout_svc: "catalogix"
-  db_password_checkout_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_inventory_svc: "catalogix"
-  db_password_inventory_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_notification_svc: "catalogix"
-  db_password_notification_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_payment_svc: "catalogix"
-  db_password_payment_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_promotions_svc: "catalogix"
-  db_password_promotions_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_review_svc: "catalogix"
-  db_password_review_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  db_user_user_svc: "catalogix"
-  db_password_user_svc: "aRKGdZ3kAzPLq9TtrDxs"
-  # Also exposed under the plain names postgres-local.yaml's init script
-  # and the Postgres container itself use to create the role.
-  local_db_user: "catalogix"
-  local_db_password: "aRKGdZ3kAzPLq9TtrDxs"
----
 # Source: catalogix-hc/templates/rabbitmq.yaml
 # ─── Erlang cookie — generated once, kept stable across `helm upgrade` via
 # `lookup` (if it already exists, reuse it; only generate fresh on first
@@ -94,7 +36,7 @@ metadata:
   namespace: default
 type: Opaque
 data:
-  cookie: ODc3WlVWNXZWWGFkem83dFFVYmJaa2JjcFAzdG50SUY=
+  cookie: TmE5dUNOaGo0Q3FTR3A3UkpSNVUySUl0cUp0NjVDOU8=
 ---
 # Source: catalogix-hc/templates/secrets-local.yaml
 # Local-cluster equivalent of external-secrets.yaml. Creates the exact same
@@ -126,33 +68,33 @@ metadata:
   namespace: default
 type: Opaque
 stringData:
-  jwt_secret: "VKF5Dm3lsxjAW1Gs67VJAtocEZbh94o6Ksj0FiiSJYS2fjmE"
+  jwt_secret: "QYISfw1tTfUgaFMIjJ29rAEzxQHaEz7wghhesgB938By5lXq"
   rabbitmq_user: "catalogix"
-  rabbitmq_password: "d7GwFxxVhTT0UVtVhVOu"
+  rabbitmq_password: "tkKHKoOC4mdbNoYc3Yox"
   # One shared role, written under every service's expected key — see the
   # header comment above.
   db_user_cart_svc: "catalogix"
-  db_password_cart_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_cart_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_catalog_svc: "catalogix"
-  db_password_catalog_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_catalog_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_checkout_svc: "catalogix"
-  db_password_checkout_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_checkout_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_inventory_svc: "catalogix"
-  db_password_inventory_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_inventory_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_notification_svc: "catalogix"
-  db_password_notification_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_notification_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_payment_svc: "catalogix"
-  db_password_payment_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_payment_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_promotions_svc: "catalogix"
-  db_password_promotions_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_promotions_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_review_svc: "catalogix"
-  db_password_review_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_review_svc: "gpUfEXyW6C8tJcPgGaHE"
   db_user_user_svc: "catalogix"
-  db_password_user_svc: "raHcpqgjRujGFD77DGdi"
+  db_password_user_svc: "gpUfEXyW6C8tJcPgGaHE"
   # Also exposed under the plain names postgres-local.yaml's init script
   # and the Postgres container itself use to create the role.
   local_db_user: "catalogix"
-  local_db_password: "raHcpqgjRujGFD77DGdi"
+  local_db_password: "gpUfEXyW6C8tJcPgGaHE"
 ---
 # Source: catalogix-hc/templates/postgres-local.yaml
 # Local-cluster stand-in for RDS. A single-replica, single-database-instance
@@ -234,14 +176,14 @@ roleRef:
 apiVersion: v1
 kind: Service
 metadata:
-  name: frontend-svc
+  name: frontend
   namespace: default
   labels:
-    app: frontend-svc
+    app: frontend
 spec:
   type: ClusterIP
   selector:
-    app: frontend-svc
+    app: frontend
   ports:
     - protocol: TCP
       port: 80
@@ -458,7 +400,7 @@ spec:
       port: 11001
       targetPort: 11001
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -486,7 +428,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: cart-svc
-          image: "/cart-svc:1.0-0"
+          image: "catalogix_cart-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11004
@@ -512,7 +454,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -576,7 +518,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -604,7 +546,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: catalog-svc
-          image: "/catalog-svc:1.0-0"
+          image: "catalogix_catalog-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11002
@@ -630,7 +572,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -692,7 +634,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -720,7 +662,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: checkout-svc
-          image: "/checkout-svc:1.0-0"
+          image: "catalogix_checkout-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11007
@@ -746,7 +688,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -814,7 +756,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -842,7 +784,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: inventory-svc
-          image: "/inventory-svc:1.0-0"
+          image: "catalogix_inventory-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11003
@@ -868,7 +810,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -926,7 +868,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -954,7 +896,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: notification-svc
-          image: "/notification-svc:1.0-0"
+          image: "catalogix_notification-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11008
@@ -980,7 +922,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -1042,7 +984,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1070,7 +1012,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: payment-svc
-          image: "/payment-svc:1.0-0"
+          image: "catalogix_payment-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11006
@@ -1096,7 +1038,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -1154,7 +1096,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1182,7 +1124,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: promotions-svc
-          image: "/promotions-svc:1.0-0"
+          image: "catalogix_promotions-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11005
@@ -1208,7 +1150,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -1266,7 +1208,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1294,7 +1236,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: review-svc
-          image: "/review-svc:1.0-0"
+          image: "catalogix_review-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11009
@@ -1320,7 +1262,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -1378,7 +1320,7 @@ spec:
         - name: tmp-volume
           emptyDir: {}
 ---
-# Source: catalogix-hc/templates/deployments.yaml
+# Source: catalogix-hc/templates/backend-deployments.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -1406,7 +1348,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: user-svc
-          image: "/user-svc:1.0-0"
+          image: "catalogix_user-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 11001
@@ -1432,7 +1374,7 @@ spec:
             - name: RABBITMQ_HOST
               value: "rabbitmq"
             - name: RABBITMQ_PORT
-              value: "5672"
+              value: "25672"
             - name: RABBITMQ_USER
               valueFrom:
                 secretKeyRef:
@@ -1508,27 +1450,27 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-svc
+  name: frontend
   namespace: default
   labels:
-    app: frontend-svc
+    app: frontend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: frontend-svc
+      app: frontend
   template:
     metadata:
       labels:
-        app: frontend-svc
+        app: frontend
     spec:
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
       containers:
-        - name: frontend-svc
-          image: "/frontend-svc:1.0-0"
+        - name: frontend
+          image: "catalogix_frontend-svc:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -1601,7 +1543,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: gateway
-          image: "/gateway:1.0-0"
+          image: "catalogix_gateway:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -1627,7 +1569,7 @@ spec:
             - name: tmp
               mountPath: /tmp
           # Gateway listens on port 80 (a privileged port) as non-root UID
-          # 1000 — unlike frontend-svc, which listens on 11000 and needs no
+          # 1000 — unlike frontend, which listens on 11000 and needs no
           # extra capability, gateway needs NET_BIND_SERVICE added back or
           # nginx can't bind the port at all and crash-loops. Documented in
           # DEVOPS.md's "NET_BIND_SERVICE on the gateway" section — copying
@@ -1645,7 +1587,7 @@ spec:
                 - NET_BIND_SERVICE
           # Matches the Dockerfile's own HEALTHCHECK exactly (/gateway/health,
           # defined in gateway/nginx.conf) rather than '/' — '/' would proxy
-          # to frontend-svc per nginx.conf's routing and isn't a meaningful
+          # to frontend per nginx.conf's routing and isn't a meaningful
           # gateway-liveness check on its own.
           readinessProbe:
             httpGet:
@@ -1712,8 +1654,8 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        fsGroup: 999
+        runAsUser: 70
+        fsGroup: 70
       containers:
         - name: postgres
           image: "postgres:18-alpine"   # same image/version as docker-compose.yaml, for parity
@@ -1766,7 +1708,7 @@ spec:
         name: postgres-data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: standard
+        storageClassName: hostpath
         resources:
           requests:
             storage: 1Gi
@@ -1914,7 +1856,10 @@ spec:
         name: rabbitmq-data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: standard
+        storageClassName: hostpath
         resources:
           requests:
             storage: 1Gi
+---
+# Source: catalogix-hc/templates/hpa.yaml
+# HPA for gateway

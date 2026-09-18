@@ -34,7 +34,6 @@ class UserPreferenceClientTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void returnsTheRemotePreferenceWhenTheCallSucceeds() {
         var payload = new UserPreferenceClient.PreferencesPayload(false, true);
         when(restTemplate.exchange(
@@ -48,7 +47,6 @@ class UserPreferenceClientTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void failsOpenWhenUserSvcIsUnreachable() {
         when(restTemplate.exchange(
                 any(String.class), eq(HttpMethod.GET), any(HttpEntity.class),

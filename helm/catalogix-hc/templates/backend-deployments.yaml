@@ -1,4 +1,4 @@
-{{- range $name, $svc := .Values.services }}
+{{- range $name, $svc := .Values.backendServices }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,7 +28,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: {{ $name }}
-          image: "{{ $.Values.global.imageRegistry }}/{{ $svc.image.repository }}:{{ $svc.image.tag | default $.Values.global.imageTag }}"
+          image: "{{ if $.Values.global.imageRegistry }}{{ $.Values.global.imageRegistry }}/{{ end }}{{ $svc.image.repository }}:{{ $svc.image.tag | default $.Values.global.imageTag }}"
           imagePullPolicy: {{ $svc.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - containerPort: {{ $svc.port }}

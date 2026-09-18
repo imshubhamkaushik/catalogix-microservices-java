@@ -50,9 +50,9 @@ hpa:
   enabled: true
 
 # One entry per backend service. Every field here is consumed generically by
-# templates/deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
+# templates/backend-deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
 # a 10th service is a new map entry, not a new template.
-services:
+backendServices:
 
   user-svc:
     dbName: catalogix_users
@@ -253,7 +253,7 @@ gateway:
     maxReplicas: 4
     cpuUtilization: 75
 
-frontendSvc:
+frontend:
   image:
     repository: "frontend-svc"
     pullPolicy: "IfNotPresent"
