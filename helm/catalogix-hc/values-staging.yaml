@@ -56,8 +56,9 @@ backendServices:
 
   user-svc:
     dbName: catalogix_users
+    usesRabbitMQ: true   # publishes user.email-verification-requested / user.password-reset-requested
     image: { repository: "user-svc", pullPolicy: "IfNotPresent" }
-    port: 11001
+    port: 11010
     replicaCount: 2
     routeToALB: true
     ingressPaths:
@@ -102,8 +103,14 @@ backendServices:
     extraEnv:
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
+      # REQUIRED — see the same fix's comment in values-dev.yaml.
+      - name: REVIEW_SVC_URL
+        value: "http://review-svc:11009"
       - name: SEED_DATA
         value: "true"
+      # REQUIRED by every service — see values-dev.yaml's comment.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   inventory-svc:
     dbName: catalogix_inventory
@@ -117,7 +124,9 @@ backendServices:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv: []
+    extraEnv:
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   cart-svc:
     dbName: catalogix_cart
@@ -138,6 +147,8 @@ backendServices:
         value: "http://inventory-svc:11003"
       - name: PROMOTIONS_SVC_URL
         value: "http://promotions-svc:11005"
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   promotions-svc:
     dbName: catalogix_promotions
@@ -151,7 +162,9 @@ backendServices:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv: []
+    extraEnv:
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   payment-svc:
     dbName: catalogix_payment
@@ -166,10 +179,13 @@ backendServices:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv: []
+    extraEnv:
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   checkout-svc:
     dbName: catalogix_checkout
+    usesRabbitMQ: true   # publishes order.confirmed / order.cancelled
     image: { repository: "checkout-svc", pullPolicy: "IfNotPresent" }
     port: 11007
     replicaCount: 2
@@ -192,9 +208,14 @@ backendServices:
         value: "http://payment-svc:11006"
       - name: CART_SVC_URL
         value: "http://cart-svc:11004"
+      - name: USER_SVC_URL
+        value: "http://user-svc:11010"
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   notification-svc:
     dbName: catalogix_notification
+    usesRabbitMQ: true   # consumes order.* and user.* events
     image: { repository: "notification-svc", pullPolicy: "IfNotPresent" }
     port: 11008
     replicaCount: 2
@@ -219,7 +240,9 @@ backendServices:
       # MAIL_HOST/MAIL_PORT point at a real SMTP provider in staging/prod;
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
       - name: USER_SVC_URL
-        value: "http://user-svc:11001"
+        value: "http://user-svc:11010"
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   review-svc:
     dbName: catalogix_reviews
@@ -233,7 +256,11 @@ backendServices:
       requests: { cpu: "100m", memory: "128Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv: []
+    extraEnv:
+      - name: CHECKOUT_SVC_URL
+        value: "http://checkout-svc:11007"
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
 
 gateway:
@@ -243,7 +270,7 @@ gateway:
   replicaCount: 2
   service:
     type: "ClusterIP"
-    port: 80
+    port: 11000
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "250m", memory: "128Mi" }
@@ -260,7 +287,7 @@ frontend:
   replicaCount: 2
   service:
     type: "ClusterIP"
-    port: 11000
+    port: 11001
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "256Mi" }

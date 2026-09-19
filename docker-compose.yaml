@@ -167,7 +167,7 @@ services:
       SEED_ADMIN_EMAIL: admin@catalogix.local
       SEED_ADMIN_PASSWORD: Admin@12345
     expose:
-      - "11001"
+      - "11010"
     depends_on:
       postgres:
         condition: service_healthy
@@ -358,7 +358,7 @@ services:
       PROMOTIONS_SVC_URL: http://promotions-svc:11005
       PAYMENT_SVC_URL: http://payment-svc:11006
       CART_SVC_URL: http://cart-svc:11004
-      USER_SVC_URL: http://user-svc:11001
+      USER_SVC_URL: http://user-svc:11010
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
@@ -414,7 +414,7 @@ services:
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-      USER_SVC_URL: http://user-svc:11001
+      USER_SVC_URL: http://user-svc:11010
     expose:
       - "11008"
     depends_on:
@@ -489,11 +489,11 @@ services:
       context: ./frontend
     restart: unless-stopped
     expose:
-      - "11000"
+      - "11001"
     networks: [catalogix]
 
   gateway:
-    # Sole browser-facing host endpoint: localhost:11000 -> gateway:80.
+    # Sole browser-facing host endpoint: localhost:11000 -> gateway:11000.
     mem_limit: 128m
     cpus: 0.1
     image: catalogix_gateway:latest
@@ -501,7 +501,7 @@ services:
       context: ./gateway
     restart: unless-stopped
     ports:
-      - "11000:80"
+      - "11000:11000"
     depends_on:
       user-svc:
         condition: service_started

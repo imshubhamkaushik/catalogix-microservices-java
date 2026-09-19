@@ -17,7 +17,7 @@ and turning order-svc into a proper saga orchestrator.
                                            │
                                   ┌────────▼────────┐
                                   │     gateway     │
-                                  │ nginx :80       │
+                                  │ nginx :11000    │
                                   │ /api routing    │
                                   │ rate limiting   │
                                   └───────┬─────────┘
@@ -27,13 +27,13 @@ and turning order-svc into a proper saga orchestrator.
                     /api/users/*   /api/products/*   /api/orders/* ...
                            │              │              │
                       user-svc       catalog-svc     checkout-svc
-                       :11001          :11002           :11007
+                       :11010          :11002           :11007
 
                                           │
                                   everything else
                                           ▼
                                    frontend-svc
-                                      :11000
+                                      :11001
 
       Gateway routes also include /api/cart, /api/wishlist, /api/coupons,
       /api/notifications, /api/reviews and /api/admin. inventory-svc (:11003)

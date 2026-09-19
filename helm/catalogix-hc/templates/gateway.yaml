@@ -27,7 +27,7 @@ spec:
           imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.gateway.service.port | default 80 }}
+              containerPort: {{ .Values.gateway.service.port | default 11000 }}
           resources: {{ toYaml .Values.gateway.resources | nindent 12 }}
           volumeMounts:
             # gateway/Dockerfile chowns this to UID 1000 at build time and
@@ -42,13 +42,14 @@ spec:
             # that relocation actually work under readOnlyRootFilesystem.
             - name: tmp
               mountPath: /tmp
-          # Gateway listens on port 80 (a privileged port) as non-root UID
-          # 1000 — unlike frontend, which listens on 11000 and needs no
-          # extra capability, gateway needs NET_BIND_SERVICE added back or
-          # nginx can't bind the port at all and crash-loops. Documented in
-          # DEVOPS.md's "NET_BIND_SERVICE on the gateway" section — copying
-          # frontend.yaml's securityContext verbatim here would silently
-          # break this, since frontend correctly needs no addition.
+          # Gateway listens on port 11000 (unprivileged, >1024) as non-root
+          # UID 1000 — same as frontend's 11001, this needs no extra Linux
+          # capability to bind. This used to listen on 80 and require
+          # NET_BIND_SERVICE added back specifically for that; now that it's
+          # on 11000, all capabilities can stay dropped, identical to
+          # frontend.yaml's securityContext. (DEVOPS.md's "NET_BIND_SERVICE
+          # on the gateway" section describes the old port-80 setup — update
+          # that note if you ever move this port again.)
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -57,8 +58,6 @@ spec:
             capabilities:
               drop:
                 - ALL
-              add:
-                - NET_BIND_SERVICE
           # Matches the Dockerfile's own HEALTHCHECK exactly (/gateway/health,
           # defined in gateway/nginx.conf) rather than '/' — '/' would proxy
           # to frontend per nginx.conf's routing and isn't a meaningful

@@ -391,7 +391,7 @@ securityContext:
  
 **`readOnlyRootFilesystem: true` with Spring Boot:** Embedded Tomcat writes to `/tmp` during startup. An `emptyDir` volume is mounted at `/tmp` in every backend Deployment. Without it, the container crashes on startup with a permission error — this was discovered and fixed during testing.
  
-**`NET_BIND_SERVICE` on the gateway:** The gateway Nginx container binds port 80, so it is granted only `NET_BIND_SERVICE`; all other capabilities remain dropped. `frontend-svc` listens on port 11000 as non-root, so it needs no extra capability. Keeping the gateway on 80 and the frontend on 11000 also makes the edge topology explicit: host/ALB → gateway:80 → frontend-svc:11000.
+**Port scheme:** gateway listens on 11000, frontend on 11001, user-svc on 11010 — all unprivileged (>1024) — so every backend and edge container runs with every Linux capability dropped and no additions. (Older versions of this chart ran the gateway on port 80, which — being a privileged port — required adding back `NET_BIND_SERVICE` specifically for that one container; moving it to 11000 let that exception go away entirely.) Edge topology: host/ALB → gateway:11000 → frontend:11001, with `/api/*` fanning out to the backend services on 11002–11010.
  
 **Health probes on all services:**
 - `startupProbe` — `/actuator/health` every 5s, `failureThreshold: 30` (150s total) for JVM startup
@@ -471,7 +471,7 @@ The frontend is a static SPA and no longer depends directly on backend container
 | `rabbitmq` | 5672 (AMQP), 15672 (management UI) | user-svc/checkout-svc publish, notification-svc consumes |
 | `mailpit` | 8025 | Optional (`tools` profile) — dev SMTP catcher |
 | `jaeger` | 16686 | Optional (`tools` profile) — distributed tracing UI |
-| `user-svc` | 11001 | Auth, JWT issuance |
+| `user-svc` | 11010 | Auth, JWT issuance |
 | `catalog-svc` | 11002 | Product catalog |
 | `inventory-svc` | 11003 | Stock levels — internal-only in the cluster, but reachable directly here for local testing |
 | `cart-svc` | 11004 | Shopping cart |
@@ -480,8 +480,8 @@ The frontend is a static SPA and no longer depends directly on backend container
 | `checkout-svc` | 11007 | Saga orchestrator — the compensation outbox admin API (`/admin/outbox`) and returns live here too |
 | `notification-svc` | 11008 | RabbitMQ consumer + admin-only notification log (`/notifications`) |
 | `review-svc` | 11009 | Product reviews |
-| `frontend-svc` | 11000 (internal) | Nginx SPA server; not published to the host |
-| `gateway` | 11000 → 80 | Sole browser-facing entry point; routes `/api/*`, rate-limits requests, and forwards non-API traffic to frontend-svc; also sits behind the AWS ALB in EKS |
+| `frontend-svc` | 11001 (internal) | Nginx SPA server; not published to the host |
+| `gateway` | 11000 | Sole browser-facing entry point; routes `/api/*`, rate-limits requests, and forwards non-API traffic to frontend-svc; also sits behind the AWS ALB in EKS |
 
 `condition: service_healthy` on the gateway's `frontend-svc` dependency prevents the gateway from advertising the application edge before the SPA server is ready; backend dependencies are only started before the gateway attempts to route to them.
 

@@ -14,7 +14,7 @@ WORKDIR /app
 
 # Copy only the JAR from build stage
 COPY --from=build /app/user-svc/target/user-svc.jar user-svc.jar
-EXPOSE 11001
+EXPOSE 11010
 
 # Run the JAR
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:InitialRAMPercentage=50", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/user-svc.jar"]

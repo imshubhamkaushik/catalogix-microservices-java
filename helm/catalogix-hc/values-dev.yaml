@@ -55,8 +55,9 @@ hpa:
 backendServices:
   user-svc:
     dbName: catalogix_users
+    usesRabbitMQ: true   # publishes user.email-verification-requested / user.password-reset-requested
     image: { repository: "catalogix_user-svc", pullPolicy: "IfNotPresent" }
-    port: 11001
+    port: 11010
     replicaCount: 2
     routeToALB: true
     ingressPaths:
@@ -123,8 +124,23 @@ backendServices:
     extraEnv:
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
+      # REQUIRED — ReviewClient's constructor does
+      # @Value("${REVIEW_SVC_URL}") with no default, and the properties
+      # file declares REVIEW_SVC_URL=${REVIEW_SVC_URL} with no fallback
+      # either. Without this, Spring fails to resolve the placeholder
+      # while building ReviewClient and the ApplicationContext never
+      # comes up — catalog-svc crash-loops on every start.
+      - name: REVIEW_SVC_URL
+        value: "http://review-svc:11009"
       - name: SEED_DATA
         value: "true"
+      # REQUIRED by every service — see CorsConfig in security-common,
+      # which every backendService here scans in via scanBasePackages.
+      # @Value("${ALLOWED_ORIGINS}") has no default, so a service missing
+      # this env var fails ApplicationContext startup entirely and
+      # crash-loops. "*" mirrors docker-compose's dev-only setting.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   inventory-svc:
     dbName: catalogix_inventory
@@ -144,7 +160,11 @@ backendServices:
         cpuUtilization: 75,
         memoryUtilization: 75,
       }
-    extraEnv: []
+    extraEnv:
+      # REQUIRED — see catalog-svc's comment above; CorsConfig in
+      # security-common needs this on every service or the app crash-loops.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   cart-svc:
     dbName: catalogix_cart
@@ -171,6 +191,9 @@ backendServices:
         value: "http://inventory-svc:11003"
       - name: PROMOTIONS_SVC_URL
         value: "http://promotions-svc:11005"
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   promotions-svc:
     dbName: catalogix_promotions
@@ -191,7 +214,10 @@ backendServices:
         cpuUtilization: 75,
         memoryUtilization: 75,
       }
-    extraEnv: []
+    extraEnv:
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   payment-svc:
     dbName: catalogix_payment
@@ -212,10 +238,14 @@ backendServices:
         cpuUtilization: 75,
         memoryUtilization: 75,
       }
-    extraEnv: []
+    extraEnv:
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   checkout-svc:
     dbName: catalogix_checkout
+    usesRabbitMQ: true   # publishes order.confirmed / order.cancelled
     image: { repository: "catalogix_checkout-svc", pullPolicy: "IfNotPresent" }
     port: 11007
     replicaCount: 2
@@ -244,9 +274,20 @@ backendServices:
         value: "http://payment-svc:11006"
       - name: CART_SVC_URL
         value: "http://cart-svc:11004"
+      # AddressClient's @Value("${USER_SVC_URL}") has a localhost fallback
+      # in application.properties, so this omission didn't crash the pod —
+      # but without it, checkout-svc silently tries http://localhost:11010
+      # in-cluster (itself, wrong port) instead of the real user-svc,
+      # breaking address lookups during checkout at runtime.
+      - name: USER_SVC_URL
+        value: "http://user-svc:11010"
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   notification-svc:
     dbName: catalogix_notification
+    usesRabbitMQ: true   # consumes order.* and user.* events
     image:
       { repository: "catalogix_notification-svc", pullPolicy: "IfNotPresent" }
     port: 11008
@@ -278,7 +319,10 @@ backendServices:
       # MAIL_HOST/MAIL_PORT point at a real SMTP provider in staging/prod;
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
       - name: USER_SVC_URL
-        value: "http://user-svc:11001"
+        value: "http://user-svc:11010"
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
   review-svc:
     dbName: catalogix_reviews
@@ -298,7 +342,16 @@ backendServices:
         cpuUtilization: 75,
         memoryUtilization: 75,
       }
-    extraEnv: []
+    extraEnv:
+      # REQUIRED — OrderClient's @Value("${CHECKOUT_SVC_URL}") has no
+      # default and the properties file declares it the same way — without
+      # this, review-svc's ApplicationContext fails to start and it
+      # crash-loops, exactly like catalog-svc's missing REVIEW_SVC_URL.
+      - name: CHECKOUT_SVC_URL
+        value: "http://checkout-svc:11007"
+      # REQUIRED — see catalog-svc's comment above.
+      - name: ALLOWED_ORIGINS
+        value: "*"
 
 gateway:
   image:
@@ -307,7 +360,7 @@ gateway:
   replicaCount: 2
   service:
     type: "ClusterIP"
-    port: 80
+    port: 11000
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "250m", memory: "128Mi" }
@@ -324,7 +377,7 @@ frontend:
   replicaCount: 2
   service:
     type: "ClusterIP"
-    port: 11000
+    port: 11001
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "256Mi" }

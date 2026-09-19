@@ -22,6 +22,7 @@ spec:
         prometheus.io/path: "/actuator/prometheus"
         prometheus.io/port: "{{ $svc.port }}"
     spec:
+      {{- include "catalogix.waitForDeps" (dict "svc" $svc "root" $) | nindent 6 }}
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000

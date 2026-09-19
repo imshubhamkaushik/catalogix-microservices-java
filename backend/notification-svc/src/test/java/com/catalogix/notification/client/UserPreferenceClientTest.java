@@ -24,7 +24,7 @@ class UserPreferenceClientTest {
 
     private UserPreferenceClient client;
 
-    private static final String USER_SVC_URL = "http://user-svc:11001";
+    private static final String USER_SVC_URL = "http://user-svc:11010";
 
     @BeforeEach
     void setUp() {

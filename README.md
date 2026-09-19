@@ -16,7 +16,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
 
 ```
                          ┌──────────────┐
- browser ──────────────▶│ gateway :80  │  nginx routing + rate limiting
+ browser ──────────────▶│ gateway :11000│  nginx routing + rate limiting
                          └──────┬───────┘
                                 │
                     ┌───────────┴───────────┐
@@ -25,10 +25,10 @@ A small microservices-based product catalogue: register, log in, browse/manage p
                     │                       │
                     ▼                       ▼
              backend services         frontend-svc
-             11001–11009            nginx :11000
+             11002–11010            nginx :11001
 
- Local host entry point: http://localhost:11000 → gateway:80.
- AWS: ALB → gateway:80 → frontend/backend services.
+ Local host entry point: http://localhost:11000 → gateway:11000.
+ AWS: ALB → gateway:11000 → frontend/backend services.
 ```
 
 - **user-svc** — registration, login, access+refresh tokens, password reset, email verification, profile editing, admin user directory
@@ -38,7 +38,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
 - **frontend-svc** — React (Vite) SPA, served as static files by nginx
 - **gateway** — nginx application gateway + rate limiting; the single browser entry point in both local Compose and EKS (behind the AWS ALB)
 
-Current backend services use ports **11001–11009** in the order documented in [ARCHITECTURE.md](./ARCHITECTURE.md); `frontend-svc` listens on **11000** internally, and the browser-facing gateway is **localhost:11000** locally (gateway container port 80).
+Current backend services use ports **11002–11009**, plus **user-svc on 11010** (moved off 11001 once the gateway took that range's low end) — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the full per-service map; `frontend-svc` listens on **11001** internally, and the browser-facing gateway is **localhost:11000** locally (gateway container port 11000 — no longer a privileged port, so the container no longer needs `NET_BIND_SERVICE`).
 
 Each backend service exposes interactive API docs at `/swagger-ui.html` when reached through its own service endpoint. In local Compose, backend ports are internal to the Docker network, so direct browser access to a service requires temporarily publishing that service for debugging rather than relying on the gateway.
 

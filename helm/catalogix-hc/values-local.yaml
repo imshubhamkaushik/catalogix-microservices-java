@@ -23,10 +23,12 @@
 #     'catalogix-secrets' K8s Secret directly, generated on first install
 #     and kept stable across `helm upgrade` (same pattern the chart already
 #     uses for the RabbitMQ Erlang cookie).
-#   - No ALB / WAF / TLS: ingress disabled entirely. Reach the app with:
-#       kubectl port-forward -n catalogix svc/gateway 11000:80
-#     then open http://localhost:11000 — same port your local docker-compose
-#     setup already uses.
+#   - No ALB / WAF / TLS: ingress disabled entirely. gateway.service.type
+#     below is LoadBalancer instead — Docker Desktop's Kubernetes binds that
+#     straight to localhost with no port-forward process needed to keep
+#     running. Open http://localhost:11000 — same port your local
+#     docker-compose setup already uses, and now also what the gateway
+#     container itself listens on (see gateway/nginx.conf's "listen 11000").
 #   - No autoscaling: HPA off, every service pinned to 1 replica. This is
 #     the main thing that makes footprint "fit" a laptop — 9 backend
 #     backend services + gateway + frontend + rabbitmq + postgres at 2 replicas
@@ -154,6 +156,22 @@ gateway:
   image:
       repository: "catalogix_gateway"
       tag: "latest"
+  service:
+    # Docker Desktop's Kubernetes gives a Service of type LoadBalancer an
+    # EXTERNAL-IP of "localhost" automatically and binds it on the host —
+    # no `kubectl port-forward` process needs to stay running, and it
+    # survives terminal closes/reboots of the process (the cluster itself
+    # still needs to be up). Gateway now listens on 11000 natively (an
+    # unprivileged port — see gateway.yaml's securityContext, which no
+    # longer needs NET_BIND_SERVICE for this reason), so .service.port
+    # from values-dev.yaml (11000) is exposed on localhost as-is; no
+    # separate externalPort override needed.
+    # NOTE: on kind/minikube this type doesn't bind to localhost the same
+    # way — kind needs extraPortMappings set at cluster-creation time, and
+    # minikube needs `minikube tunnel` running in the background to
+    # populate an EXTERNAL-IP at all. Docker Desktop is the only one of
+    # the three where this "just works" with zero extra setup.
+    type: "LoadBalancer"
 
 frontend:
   replicaCount: 1
