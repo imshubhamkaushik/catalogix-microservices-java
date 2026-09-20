@@ -288,8 +288,7 @@ backendServices:
   notification-svc:
     dbName: catalogix_notification
     usesRabbitMQ: true   # consumes order.* and user.* events
-    image:
-      { repository: "catalogix_notification-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix_notification-svc", pullPolicy: "IfNotPresent" }
     port: 11008
     replicaCount: 2
     # CORRECTED: this was routeToALB: false with the reasoning "pure

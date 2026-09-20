@@ -176,6 +176,10 @@ resource "aws_iam_role_policy_attachment" "jenkins_asg" {
 }
 
 # Custom policy for Jenkins to manage EKS and ECR
+# Was missing entirely — needed to scope ECR resource ARNs below to this
+# account instead of leaving them as bare "*".
+data "aws_caller_identity" "current" {}
+
 resource "aws_iam_policy" "jenkins_eks_ecr" {
   name        = "${var.project_name}-jenkins-eks-ecr-policy"
   description = "EKS cluster management and ECR push/pull for Jenkins"
@@ -256,7 +260,6 @@ resource "aws_iam_policy" "jenkins_eks_ecr" {
           "ecr:CompleteLayerUpload",
           "ecr:PutImage",
           "ecr:DescribeRepositories",
-          "ecr:CreateRepository",
           "ecr:DeleteRepository",
           "ecr:ListImages",
           "ecr:DescribeImages",
@@ -266,6 +269,25 @@ resource "aws_iam_policy" "jenkins_eks_ecr" {
           "ecr:TagResource",
           "ecr:ListTagsForResource"
         ]
+        # Was bare "*" — every one of these actions supports a
+        # repository-level resource ARN. Scoped to account+region rather
+        # than an explicit list of repo names (user-svc, catalog-svc, ...)
+        # to avoid coupling this bootstrap-layer policy to platform-infra's
+        # ecr module repo list — this still meaningfully narrows the grant
+        # (this account/region's ECR only, not any account Jenkins' AWS
+        # credentials could theoretically reach) without that coupling.
+        Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/*"
+      },
+      {
+        # ecr:CreateRepository is one of the few ECR actions that does NOT
+        # support resource-level permissions at all (the repository doesn't
+        # exist yet at authorization time) — AWS requires Resource = "*"
+        # for it specifically. Kept as its own statement so the properly
+        # scoped grant above doesn't get diluted back down to "*" just to
+        # accommodate this one action.
+        Sid      = "ECRRepoCreate"
+        Effect   = "Allow"
+        Action   = ["ecr:CreateRepository"]
         Resource = "*"
       }
     ]
@@ -288,6 +310,18 @@ resource "aws_iam_policy" "jenkins_kms" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Unlike ECR above, this one is a genuinely harder case, not a gap
+        # left unaddressed: kms:CreateKey can't be scoped (the key doesn't
+        # exist yet), and this bootstrap-layer policy is applied BEFORE
+        # platform-infra ever creates aws_kms_key.eks — so there's no key
+        # ARN or alias to reference here even for the actions that DO
+        # support resource-level ARNs (DescribeKey, ScheduleKeyDeletion,
+        # etc.). Properly narrowing this needs either restructuring so IAM
+        # is applied after the key exists (a bigger dependency-ordering
+        # change across bootstrap-infra/platform-infra), or a
+        # `kms:ResourceAliases`/tag-based Condition scoped to this
+        # project's naming convention instead of a Resource ARN. Left as
+        # "*" deliberately rather than a false sense of narrowing.
         Sid    = "KMSKeyManagement"
         Effect = "Allow"
         Action = [

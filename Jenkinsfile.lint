@@ -122,6 +122,36 @@ pipeline {
             }
         }
 
+        // Was missing entirely. `helm lint` only checks the chart's own
+        // structure (required fields, template syntax) — it does NOT
+        // catch a rendered manifest that's syntactically valid Helm but
+        // semantically invalid Kubernetes: a typo'd field name Kubernetes
+        // silently ignores, a wrong apiVersion, an enum value the API
+        // server would reject. `helm template` renders exactly what
+        // `helm upgrade --install` would submit to the cluster; piping
+        // that through kubeconform validates it against the real
+        // Kubernetes OpenAPI schema before it ever reaches a live
+        // cluster, local or EKS. -strict rejects unknown fields too
+        // (catches the typo'd-field case an unstrict check would miss).
+        // NOT verified locally — same caveat as Helm Lint above.
+        stage('Helm Rendered-Manifest Validation') {
+            steps {
+                sh '''
+                set -e
+                for values in values-dev.yaml values-staging.yaml; do
+                    echo "=== kubeconform: helm/catalogix-hc (${values}) ==="
+                    helm template helm/catalogix-hc --values helm/catalogix-hc/${values} \\
+                        | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 \\
+                            -strict -summary
+                done
+                echo "=== kubeconform: helm/monitoring ==="
+                helm template helm/monitoring \\
+                    | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 \\
+                        -strict -summary
+                '''
+            }
+        }
+
         // ── Shell scripts ────────────────────────────────────────────────────
         //
         // create-key-pair.sh lives at scripts/bash/create-key-pair.sh, not

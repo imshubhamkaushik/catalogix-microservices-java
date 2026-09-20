@@ -14,6 +14,13 @@ plugins:
   # SCM
   - artifactId: git
   - artifactId: github
+  # Needed for the 'lint-pr' multibranch job (jcasc.yaml) — PR discovery
+  # traits (pullRequestDiscoveryTrait) and the github{} branch source type
+  # both come from this plugin, not the plain 'github' one above (which
+  # only provides githubPush() and commit-status notifications, no PR
+  # discovery at all).
+  - artifactId: github-branch-source
+  - artifactId: workflow-multibranch
 
   # JOB DSL
   - artifactId: job-dsl

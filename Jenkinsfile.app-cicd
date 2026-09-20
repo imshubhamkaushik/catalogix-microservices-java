@@ -44,8 +44,17 @@ pipeline {
         // AWS
         AWS_REGION = "ap-south-1"
 
-        // Cluster Name
-        CLUSTER_NAME = "catalogix-cluster-${params.ENV}"
+        // Cluster Name — must match Terraform's local.env_prefix exactly
+        // ("${var.cluster_name}-${var.environment}", i.e. "catalogix-dev" /
+        // "catalogix-staging" — see terraform/platform-infra/env/*/main.tf).
+        // This previously read "catalogix-cluster-${params.ENV}", which
+        // never matched any real EKS cluster name Terraform actually
+        // creates in either environment — every SSM parameter lookup
+        // below (SSM_RDS_PATH, SSM_WAF_PATH) and ensureKubernetesAccess()
+        // itself would have failed on every single run, in both dev and
+        // staging, from a completely fresh checkout with no prior history
+        // of ever having worked.
+        CLUSTER_NAME = "catalogix-${params.ENV}"
 
         // Image tags
         MAJOR_VERSION = "2.0"
@@ -191,24 +200,33 @@ pipeline {
                         def changed = getChangedServices(BACKEND_SERVICES, [prefix: 'backend/'])
                         env.CHANGED_BACKEND = changed.join(',')
                     }
-                    echo "Services to test this run: ${env.CHANGED_BACKEND ?: '(none — no backend changes detected)'}"
 
                     // A change to the shared security-common module affects
-                    // every backend service that depends on it, even if that
-                    // service's own directory shows no diff — treat all of
-                    // them as changed for BUILD purposes (not for the test
-                    // stage above, which only needs to re-run tests for
-                    // services whose own behavior might have changed).
+                    // every backend service that depends on it — including
+                    // their actual runtime behavior, not just whether they
+                    // need rebuilding. A previous version of this stage
+                    // only forced a rebuild here and deliberately left the
+                    // test stage scoped to services with their own file
+                    // changes, reasoning that security-common "doesn't
+                    // change a service's own behavior" — that's backwards:
+                    // it's a shared dependency precisely because every one
+                    // of these services' actual behavior (JWT validation,
+                    // CORS, rate limiting) comes from it. A broken
+                    // security-common change with no corresponding
+                    // per-service file change would previously pass CI
+                    // with zero test coverage on any of the 9 services it
+                    // actually affects.
                     def securityCommonChanged = getChangedServices(
                         ['security-common'], [prefix: 'backend/']
                     ).contains('security-common')
                     if (securityCommonChanged) {
-                        echo "backend/security-common changed — every backend service will be rebuilt this run."
+                        echo "backend/security-common changed — every backend service will be tested AND rebuilt this run."
+                        env.CHANGED_BACKEND = BACKEND_SERVICES.join(',')
                     }
 
-                    def changedBackendForBuild = securityCommonChanged
-                        ? BACKEND_SERVICES
-                        : (env.CHANGED_BACKEND ? env.CHANGED_BACKEND.split(',') as List : [])
+                    echo "Services to test this run: ${env.CHANGED_BACKEND ?: '(none — no backend changes detected)'}"
+
+                    def changedBackendForBuild = env.CHANGED_BACKEND ? env.CHANGED_BACKEND.split(',') as List : []
 
                     def frontendChanged = getChangedServices(
                         ['frontend'], [prefix: '']
@@ -314,6 +332,36 @@ pipeline {
             }
         }
 
+        // Was entirely missing: every stage below that runs Maven per
+        // service (`dir("backend/${svc}") { sh "mvn ... -f ${svc}/pom.xml"
+        // }`) resolves security-common as an ordinary Maven dependency
+        // from ${MAVEN_CACHE} — it does NOT build it as part of a reactor
+        // multi-module build. On a clean cache (a fresh agent, or after
+        // CLEAR_MAVEN_CACHE), every single per-service test/build below
+        // would fail immediately with "could not resolve dependency:
+        // com.catalogix:security-common". On a warm cache, it's worse and
+        // quieter: those stages would keep using whatever security-common
+        // jar happened to already be cached, silently testing every
+        // service against a STALE security-common build even when this
+        // run's Detect Changed Services stage just determined
+        // security-common changed. This stage makes the actual dependency
+        // order explicit and guarantees every later Maven invocation sees
+        // this run's security-common code, matching what a real reactor
+        // build (`mvn -pl security-common,user-svc,... -am`) would give
+        // you for free — done this way instead only because the
+        // per-service parallel `dir(...)` stages below need independent
+        // working directories, which a single multi-module reactor
+        // invocation doesn't fit as cleanly into.
+        stage('Install Shared Modules (security-common)') {
+            steps {
+                sh """
+                set -e
+                mvn -B -N install -Dmaven.repo.local=${MAVEN_CACHE}
+                mvn -B -f backend/security-common/pom.xml clean install -DskipTests -Dmaven.repo.local=${MAVEN_CACHE}
+                """
+            }
+        }
+
         // Only iterates over CHANGED_BACKEND (or all, with FORCE_ALL_TESTS/first
         // build) — this is the stage change-detection actually saves time on.
         stage('Unit & Integration Tests (Backend)') {
@@ -345,7 +393,9 @@ pipeline {
                             if (svc == 'frontend') {
                                 dir('frontend') {
                                     sh """
+                                    set -e
                                     npm ci --cache ${NPM_CACHE}
+                                    npm test
                                     npm run build
                                     """
                                 }
@@ -612,6 +662,41 @@ pipeline {
                 """
             }
         }
+        
+        //Runs OWASP ZAP's baseline scan (passive only — spiders the app and checks
+        // responses for missing security headers, verbose error pages,
+        // etc.; sends no attack payloads, so it's safe to run against a
+        // real environment on every deploy) against the just-deployed
+        // ALB. -I: don't fail the build on ZAP's own findings yet — this
+        // is a new stage with no established baseline, and flipping it
+        // straight to a hard gate would likely fail on pre-existing
+        // findings unrelated to this change. Drop -I once zap.conf below
+        // has been tuned against a real run's output and the remaining
+        // findings are genuinely worth blocking a deploy over.
+        stage('DAST Scan — OWASP ZAP Baseline') {
+            steps {
+                sh """
+                set -e
+
+                ALB_HOST=\$(kubectl get ingress catalogix-gateway-ingress -n ${K8S_NAMESPACE} \\
+                    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+                if [ -z "\$ALB_HOST" ]; then
+                    echo "WARNING: ALB hostname not available — skipping ZAP scan."
+                else
+                    mkdir -p zap-report
+                    docker run --rm \\
+                        -v \$(pwd)/zap-report:/zap/wrk:rw \\
+                        -t zaproxy/zap-stable:2.16.1 \\
+                        zap-baseline.py \\
+                        -t "http://\$ALB_HOST/" \\
+                        -r zap-baseline-report.html \\
+                        -I
+                fi
+                """
+                archiveArtifacts artifacts: 'zap-report/*.html', allowEmptyArchive: true
+            }
+        }
     }
 
     post {
@@ -646,8 +731,31 @@ pipeline {
             if [ -z "\$SUPERSEDED_COUNT" ] || [ "\$SUPERSEDED_COUNT" = "0" ]; then
                 echo "No previously deployed revision found — skipping rollback."
             else
-                echo "Found \$SUPERSEDED_COUNT superseded revision(s) — rolling back to the previous one ..."
-                if ! helm rollback catalogix --namespace ${K8S_NAMESPACE}; then
+                # `helm rollback catalogix` with no revision number targets
+                # current_revision - 1 — NOT "the last release that actually
+                # worked". The retry loop above calls `helm upgrade --install`
+                # up to 3 times, and Helm records a new revision on every
+                # call whether it succeeds or fails. After a 2nd or 3rd
+                # failed retry, current - 1 is another FAILED attempt from
+                # this same run, not the last known-good deployment — a bare
+                # `helm rollback` here could "roll back" straight into an
+                # equally broken revision. Explicitly resolve the highest
+                # revision number still marked "superseded" (the actual
+                # last-good release, which is what SUPERSEDED_COUNT above
+                # was already checking for) and target it by number instead
+                # of relying on rollback's implicit "previous" default.
+                LAST_GOOD_REVISION=\$(helm history catalogix \\
+                    --namespace ${K8S_NAMESPACE} \\
+                    --output json 2>/dev/null \\
+                    | jq -r '[.[] | select(.status=="superseded")] | max_by(.revision) | .revision')
+
+                if [ -z "\$LAST_GOOD_REVISION" ] || [ "\$LAST_GOOD_REVISION" = "null" ]; then
+                    echo "Could not resolve a specific last-good revision number despite \$SUPERSEDED_COUNT superseded entries — refusing to guess. Manual rollback required: 'helm rollback catalogix <revision> -n ${K8S_NAMESPACE}'."
+                    exit 1
+                fi
+
+                echo "Found \$SUPERSEDED_COUNT superseded revision(s) — rolling back to revision \$LAST_GOOD_REVISION ..."
+                if ! helm rollback catalogix \$LAST_GOOD_REVISION --namespace ${K8S_NAMESPACE}; then
                     echo "========================================================="
                     echo "  ROLLBACK FAILED — manual intervention required"
                     echo "  Cluster may be in a partially broken state."
@@ -658,7 +766,7 @@ pipeline {
                     kubectl get pods -n ${K8S_NAMESPACE} -o wide || true
                     exit 1
                 fi
-                echo "Rollback to previous release successful."
+                echo "Rollback to revision \$LAST_GOOD_REVISION successful."
             fi
             """
         }

@@ -155,9 +155,9 @@ data "aws_eks_cluster" "this" {
 module "ecr" {
   source = "../../modules/ecr"
   repositories = [
-    "user-svc", "catalog-svc", "inventory-svc", "cart-svc", "promotions-svc",
-    "payment-svc", "checkout-svc", "notification-svc", "review-svc",
-    "frontend-svc", "gateway"
+    "catalogix_user-svc", "catalogix_catalog-svc", "catalogix_inventory-svc", "catalogix_cart-svc", "catalogix_promotions-svc",
+    "catalogix_payment-svc", "catalogix_checkout-svc", "catalogix_notification-svc", "catalogix_review-svc",
+    "catalogix_frontend", "catalogix_gateway"
   ]
 }
 

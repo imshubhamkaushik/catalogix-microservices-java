@@ -282,7 +282,7 @@ gateway:
 
 frontend:
   image:
-    repository: "frontend-svc"
+    repository: "frontend"
     pullPolicy: "IfNotPresent"
   replicaCount: 2
   service:

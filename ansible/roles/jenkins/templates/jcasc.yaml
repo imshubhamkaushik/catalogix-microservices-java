@@ -135,9 +135,18 @@ jobs:
   # Was previously a draft with no job wired to run it at all — same
   # githubPush() trigger pattern as app-cicd above, per that file's own
   # activation instructions.
+  #
+  # IMPORTANT — this job alone is NOT a PR gate: branches('*/main') plus
+  # githubPush() means it only ever builds main's own content, AFTER a
+  # push (which for a protected branch means after a PR already merged).
+  # By the time this can catch anything, the bad code is already on main.
+  # 'lint-pr' below is the job that actually blocks a bad PR before merge —
+  # this one stays as a belt-and-suspenders check that main itself is
+  # always clean (catches things like a direct push bypassing PR review,
+  # or a PR merged before 'lint-pr' was wired up).
   - script: >
       pipelineJob('lint') {
-        description('Static checks - Terraform, Ansible, and other repo-wide lint/format gates')
+        description('Static checks - Terraform, Ansible, and other repo-wide lint/format gates. Runs AFTER merge to main — see lint-pr for the actual PR gate.')
         triggers {
           githubPush()
         }
@@ -153,6 +162,54 @@ jobs:
               }
             }
             scriptPath('Jenkinsfile.lint')
+          }
+        }
+      }
+
+  # The actual PR gate. A multibranch job (not a plain pipelineJob, unlike
+  # everything else in this file) with GitHub pull-request discovery —
+  # Jenkins auto-creates and builds a sub-job per open PR, running
+  # Jenkinsfile.lint against the PR merged with its target branch
+  # (strategyId(1)), not just the PR branch in isolation, so this actually
+  # tests what main would look like after merging. Requires the
+  # github-branch-source plugin (added to plugins.yaml) — the plain
+  # 'github' plugin the other jobs use has no PR discovery capability at
+  # all. Wire this job's name into GitHub branch protection as a required
+  # status check on main (Settings → Branches → Branch protection rules →
+  # require status checks to pass) — Jenkins running this costs nothing on
+  # its own; GitHub still has to be told to block merging on its failure.
+  # NOT verified against a live Jenkins instance — same caveat as the
+  # Terraform/Helm stages Jenkinsfile.lint's own header already flags;
+  # confirm PR builds actually trigger and report a check back to GitHub
+  # before relying on this as a hard gate.
+  - script: >
+      multibranchPipelineJob('lint-pr') {
+        description('Runs Jenkinsfile.lint against every open pull request, merged with its target branch, BEFORE merge — the actual PR gate. See the lint job above for the post-merge belt-and-suspenders check.')
+        branchSources {
+          branchSource {
+            source {
+              github {
+                id('catalogix-lint-pr')
+                repoOwner('${GITHUB_REPO_OWNER}')
+                repository('${GITHUB_REPO_NAME}')
+                credentialsId('github-token')
+                traits {
+                  pullRequestDiscoveryTrait {
+                    strategyId(1)
+                  }
+                }
+              }
+            }
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile.lint')
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(20)
           }
         }
       }

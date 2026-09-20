@@ -162,6 +162,19 @@ module "alb" {
   depends_on = [module.eks, module.sg]
 }
 
+# Was entirely missing from this file. Without it, staging's ALB Ingress
+# (helm/catalogix-hc/templates/ingress-alb.yaml) has no WAF ACL to
+# associate — matches env/dev/main.tf's module "waf" exactly.
+module "waf" {
+  source = "../../modules/waf"
+
+  name               = local.env_prefix
+  region             = var.aws_region
+  ssm_parameter_path = "/${local.env_prefix}/waf-acl-arn"
+
+  depends_on = [module.alb]
+}
+
 # RDS
 # Staging uses the same instance class as dev (db.t4g.micro) to keep cost down.
 # backup_retention_period = 1 unlike dev (0) — staging should catch data-loss bugs.
@@ -258,6 +271,7 @@ module "eso" {
   providers = {
     kubernetes = kubernetes.after_eks
     helm       = helm.after_eks
+    kubectl    = kubectl.after_eks
   }
 
   depends_on = [module.eks, module.alb, module.sg]
@@ -302,4 +316,67 @@ resource "kubernetes_storage_class_v1" "gp3" {
   }
 
   depends_on = [module.eks, module.alb, module.sg]
+}
+
+# Was entirely missing from this file. Without this, the AWS Load Balancer
+# Controller is never installed into the staging cluster at all — the
+# Ingress resource (ingress-alb.yaml) would sit there permanently with no
+# controller to reconcile it into a real ALB. Matches env/dev/main.tf's
+# helm_release "alb_controller" exactly.
+resource "helm_release" "alb_controller" {
+  provider   = helm.after_eks
+  name       = "aws-load-balancer-controller"
+  namespace  = "kube-system"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  version    = "1.11.0"
+
+  wait    = true
+  timeout = 300
+
+  values = [
+    yamlencode({
+      clusterName = module.eks.cluster_name
+      region      = var.aws_region
+      vpcId       = local.vpc_id
+      serviceAccount = {
+        create = true
+        name   = "aws-load-balancer-controller"
+        annotations = {
+          "eks.amazonaws.com/role-arn" = module.alb.alb_role_arn
+        }
+      }
+    })
+  ]
+
+  depends_on = [module.eks, module.alb]
+}
+
+# Was entirely missing from this file. Without this ConfigMap, EKS worker
+# nodes have no IAM-role-to-Kubernetes-identity mapping and can never join
+# the staging cluster at all — the node group would launch EC2 instances
+# that sit indefinitely in NotReady, and nothing in this environment would
+# ever actually become schedulable. Matches env/dev/main.tf's
+# kubectl_manifest "aws_auth" exactly.
+resource "kubectl_manifest" "aws_auth" {
+  provider = kubectl.after_eks
+
+  yaml_body = <<-YAML
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+data:
+  mapRoles: |
+    - rolearn: ${module.eks.node_role_arn}
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+YAML
+
+  force_conflicts = true
+
+  depends_on = [module.eks]
 }

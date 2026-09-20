@@ -18,6 +18,15 @@ SONARQUBE_HOST="{{ hostvars[groups['sonarqube'][0]]['private_ip_address'] | defa
 # Source control
 GIT_REPO_URL="{{ git_repo_url }}"
 GITHUB_TOKEN="{{ vault_github_token }}"
+# Derived from git_repo_url rather than a separate variable — one source of
+# truth. Used by jcasc.yaml's 'lint-pr' multibranch job, which needs
+# repoOwner/repository as separate fields (a github{} branch source, unlike
+# the plain git{} SCM used by the other jobs, doesn't accept a bare clone
+# URL). Assumes the standard https://github.com/<owner>/<repo>.git shape —
+# re-derive by hand here if git_repo_url ever points somewhere else (an
+# SSH remote, a GitHub Enterprise host, etc).
+GITHUB_REPO_OWNER="{{ git_repo_url.split('/')[-2] }}"
+GITHUB_REPO_NAME="{{ git_repo_url.split('/')[-1] | replace('.git', '') }}"
 
 # SonarQube token
 SONARQUBE_TOKEN="{{ vault_sonar_token }}"

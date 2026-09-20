@@ -114,12 +114,6 @@ services:
       - "16686:16686" # UI
     networks: [catalogix]
 
-  sec-shared:
-    image: catalogix_sec-shared:1.0
-    build:
-      context: .
-      dockerfile: backend/Dockerfile.sec-shared
-
   user-svc:
     mem_limit: 512m
     cpus: 0.325
@@ -127,8 +121,6 @@ services:
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_users
@@ -185,8 +177,6 @@ services:
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_catalog
@@ -228,8 +218,6 @@ services:
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_inventory
@@ -256,8 +244,6 @@ services:
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_cart
@@ -287,8 +273,6 @@ services:
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_promotions
@@ -316,8 +300,6 @@ services:
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_payment
@@ -344,8 +326,6 @@ services:
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_checkout
@@ -397,8 +377,6 @@ services:
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_notification
@@ -457,8 +435,6 @@ services:
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile
-      additional_contexts:
-        sec-shared: service:sec-shared
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_reviews

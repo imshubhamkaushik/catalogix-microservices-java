@@ -13,7 +13,15 @@ pipeline {
 
     environment {
         AWS_REGION   = "ap-south-1"
-        CLUSTER_NAME = "catalogix-cluster-${params.ENV}"
+        // Must match Terraform's local.env_prefix exactly — see the same
+        // fix's full explanation in Jenkinsfile.app-cicd. This file has
+        // more at stake from the mismatch than app-cicd does: every SSM
+        // path below (loki-bucket, loki-role-arn, tempo-bucket,
+        // tempo-role-arn), the node group name, and every `aws eks`/
+        // `kubectl` call keyed off CLUSTER_NAME would all have pointed at
+        // resources that don't exist under the old "catalogix-cluster-*"
+        // name.
+        CLUSTER_NAME = "catalogix-${params.ENV}"
         TF_DIR       = "terraform/platform-infra/env/${params.ENV}"
         // GIT_REPO_URL is injected by JCasC from /etc/default/jenkins — update group_vars/all/jenkins.yaml
         GIT_REPO_URL = "${env.GIT_REPO_URL}"
@@ -191,30 +199,51 @@ pipeline {
                 expression { params.ACTION == 'Apply' }
             }
             steps {
-                dir("${TF_DIR}") {
-                    sh """
-                    set -e
-                    echo "========================================================"
-                    echo "  Running terraform plan ..."
-                    echo "========================================================"
-                    terraform plan -out main.tfplan
-                    echo "========================================================"
-                    """
-                }
-                // input is a Jenkins DSL step, must be at Groovy level — CANNOT go inside sh.
-                input message: "Review the terraform plan above. Approve apply?", ok: "Apply"
+                script {
+                    dir("${TF_DIR}") {
+                        // -detailed-exitcode: 0 = no changes, 1 = error,
+                        // 2 = changes present. Previously ignored entirely
+                        // (plain `terraform plan`, always exit 0 on
+                        // success) — every single run paused for a human
+                        // approval below even when the plan showed nothing
+                        // to apply at all, which is the common case for a
+                        // re-run against infrastructure nobody has touched.
+                        // returnStatus (not the default sh() behavior)
+                        // because exit code 2 here means "succeeded, with
+                        // changes" — not a failure to react to with `set -e`.
+                        env.TF_PLAN_EXIT_CODE = sh(
+                            script: '''
+                            set +e
+                            terraform plan -detailed-exitcode -out main.tfplan
+                            echo $?
+                            ''',
+                            returnStdout: true
+                        ).trim().tokenize('\n').last()
+                    }
 
-                dir("${TF_DIR}") {
-                    sh """
-                    set -e
-                    echo "========================================================"
-                    echo "  Running terraform apply main.tfplan ..."
-                    echo "========================================================"
-                    terraform apply -auto-approve main.tfplan
-                    echo "========================================================"
-                    echo "  Apply complete."
-                    echo "========================================================"
-                    """
+                    if (env.TF_PLAN_EXIT_CODE == '1') {
+                        error("terraform plan failed — see output above.")
+                    }
+
+                    if (env.TF_PLAN_EXIT_CODE == '0') {
+                        echo "terraform plan reports no changes — skipping apply and the approval gate below."
+                        return
+                    }
+
+                    input message: "Review the terraform plan above. Approve apply?", ok: "Apply"
+
+                    dir("${TF_DIR}") {
+                        sh """
+                        set -e
+                        echo "========================================================"
+                        echo "  Running terraform apply main.tfplan ..."
+                        echo "========================================================"
+                        terraform apply -auto-approve main.tfplan
+                        echo "========================================================"
+                        echo "  Apply complete."
+                        echo "========================================================"
+                        """
+                    }
                 }
             }
         }

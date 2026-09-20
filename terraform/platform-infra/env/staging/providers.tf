@@ -13,6 +13,7 @@ terraform {
     aws        = { source = "hashicorp/aws", version = "~> 6.0" }
     kubernetes = { source = "hashicorp/kubernetes", version = "~> 3.0" }
     helm       = { source = "hashicorp/helm", version = "~> 3.0" }
+    kubectl    = { source = "alekc/kubectl", version = "~> 2.0" }
     tls        = { source = "hashicorp/tls", version = "~> 4.0" }
     random     = { source = "hashicorp/random", version = "~> 3.0" }
     postgresql = { source = "cyrilgdn/postgresql", version = "~> 1.25" }
@@ -46,6 +47,8 @@ provider "kubernetes" {
 }
 
 provider "helm" {
+  alias = "after_eks"
+
   kubernetes = {
     host                   = data.aws_eks_cluster.this.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
@@ -55,6 +58,29 @@ provider "helm" {
       command     = "aws"
       args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.this.name]
     }
+  }
+}
+
+# Was entirely absent from this file — module.eso's `providers = { ...
+# kubectl = kubectl.after_eks }` block (main.tf) and the aws_auth
+# kubectl_manifest resource (also being added to main.tf) both reference
+# this alias. Without it, both would fail with "there is no explicitly
+# configured provider ... with this alias" — the kubectl_manifest
+# resource can't even be added to this file until this exists.
+provider "kubectl" {
+  alias                  = "after_eks"
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.this.certificate_authority[0].data)
+  load_config_file       = false # never reads ~/.kube/config — fully self-contained
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args = [
+      "eks", "get-token",
+      "--cluster-name", data.aws_eks_cluster.this.name,
+      "--region", var.aws_region
+    ]
   }
 }
 

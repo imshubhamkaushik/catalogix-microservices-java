@@ -21,6 +21,19 @@ resource "aws_ecr_repository" "repos" {
   encryption_configuration {
     encryption_type = "AES256"
   }
+
+  # This module is called once, from env/dev — staging deploys the same
+  # images from these same repos with no ECR module of its own (see
+  # env/staging/main.tf's comment on why). `terraform destroy` against
+  # dev's state would delete repos staging is still actively pulling
+  # from, with no warning from Terraform itself since staging's state has
+  # no record of depending on them. prevent_destroy turns that into a
+  # hard error instead of a silent cross-environment outage; remove it
+  # deliberately (and confirm staging no longer needs these repos first)
+  # if this environment is ever actually being torn down for good.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_ecr_lifecycle_policy" "repos" {
