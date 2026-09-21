@@ -48,3 +48,11 @@ secrets/*
 # Terraform
 **/.terraform/
 **/.terraform.lock.hcl
+
+# Generated / local-only artifacts that must never be committed
+__pycache__/
+*.pyc
+
+# `helm template` output contains rendered Secrets (random JWT/DB/RabbitMQ values)
+catalogix-rendered.yaml
+rendered*.yaml
