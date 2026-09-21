@@ -14,6 +14,8 @@ public class UserResponse {
     private Instant createdAt;
     private boolean orderEmailsEnabled;
     private boolean promoEmailsEnabled;
+    // Pending request for a higher role awaiting admin approval; null when none.
+    private String requestedRole;
 
     public UserResponse() {}
 
@@ -32,6 +34,13 @@ public class UserResponse {
 
     public UserResponse(Long id, String name, String email, String role, boolean verified,
                          Instant createdAt, boolean orderEmailsEnabled, boolean promoEmailsEnabled) {
+        this(id, name, email, role, verified, createdAt, orderEmailsEnabled, promoEmailsEnabled, null);
+    }
+
+    public UserResponse(Long id, String name, String email, String role, boolean verified,
+                         Instant createdAt, boolean orderEmailsEnabled, boolean promoEmailsEnabled,
+                         String requestedRole) {
+        this.requestedRole = requestedRole;
         this.id = id;
         this.name = name;
         this.email = email;
@@ -57,6 +66,10 @@ public class UserResponse {
     public boolean isOrderEmailsEnabled() { return orderEmailsEnabled; }
 
     public boolean isPromoEmailsEnabled() { return promoEmailsEnabled; }
+
+    public String getRequestedRole() { return requestedRole; }
+
+    public void setRequestedRole(String requestedRole) { this.requestedRole = requestedRole; }
 
     public void setId(Long id) { this.id = id; }
 

@@ -13,6 +13,7 @@ import com.catalogix.user.event.PasswordResetRequestedEvent;
 import com.catalogix.user.exception.AccountLockedException;
 import com.catalogix.user.exception.ForbiddenException;
 import com.catalogix.user.exception.UnauthorizedException;
+import com.catalogix.user.exception.UserNotFoundException;
 import com.catalogix.user.model.EmailVerificationToken;
 import com.catalogix.user.model.PasswordResetToken;
 import com.catalogix.user.model.RefreshToken;
@@ -78,10 +79,10 @@ class UserSvcTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
         // Constructed by hand (rather than @InjectMocks) since the constructor also
-        // takes plain strings (FRONTEND_BASE_URL, ADMIN_EMAILS), which Mockito can't auto-mock.
+        // takes a plain string (FRONTEND_BASE_URL), which Mockito can't auto-mock.
         svc = new UserSvc(repo, encoder, jwtService, refreshTokenService, loginAttemptTracker,
                 emailVerificationRepo, passwordResetRepo, tokenHasher, eventPublisher,
-                "http://localhost:8080", "admin@example.com");
+                "http://localhost:8080");
         lenient().when(jwtService.generateToken(any(), any(), any())).thenReturn(FAKE_ACCESS_TOKEN);
         lenient().when(jwtService.getExpirationMs()).thenReturn(900_000L);
         // UserSvc.issueAuthResponse always calls the 2-arg overload now (even
@@ -130,21 +131,25 @@ class UserSvcTest {
     }
 
     @Test
-    void registerAssignsAdminRoleForAllowlistedEmail() {
-        CreateUserRequest req = new CreateUserRequest();
-        req.setName("Boss");
-        req.setEmail("Admin@Example.com");
-        req.setPassword(VALID_SECRET);
+    void registerNeverGrantsAHigherRole_evenForAnAdminLookingEmail() {
+        // There is no email allow-list any more: nobody can become an admin by
+        // registering. Only an existing admin can assign roles (see assignRole tests).
+        for (String email : new String[] {"Admin@Example.com", "admin@catalogix.local", "root@admin.com"}) {
+            CreateUserRequest req = new CreateUserRequest();
+            req.setName("Boss");
+            req.setEmail(email);
+            req.setPassword(VALID_SECRET);
 
-        when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
-        when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
-        when(repo.save(any(User.class))).thenAnswer(inv -> {
-            User u = inv.getArgument(0);
-            u.setId(1L);
-            return u;
-        });
+            when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
+            when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
+            when(repo.save(any(User.class))).thenAnswer(inv -> {
+                User u = inv.getArgument(0);
+                u.setId(1L);
+                return u;
+            });
 
-        assertEquals(ROLE_ADMIN, svc.register(req).getUser().getRole());
+            assertEquals(ROLE_USER, svc.register(req).getUser().getRole(), email);
+        }
     }
 
     @Test
@@ -170,6 +175,21 @@ class UserSvcTest {
         AuthResponse resp = svc.login(req);
         assertEquals(1L, resp.getUser().getId());
         verify(loginAttemptTracker).recordSuccess(TEST_EMAIL);
+    }
+
+    @Test
+    void loginForAnUnknownEmailStillDoesTheHashingWork() {
+        // Timing side channel: an unknown email must cost the same bcrypt comparison as a
+        // real one, otherwise response time reveals which emails are registered.
+        when(repo.findByEmail(TEST_EMAIL)).thenReturn(Optional.empty());
+        when(encoder.encode(anyString())).thenReturn("dummy-hash");
+
+        LoginRequest req = new LoginRequest();
+        req.setEmail(TEST_EMAIL); req.setPassword("whatever1");
+
+        assertThrows(UnauthorizedException.class, () -> svc.login(req));
+        verify(encoder).matches("whatever1", "dummy-hash");
+        verify(loginAttemptTracker).recordFailure(TEST_EMAIL);
     }
 
     @Test
@@ -367,6 +387,38 @@ class UserSvcTest {
     }
 
     @Test
+    void updateProfilePasswordChangeSignsOutOtherSessionsButKeepsThisOne() {
+        User u = sampleUser(1L, OLD_EMAIL, HASHED_SECRET);
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+        when(encoder.matches(CORRECT_SECRET, HASHED_SECRET)).thenReturn(true);
+        when(encoder.encode("BrandNewPass1")).thenReturn("new-hash");
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateProfileRequest req = new UpdateProfileRequest();
+        req.setCurrentPassword(CORRECT_SECRET);
+        req.setNewPassword("BrandNewPass1");
+
+        svc.updateProfile(1L, req, "my-own-refresh-cookie");
+
+        verify(refreshTokenService).revokeAllForUserExcept(1L, "my-own-refresh-cookie");
+    }
+
+    @Test
+    void updateProfileWithoutPasswordChangeLeavesSessionsAlone() {
+        User u = sampleUser(1L, OLD_EMAIL, HASHED_SECRET);
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UpdateProfileRequest req = new UpdateProfileRequest();
+        req.setName("Renamed");
+
+        svc.updateProfile(1L, req, "cookie");
+
+        verify(refreshTokenService, never()).revokeAllForUserExcept(anyLong(), any());
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
     void updateProfileRejectsEmailAlreadyTaken() {
         User u = sampleUser(1L, OLD_EMAIL, HASHED_SECRET);
         when(repo.findById(1L)).thenReturn(Optional.of(u));
@@ -550,18 +602,34 @@ class UserSvcTest {
         assertTrue(prefs.isPromoEmailsEnabled());
     }
 
-    // ---- becomeSeller ----
+    // ---- becomeSeller (a REQUEST — an admin decides) ----
 
     @Test
-    void becomeSellerUpgradesAPlainUserAccount() {
+    void becomeSellerOnlyRecordsAPendingRequest_itNeverGrantsTheRole() {
         User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
         u.setRole("USER");
+        when(repo.findById(1L)).thenReturn(Optional.of(u));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UserResponse resp = svc.becomeSeller(1L);
+
+        assertEquals("USER", resp.getRole());
+        assertEquals("SELLER", resp.getRequestedRole());
+        verify(repo).save(argThat(saved -> "USER".equals(saved.getRole())
+                && "SELLER".equals(saved.getRequestedRole())
+                && saved.getRoleRequestedAt() != null));
+    }
+
+    @Test
+    void becomeSellerIsIdempotentWhileARequestIsPending() {
+        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
+        u.setRequestedRole("SELLER");
         when(repo.findById(1L)).thenReturn(Optional.of(u));
 
         UserResponse resp = svc.becomeSeller(1L);
 
-        assertEquals("SELLER", resp.getRole());
-        verify(repo).save(argThat(saved -> "SELLER".equals(saved.getRole())));
+        assertEquals("SELLER", resp.getRequestedRole());
+        verify(repo, never()).save(any());
     }
 
     @Test
@@ -592,5 +660,94 @@ class UserSvcTest {
     void becomeSellerThrowsForUnknownUser() {
         when(repo.findById(99L)).thenReturn(Optional.empty());
         assertThrows(UnauthorizedException.class, () -> svc.becomeSeller(99L));
+    }
+
+    // ---- assignRole / rejectRoleRequest (admin decisions) ----
+
+    @Test
+    void assignRoleApprovesASellerRequestAndClearsIt() {
+        User target = sampleUser(2L, "bob@x.com", "h");
+        target.setRequestedRole("SELLER");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UserResponse resp = svc.assignRole(2L, "seller", 1L);
+
+        assertEquals("SELLER", resp.getRole());
+        assertNull(resp.getRequestedRole());
+        verify(refreshTokenService, never()).revokeAllForUser(anyLong());
+    }
+
+    @Test
+    void assignRoleCanPromoteToAdmin() {
+        User target = sampleUser(2L, "bob@x.com", "h");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("ADMIN", svc.assignRole(2L, "ADMIN", 1L).getRole());
+    }
+
+    @Test
+    void assignRoleDemotionRevokesTheUsersSessions() {
+        User target = sampleUser(2L, "bob@x.com", "h");
+        target.setRole("SELLER");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("USER", svc.assignRole(2L, "USER", 1L).getRole());
+        verify(refreshTokenService).revokeAllForUser(2L);
+    }
+
+    @Test
+    void assignRoleRefusesToChangeYourOwnRole() {
+        assertThrows(ForbiddenException.class, () -> svc.assignRole(1L, "USER", 1L));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void assignRoleRefusesToRemoveTheLastAdmin() {
+        User target = sampleUser(2L, "root@x.com", "h");
+        target.setRole("ADMIN");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.countByRole("ADMIN")).thenReturn(1L);
+
+        assertThrows(IllegalArgumentException.class, () -> svc.assignRole(2L, "USER", 1L));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void assignRoleAllowsDemotingAnAdminWhenAnotherAdminRemains() {
+        User target = sampleUser(2L, "second@x.com", "h");
+        target.setRole("ADMIN");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.countByRole("ADMIN")).thenReturn(2L);
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertEquals("USER", svc.assignRole(2L, "USER", 1L).getRole());
+    }
+
+    @Test
+    void assignRoleRejectsUnknownRoles() {
+        assertThrows(IllegalArgumentException.class, () -> svc.assignRole(2L, "SUPERUSER", 1L));
+        assertThrows(IllegalArgumentException.class, () -> svc.assignRole(2L, null, 1L));
+    }
+
+    @Test
+    void assignRoleThrowsNotFoundForUnknownTarget() {
+        when(repo.findById(99L)).thenReturn(Optional.empty());
+        assertThrows(UserNotFoundException.class, () -> svc.assignRole(99L, "SELLER", 1L));
+    }
+
+    @Test
+    void rejectRoleRequestClearsThePendingRequestWithoutChangingTheRole() {
+        User target = sampleUser(2L, "bob@x.com", "h");
+        target.setRequestedRole("SELLER");
+        when(repo.findById(2L)).thenReturn(Optional.of(target));
+        when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        UserResponse resp = svc.rejectRoleRequest(2L);
+
+        assertEquals("USER", resp.getRole());
+        assertNull(resp.getRequestedRole());
     }
 }

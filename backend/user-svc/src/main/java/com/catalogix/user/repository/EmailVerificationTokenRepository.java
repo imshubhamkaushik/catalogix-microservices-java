@@ -6,4 +6,8 @@ import java.util.Optional;
 
 public interface EmailVerificationTokenRepository extends JpaRepository<EmailVerificationToken, Long> {
     Optional<EmailVerificationToken> findByTokenHash(String tokenHash);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM EmailVerificationToken t WHERE t.expiresAt < :cutoff")
+    int deleteExpiredBefore(@org.springframework.data.repository.query.Param("cutoff") java.time.Instant cutoff);
 }

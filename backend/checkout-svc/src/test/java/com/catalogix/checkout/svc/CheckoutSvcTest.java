@@ -192,7 +192,7 @@ class CheckoutSvcTest {
         assertTrue(result.wasNew());
         assertEquals(OrderStatus.PENDING_PAYMENT, result.order().getStatus());
         assertEquals(new BigDecimal("200.00"), result.order().getTotalAmount());
-        verify(inventoryClient).adjust(1L, -2);
+        verify(inventoryClient).adjust(eq(1L), eq(-2), any(), any());
         // Confirmation event fires on successful *payment*, not creation — see payOrder tests.
         verifyNoInteractions(eventPublisher);
 
@@ -259,7 +259,7 @@ class CheckoutSvcTest {
                 () -> svc.createOrder(42L, req, TOKEN, null));
         // Stock reserved before the address lookup failed must be released,
         // same as any other mid-saga failure — see compensate().
-        verify(inventoryClient).adjust(1L, 2);
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
     }
 
     @Test
@@ -274,8 +274,8 @@ class CheckoutSvcTest {
         assertThrows(CouponInvalidException.class, () -> svc.createOrder(42L, req, TOKEN, null));
 
         // The stock reserved before the coupon check failed must be released.
-        verify(inventoryClient).adjust(1L, -2);
-        verify(inventoryClient).adjust(1L, 2);
+        verify(inventoryClient).adjust(eq(1L), eq(-2), any(), any());
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
         verify(repo, never()).save(any());
     }
 
@@ -283,12 +283,60 @@ class CheckoutSvcTest {
     void createOrderThrowsAndDoesNotSaveWhenStockInsufficient() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
         doThrow(new ProductUnavailableException("Insufficient stock for product 1"))
-                .when(inventoryClient).adjust(1L, -5);
+                .when(inventoryClient).adjust(eq(1L), eq(-5), any(), any());
 
         CreateOrderRequest request = requestFor(1L, 5);
 
         assertThrows(ProductUnavailableException.class,
                 () -> svc.createOrder(42L, request, TOKEN, null));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void createOrderReleasesAReservationThatFailedAmbiguously_namingTheReservationItUndoes() {
+        // A timeout: checkout cannot know whether inventory-svc applied the reservation.
+        // It must still be released — and the release names the reservation (undoOf) so
+        // inventory-svc adds stock back only if it really was applied.
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        doThrow(new RuntimeException("read timed out"))
+                .when(inventoryClient).adjust(eq(1L), eq(-2), any(), isNull());
+
+        CreateOrderRequest request = requestFor(1L, 2);
+        assertThrows(RuntimeException.class, () -> svc.createOrder(42L, request, TOKEN, null));
+
+        verify(inventoryClient).adjust(eq(1L), eq(2),
+                argThat(op -> op != null && op.startsWith("release:attempt-")),
+                argThat(undo -> undo != null && undo.endsWith(":reserve:0")));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void expireUnpaidOrderCancelsAndReleasesAPendingOrder() {
+        Order order = new Order();
+        order.setId(9L);
+        order.setUserId(42L);
+        order.setStatus(OrderStatus.PENDING_PAYMENT);
+        order.addItem(new OrderItem(1L, "Phone", 2, new BigDecimal("100.00")));
+        when(repo.findByIdForUpdate(9L)).thenReturn(Optional.of(order));
+
+        assertTrue(svc.expireUnpaidOrder(9L, "Bearer system"));
+
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        // Keyed by the order, so a retry of this release can never add the stock back twice.
+        verify(inventoryClient).adjust(eq(1L), eq(2), eq("release:order-9:0"), isNull());
+        verify(repo).save(order);
+    }
+
+    @Test
+    void expireUnpaidOrderLeavesAnOrderThatWasPaidInTheMeantime() {
+        Order order = new Order();
+        order.setId(9L);
+        order.setStatus(OrderStatus.CONFIRMED);
+        when(repo.findByIdForUpdate(9L)).thenReturn(Optional.of(order));
+
+        assertFalse(svc.expireUnpaidOrder(9L, "Bearer system"));
+
+        verifyNoInteractions(inventoryClient);
         verify(repo, never()).save(any());
     }
 
@@ -387,7 +435,7 @@ class CheckoutSvcTest {
     @Test
     void payOrderConfirmsAndNotifiesOnSuccessfulPayment() {
         Order order = pendingPaymentOrder();
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("4242");
@@ -410,7 +458,7 @@ class CheckoutSvcTest {
     @Test
     void payOrderConfirmsWithPayOnDeliveryNoteForCod() {
         Order order = pendingPaymentOrder();
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.COD);
         when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
@@ -426,7 +474,7 @@ class CheckoutSvcTest {
     @Test
     void payOrderForwardsIdempotencyKeyToPaymentService() {
         Order order = pendingPaymentOrder();
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
@@ -442,13 +490,13 @@ class CheckoutSvcTest {
         assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
         assertTrue(result.paymentSucceeded());
         verify(paymentClient).process(
-                eq(5L), eq(42L), eq(new BigDecimal("200.00")), eq(req), eq("pay-key-123"));
+                5L, 42L, new BigDecimal("200.00"), req, "pay-key-123");
     }
 
     @Test
     void payOrderCancelsAndReleasesStockOnDecline() {
         Order order = pendingPaymentOrder();
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000"); // magic decline value
@@ -459,7 +507,7 @@ class CheckoutSvcTest {
 
         assertEquals(OrderStatus.CANCELLED, result.order().getStatus());
         assertFalse(result.paymentSucceeded());
-        verify(inventoryClient).adjust(1L, 2); // stock released
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any()); // stock released
         verify(eventPublisher, never()).publishEvent(any(OrderConfirmedEvent.class));
         assertEquals(OrderStatus.CANCELLED, lastEvent(order).getStatus());
         assertEquals("Payment declined", lastEvent(order).getNote());
@@ -469,7 +517,7 @@ class CheckoutSvcTest {
     void payOrderReleasesCouponUsageOnDecline() {
         Order order = pendingPaymentOrder();
         order.setAppliedCouponCode("SAVE10");
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("0000");
@@ -485,7 +533,7 @@ class CheckoutSvcTest {
     void payOrderRejectsWhenOrderNotAwaitingPayment() {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.CONFIRMED);
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
 
@@ -533,12 +581,12 @@ class CheckoutSvcTest {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.CONFIRMED);
         order.setAppliedCouponCode("SAVE10");
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
-        verify(inventoryClient).adjust(1L, 2);
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
         verify(promotionsClient).release("SAVE10", TOKEN);
         verify(eventPublisher).publishEvent(any(OrderCancelledEvent.class));
         assertEquals("Cancelled by customer", lastEvent(order).getNote());
@@ -550,14 +598,14 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         order.setPaymentMethod(PaymentMethod.CARD);
         order.setPaymentReference("MOCK-REF");
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
-        when(refundClient.refund(5L, new BigDecimal("200.00")))
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        when(refundClient.refund(eq(5L), eq(new BigDecimal("200.00")), anyString()))
                 .thenReturn(new RefundClient.RefundOutcome("REFUND-REF"));
 
         svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
-        verify(refundClient).refund(5L, new BigDecimal("200.00"));
-        verify(inventoryClient).adjust(1L, 2);
+        verify(refundClient).refund(5L, new BigDecimal("200.00"), "cancel-order-5");
+        verify(inventoryClient).adjust(1L, 2, any(), any());
     }
 
     @Test
@@ -566,8 +614,8 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         order.setPaymentMethod(PaymentMethod.CARD);
         order.setPaymentReference("MOCK-REF");
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
-        when(refundClient.refund(5L, new BigDecimal("200.00")))
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        when(refundClient.refund(5L, new BigDecimal("200.00"), "cancel-order-5"))
                 .thenThrow(new RuntimeException("payment-svc unavailable"));
 
         assertThrows(RefundFailedException.class,
@@ -579,7 +627,7 @@ class CheckoutSvcTest {
     void cancelOrderNotesAdminCancellationSeparatelyFromCustomerCancellation() {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.CONFIRMED);
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         // Admin (userId 999) cancelling someone else's order (userId 42).
         svc.cancelOrder(5L, 999L, "ADMIN", TOKEN, EMAIL);
@@ -591,7 +639,7 @@ class CheckoutSvcTest {
     void cancelOrderRejectsShippedOrders() {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.SHIPPED);
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         assertThrows(InvalidOrderStateException.class, () -> svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL));
         verifyNoInteractions(inventoryClient);
@@ -601,7 +649,7 @@ class CheckoutSvcTest {
     void cancelOrderIsANoOpIfAlreadyCancelled() {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.CANCELLED);
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
@@ -614,9 +662,9 @@ class CheckoutSvcTest {
     void cancelOrderQueuesToOutboxWhenRestockFailsLive() {
         Order order = pendingPaymentOrder();
         order.setStatus(OrderStatus.CONFIRMED);
-        when(repo.findById(5L)).thenReturn(Optional.of(order));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         doThrow(new ProductUnavailableException("unreachable"))
-                .when(inventoryClient).adjust(1L, 2);
+                .when(inventoryClient).adjust(eq(1L), eq(2), any(), any());
 
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 

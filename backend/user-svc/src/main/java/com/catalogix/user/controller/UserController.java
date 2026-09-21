@@ -7,6 +7,7 @@ import com.catalogix.user.dto.LoginRequest;
 import com.catalogix.user.dto.NotificationPreferencesRequest;
 import com.catalogix.user.dto.NotificationPreferencesResponse;
 import com.catalogix.user.dto.ResetPasswordRequest;
+import com.catalogix.user.dto.RoleAssignmentRequest;
 import com.catalogix.user.dto.SessionResponse;
 import com.catalogix.user.dto.TokenPairResponse;
 import com.catalogix.user.dto.UpdateProfileRequest;
@@ -191,13 +192,15 @@ public class UserController {
         return ResponseEntity.ok(svc.findById(userId));
     }
 
-    // Update the current user's own name/email/password.
+    // Update the current user's own name/email/password. A password change signs out
+    // every OTHER session; this request's own refresh cookie identifies the one to keep.
     @PatchMapping("/me")
     public ResponseEntity<UserResponse> updateProfile(
             @RequestAttribute("userId") Long userId,
-            @Valid @RequestBody UpdateProfileRequest req
+            @Valid @RequestBody UpdateProfileRequest req,
+            @CookieValue(name = REFRESH_COOKIE_NAME, required = false) String refreshToken
     ) {
-        return ResponseEntity.ok(svc.updateProfile(userId, req));
+        return ResponseEntity.ok(svc.updateProfile(userId, req, refreshToken));
     }
 
     // List all users (admin directory). Requires a valid JWT; admin-only.
@@ -245,12 +248,41 @@ public class UserController {
         return ResponseEntity.ok(svc.updateNotificationPreferences(userId, req));
     }
 
-    // Self-serve: a buyer opts into selling, no admin approval needed. See
-    // UserSvc.becomeSeller's Javadoc for exactly what this does and doesn't
-    // change.
+    // A customer asks to become a seller. This only records a PENDING request —
+    // an admin approves it (PUT /users/{id}/role) or rejects it
+    // (DELETE /users/{id}/role-request). See UserSvc.becomeSeller.
     @PostMapping("/me/become-seller")
     public ResponseEntity<UserResponse> becomeSeller(@RequestAttribute("userId") Long userId) {
         return ResponseEntity.ok(svc.becomeSeller(userId));
+    }
+
+    // Admin-only: assign a role (USER / SELLER / ADMIN) to a user. This is how a
+    // pending seller request is approved, and the only way anyone becomes an admin.
+    @PutMapping("/{id}/role")
+    public ResponseEntity<UserResponse> assignRole(
+            @PathVariable Long id,
+            @Valid @RequestBody RoleAssignmentRequest req,
+            @RequestAttribute("userId") Long adminId,
+            @RequestAttribute("userRole") String role
+    ) {
+        requireAdmin(role, "Only admins may assign roles");
+        return ResponseEntity.ok(svc.assignRole(id, req.getRole(), adminId));
+    }
+
+    // Admin-only: decline a pending role request (the user keeps their current role).
+    @DeleteMapping("/{id}/role-request")
+    public ResponseEntity<UserResponse> rejectRoleRequest(
+            @PathVariable Long id,
+            @RequestAttribute("userRole") String role
+    ) {
+        requireAdmin(role, "Only admins may review role requests");
+        return ResponseEntity.ok(svc.rejectRoleRequest(id));
+    }
+
+    private static void requireAdmin(String role, String message) {
+        if (!"ADMIN".equalsIgnoreCase(role)) {
+            throw new ForbiddenException(message);
+        }
     }
 
     // Internal-only: notification-svc calls this (with a SYSTEM-minted

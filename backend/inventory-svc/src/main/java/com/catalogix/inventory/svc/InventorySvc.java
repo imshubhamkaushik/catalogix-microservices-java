@@ -4,7 +4,10 @@ import com.catalogix.inventory.dto.InventoryResponse;
 import com.catalogix.inventory.exception.InsufficientInventoryException;
 import com.catalogix.inventory.exception.InventoryItemNotFoundException;
 import com.catalogix.inventory.model.InventoryItem;
+import com.catalogix.inventory.model.InventoryOperation;
 import com.catalogix.inventory.repository.InventoryItemRepository;
+import com.catalogix.inventory.repository.InventoryOperationRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,8 +15,16 @@ import org.springframework.transaction.annotation.Transactional;
 public class InventorySvc {
 
     private final InventoryItemRepository repo;
+    private final InventoryOperationRepository operations;
 
+    /** Without an idempotency ledger: operation ids are then ignored. */
     public InventorySvc(InventoryItemRepository repo) {
+        this(repo, null);
+    }
+
+    @Autowired
+    public InventorySvc(InventoryItemRepository repo, InventoryOperationRepository operations) {
+        this.operations = operations;
         this.repo = repo;
     }
 
@@ -44,7 +55,38 @@ public class InventorySvc {
      */
     @Transactional
     public InventoryResponse adjust(Long productId, int delta) {
-        InventoryItem item = repo.findByProductIdForUpdate(productId)
+        return adjust(productId, delta, null, null);
+    }
+
+    /**
+     * Idempotent adjustment.
+     *
+     * @param operationId caller-chosen unique id. A second call with an id already recorded is a
+     *        no-op that returns the current quantity — safe to retry or replay.
+     * @param undoOf the operation id of the reservation this call reverses (a release). If that
+     *        reservation was never recorded — its request timed out before reaching us — there is
+     *        nothing to undo, so nothing is added back; a tombstone is stored so the reservation
+     *        cannot be applied later if the original request is still in flight.
+     *
+     * Everything runs after the product row is locked, so concurrent calls for one product are
+     * serialised and the "already recorded?" checks cannot race.
+     */
+    @Transactional
+    public InventoryResponse adjust(Long productId, int delta, String operationId, String undoOf) {
+        java.util.Optional<InventoryItem> locked = repo.findByProductIdForUpdate(productId);
+
+        if (operations != null && operationId != null && operations.existsById(operationId)) {
+            return currentQuantity(productId, locked);
+        }
+        if (operations != null && undoOf != null && !operations.existsById(undoOf)) {
+            operations.save(new InventoryOperation(undoOf, productId, 0));
+            if (operationId != null) {
+                operations.save(new InventoryOperation(operationId, productId, 0));
+            }
+            return currentQuantity(productId, locked);
+        }
+
+        InventoryItem item = locked
                 .orElseThrow(() -> new InventoryItemNotFoundException(productId));
 
         int newQuantity = item.getQuantity() + delta;
@@ -53,6 +95,13 @@ public class InventorySvc {
         }
         item.setQuantity(newQuantity);
         InventoryItem saved = repo.save(item);
+        if (operations != null && operationId != null) {
+            operations.save(new InventoryOperation(operationId, productId, delta));
+        }
         return new InventoryResponse(saved.getProductId(), saved.getQuantity());
+    }
+
+    private static InventoryResponse currentQuantity(Long productId, java.util.Optional<InventoryItem> item) {
+        return new InventoryResponse(productId, item.map(InventoryItem::getQuantity).orElse(0));
     }
 }

@@ -56,7 +56,21 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return path.equals("/health")
                 || path.startsWith("/actuator")
-                || publicPaths.contains(path);
+                || publicPaths.contains(path)
+                || isCorsPreflight(request);
+    }
+
+    /**
+     * A browser's CORS preflight (OPTIONS + Origin + Access-Control-Request-Method)
+     * never carries an Authorization header, so requiring one made every cross-origin
+     * call to a protected endpoint fail before Spring's CORS handling could answer.
+     * Letting it through exposes nothing: a preflight has no body and Spring only
+     * replies with the CORS headers (or rejects it if the origin is not allowed).
+     */
+    private static boolean isCorsPreflight(HttpServletRequest request) {
+        return "OPTIONS".equalsIgnoreCase(request.getMethod())
+                && request.getHeader("Origin") != null
+                && request.getHeader("Access-Control-Request-Method") != null;
     }
 
     @Override

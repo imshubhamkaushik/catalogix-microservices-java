@@ -26,9 +26,10 @@ public class UserJwtService extends com.catalogix.security.JwtService {
 
     public UserJwtService(
             @Value("${JWT_SECRET}") String secret,
+            @Value("${JWT_SECRET_PREVIOUS:}") String previousSecret,
             @Value("${JWT_EXPIRATION_MS:900000}") long expirationMs
     ) {
-        super(secret);
+        super(secret, previousSecret);
         this.expirationMs = expirationMs;
     }
 

@@ -1,5 +1,6 @@
 package com.catalogix.user.integration;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * passes in a real environment with Docker + Maven Central access before
  * trusting it as a CI gate.
  */
+@Tag("integration")
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate

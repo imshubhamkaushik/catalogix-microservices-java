@@ -2,31 +2,38 @@ package com.catalogix.security;
 
 import java.util.Arrays;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
-import org.springframework.beans.factory.annotation.Value;
 
 /**
- * Was previously 9 near-identical hand-copied files (one per service
- * package); consolidated here since every copy read the same ALLOWED_ORIGINS
- * property and did the same thing with it. The one genuine difference found
- * across the 9 — user-svc needs allowCredentials(true) so the httpOnly
- * refresh-token cookie can travel on direct-to-service (non-gateway) dev
- * calls, every other service correctly has no cookie to carry and stays
- * false — is handled with a property rather than forcing a 9th copy to exist
- * for one boolean. Set CORS_ALLOW_CREDENTIALS=true only on user-svc.
+ * Cross-origin (CORS) support — OPTIONAL, and off unless ALLOWED_ORIGINS is set.
  *
- * NOTE: 8 of the previous 9 copies allowed PATCH; user-svc's did not, with no
- * comment explaining why — that reads as an oversight rather than a decision,
- * so PATCH is included here for everyone. If user-svc has no PATCH endpoint
- * this is a no-op in practice; if it does, this was actually a latent gap.
+ * In every deployment (Docker Compose and Kubernetes) the browser talks to ONE
+ * origin, the nginx gateway, which proxies /api/* to the services: the requests
+ * are same-origin, so CORS never applies. ALLOWED_ORIGINS used to be a REQUIRED
+ * property, which forced every service in every environment to carry a value
+ * (and a crash-loop if one was forgotten) for a feature nothing used. It is now
+ * only needed for the one case that really is cross-origin: a browser calling a
+ * service directly, e.g. the Vite dev server on localhost:5173 during
+ * development, without going through the gateway.
+ *
+ * CORS_ALLOW_CREDENTIALS=true is meant for user-svc only (the httpOnly refresh
+ * cookie has to travel on such direct calls). A wildcard origin combined with
+ * credentials would let ANY website make credentialed requests, so that
+ * combination is refused: credentials are switched off and a warning is logged.
+ * List explicit origins instead.
  */
 @Configuration
 public class CorsConfig {
 
-    @Value("${ALLOWED_ORIGINS}")
+    private static final Logger log = LoggerFactory.getLogger(CorsConfig.class);
+
+    @Value("${ALLOWED_ORIGINS:}")
     private String allowedOrigins;
 
     @Value("${CORS_ALLOW_CREDENTIALS:false}")
@@ -36,8 +43,23 @@ public class CorsConfig {
     public WebMvcConfigurer corsConfigurer() {
 
         String[] origins = Arrays.stream(allowedOrigins.split(","))
-                  .map(s -> s != null ? s.trim() : "")
-                  .toArray(String[]::new);
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toArray(String[]::new);
+
+        if (origins.length == 0) {
+            // No cross-origin callers configured: register no CORS mappings at all.
+            return new WebMvcConfigurer() { };
+        }
+
+        boolean credentials = allowCredentials;
+        if (credentials && Arrays.asList(origins).contains("*")) {
+            log.warn("CORS_ALLOW_CREDENTIALS=true is ignored because ALLOWED_ORIGINS contains \"*\": "
+                    + "a wildcard origin with credentials would let any site make credentialed requests. "
+                    + "List explicit origins to enable credentials.");
+            credentials = false;
+        }
+        final boolean allowCreds = credentials;
 
         return new WebMvcConfigurer() {
             @Override
@@ -46,7 +68,7 @@ public class CorsConfig {
                         .allowedOriginPatterns(origins)
                         .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
-                        .allowCredentials(allowCredentials);
+                        .allowCredentials(allowCreds);
             }
         };
     }

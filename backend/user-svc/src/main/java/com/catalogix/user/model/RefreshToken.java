@@ -40,6 +40,12 @@ public class RefreshToken {
     @Column(name = "last_used_at")
     private Instant lastUsedAt;
 
+    // When the ORIGINAL sign-in of this session happened. Copied unchanged on every
+    // rotation (V8), so a session has an absolute maximum age. Null only on rows
+    // created before V8 that the migration could not backfill.
+    @Column(name = "session_started_at")
+    private Instant sessionStartedAt;
+
     public RefreshToken() {
     }
 
@@ -55,6 +61,13 @@ public class RefreshToken {
         this.expiresAt = expiresAt;
         this.userAgent = userAgent;
         this.lastUsedAt = Instant.now();
+    }
+
+    public Instant getSessionStartedAt() {
+        return sessionStartedAt;
+    }
+    public void setSessionStartedAt(Instant sessionStartedAt) {
+        this.sessionStartedAt = sessionStartedAt;
     }
 
     public Long getId() {

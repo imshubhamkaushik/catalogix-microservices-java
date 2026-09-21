@@ -75,11 +75,15 @@ public class PaymentController {
     @PostMapping("/refund")
     public ResponseEntity<RefundResponse> refund(
             @Valid @RequestBody ProcessRefundRequest req,
-            @RequestAttribute("userRole") String role
+            @RequestAttribute("userRole") String role,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
     ) {
         if (!"SYSTEM".equalsIgnoreCase(role)) {
             throw new ForbiddenException("Refunds must be initiated by checkout-svc, not called directly");
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req));
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req, idempotencyKey));
     }
 }

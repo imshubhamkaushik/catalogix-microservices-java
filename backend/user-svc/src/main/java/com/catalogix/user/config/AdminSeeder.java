@@ -7,67 +7,78 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Creates a known admin account on startup so "docker compose up" / a fresh
- * `helm install` always leaves you with a working admin login, instead of
- * having to register-then-match-ADMIN_EMAILS by hand in every fresh
- * environment.
+ * Guarantees that a fresh deployment starts with a working admin login.
  *
- * Off by default (SEED_DATA=false) — this must be opted into per
- * environment, never assumed. Idempotent: checks for the email first, so
- * it's safe to run on every restart rather than just "first boot".
+ * Roles are approval-based: everyone who registers is a customer, and only an
+ * admin can grant the seller or admin role. So a deployment with no admin is a
+ * dead end — nobody could ever approve a seller. This runner closes that gap:
+ * on every startup, IF NO ADMIN EXISTS YET, it creates one from
+ * SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD. It is deliberately independent of
+ * SEED_DATA (which only controls demo catalogue data): the first admin is a
+ * requirement of every deployment, not demo content.
  *
- * SEED_ADMIN_PASSWORD has NO default — if SEED_DATA is true but the
- * password is blank, this logs a warning and skips rather than either
- * failing startup or (worse) silently creating an admin account with an
- * empty/guessable password. Local/compose and values-local.yaml set a
- * fixed password directly, since those never leave your machine. For
- * anything AWS-facing (values-dev.yaml, values-staging.yaml), it's
- * deliberately left unset in the committed file — supply it with
- * `helm install --set` at deploy time, same pattern already used for
- * database.host and ingress.tlsCertArn, so a real password is never sitting
- * in git even for a dev/staging AWS environment.
+ * Behaviour:
+ *  - an admin already exists (this one, or anyone later promoted)  -> nothing to do;
+ *    changing SEED_ADMIN_PASSWORD later does NOT touch an existing account;
+ *  - no admin and a usable password  -> the admin is created, pre-verified;
+ *  - no admin and NO password        -> logs an ERROR (there is then no way to
+ *    manage roles) and starts anyway rather than crash-looping the service;
+ *  - no admin, but the seed email is already taken by an ordinary account -> logs an
+ *    ERROR and does NOT promote it (that account belongs to whoever registered it
+ *    and knows THEIR password, not the operator's); pick another SEED_ADMIN_EMAIL.
+ *
+ * Where the password comes from: Docker Compose and values-local.yaml set a fixed
+ * one (those never leave your machine). On AWS (values-dev.yaml) it is the
+ * `seed_admin_password` key of the "<cluster>/operator-credentials" secret — the password
+ * chosen by whoever deploys the app, with `python bootstrap.py credentials`. Nothing is
+ * committed to git, generated behind their back, or passed as a pipeline parameter.
  */
 @Component
 public class AdminSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(AdminSeeder.class);
 
+    private static final int MIN_PASSWORD_LENGTH = 8;
+
     private final UserRepository repo;
     private final PasswordEncoder passwordEncoder;
-    private final boolean seedEnabled;
     private final String seedAdminEmail;
     private final String seedAdminPassword;
 
     public AdminSeeder(
             UserRepository repo,
             PasswordEncoder passwordEncoder,
-            @Value("${SEED_DATA:false}") boolean seedEnabled,
             @Value("${SEED_ADMIN_EMAIL:admin@catalogix.local}") String seedAdminEmail,
             @Value("${SEED_ADMIN_PASSWORD:}") String seedAdminPassword
     ) {
         this.repo = repo;
         this.passwordEncoder = passwordEncoder;
-        this.seedEnabled = seedEnabled;
         this.seedAdminEmail = seedAdminEmail;
         this.seedAdminPassword = seedAdminPassword;
     }
 
     @Override
     public void run(String... args) {
-        if (!seedEnabled) {
-            return;
+        if (repo.countByRole("ADMIN") > 0) {
+            return; // an admin already exists — nothing to do on this or any later startup
         }
-        if (seedAdminPassword == null || seedAdminPassword.isBlank()) {
-            log.warn("SEED_DATA is true but SEED_ADMIN_PASSWORD is blank — skipping admin seed. "
-                    + "Set it explicitly (helm install --set for AWS environments).");
+        if (seedAdminPassword == null || seedAdminPassword.length() < MIN_PASSWORD_LENGTH) {
+            log.error("NO ADMIN ACCOUNT EXISTS and SEED_ADMIN_PASSWORD is not set (or shorter than {} "
+                    + "characters). Nobody will be able to approve sellers or assign roles. Provide "
+                    + "SEED_ADMIN_PASSWORD (on AWS: the seed_admin_password key of the app secret) "
+                    + "and restart user-svc.", MIN_PASSWORD_LENGTH);
             return;
         }
         if (repo.findByEmail(seedAdminEmail).isPresent()) {
-            return; // already seeded on a previous startup — nothing to do
+            log.error("NO ADMIN ACCOUNT EXISTS, but {} is already registered as an ordinary account. It "
+                    + "is NOT being promoted (it belongs to whoever registered it). Set SEED_ADMIN_EMAIL "
+                    + "to an unused address and restart user-svc.", seedAdminEmail);
+            return;
         }
 
         User admin = new User();
@@ -75,12 +86,16 @@ public class AdminSeeder implements CommandLineRunner {
         admin.setEmail(seedAdminEmail);
         admin.setPassword(passwordEncoder.encode(seedAdminPassword));
         admin.setRole("ADMIN");
-        // Seeded, not self-registered — there's no inbox to click a
-        // verification link from, so start it pre-verified rather than
-        // permanently stuck behind the "email not verified" banner.
+        // Seeded, not self-registered — there's no inbox to click a verification link
+        // from, so start it pre-verified rather than stuck behind the "email not
+        // verified" banner.
         admin.setVerified(true);
-        repo.save(admin);
-
-        log.info("Seeded admin account: {}", seedAdminEmail);
+        try {
+            repo.save(admin);
+            log.info("Created the bootstrap admin account: {}", seedAdminEmail);
+        } catch (DataIntegrityViolationException e) {
+            // Several replicas start at once on a fresh deployment; another one won the race.
+            log.info("Bootstrap admin {} was created by another replica.", seedAdminEmail);
+        }
     }
 }

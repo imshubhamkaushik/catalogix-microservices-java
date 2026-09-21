@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
@@ -16,6 +17,8 @@ import static org.mockito.Mockito.*;
 
 class AdminSeederTest {
 
+    private static final String EMAIL = "admin@catalogix.local";
+
     @Mock private UserRepository repo;
     @Mock private PasswordEncoder passwordEncoder;
 
@@ -24,42 +27,83 @@ class AdminSeederTest {
         MockitoAnnotations.openMocks(this);
     }
 
-    @Test
-    void doesNothingWhenSeedingIsDisabled(){
-        AdminSeeder seeder = new AdminSeeder(repo, passwordEncoder, false, "admin@catalogix.local", "pw");
-        seeder.run();
-        verifyNoInteractions(repo);
+    private AdminSeeder seeder(String password) {
+        return new AdminSeeder(repo, passwordEncoder, EMAIL, password);
     }
 
     @Test
-    void doesNothingWhenPasswordIsBlank(){
-        AdminSeeder seeder = new AdminSeeder(repo, passwordEncoder, true, "admin@catalogix.local", "");
-        seeder.run();
-        verifyNoInteractions(repo);
+    void doesNothingWhenAnAdminAlreadyExists() {
+        when(repo.countByRole("ADMIN")).thenReturn(1L);
+
+        seeder("a-strong-password").run();
+
+        verify(repo, never()).save(any());
+        verify(repo, never()).findByEmail(any());
     }
 
     @Test
-    void doesNothingWhenAnAdminWithThatEmailAlreadyExists(){
-        when(repo.findByEmail("admin@catalogix.local")).thenReturn(Optional.of(new User()));
-        AdminSeeder seeder = new AdminSeeder(repo, passwordEncoder, true, "admin@catalogix.local", "pw");
+    void createsAVerifiedAdminOnAFreshDeployment() {
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
+        when(repo.findByEmail(EMAIL)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("a-strong-password")).thenReturn("hashed-pw");
 
-        seeder.run();
+        seeder("a-strong-password").run();
+
+        verify(repo).save(argThat(u ->
+                u.getEmail().equals(EMAIL)
+                        && u.getPassword().equals("hashed-pw")
+                        && u.getRole().equals("ADMIN")
+                        && u.isVerified()));
+    }
+
+    @Test
+    void doesNotDependOnSeedDataBeingEnabled() {
+        // The first admin is a requirement of every deployment, not demo content: the
+        // constructor no longer takes a SEED_DATA flag at all.
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
+        when(repo.findByEmail(EMAIL)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(any())).thenReturn("h");
+
+        seeder("another-strong-password").run();
+
+        verify(repo).save(any(User.class));
+    }
+
+    @Test
+    void startsWithoutAnAdminButDoesNotCreateOneWhenThePasswordIsBlank() {
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
+
+        seeder("").run();
 
         verify(repo, never()).save(any());
     }
 
     @Test
-    void createsAVerifiedAdminWhenEnabledWithAPasswordAndNoExistingAccount(){
-        when(repo.findByEmail("admin@catalogix.local")).thenReturn(Optional.empty());
-        when(passwordEncoder.encode("pw")).thenReturn("hashed-pw");
-        AdminSeeder seeder = new AdminSeeder(repo, passwordEncoder, true, "admin@catalogix.local", "pw");
+    void refusesAPasswordThatIsTooShort() {
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
 
-        seeder.run();
+        seeder("short").run();
 
-        verify(repo).save(argThat(u ->
-                u.getEmail().equals("admin@catalogix.local")
-                        && u.getPassword().equals("hashed-pw")
-                        && u.getRole().equals("ADMIN")
-                        && u.isVerified()));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void neverPromotesAnOrdinaryAccountThatHoldsTheSeedEmail() {
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
+        when(repo.findByEmail(EMAIL)).thenReturn(Optional.of(new User()));
+
+        seeder("a-strong-password").run();
+
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void toleratesAnotherReplicaCreatingTheAdminFirst() {
+        when(repo.countByRole("ADMIN")).thenReturn(0L);
+        when(repo.findByEmail(EMAIL)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(any())).thenReturn("h");
+        when(repo.save(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate email"));
+
+        seeder("a-strong-password").run(); // must not throw
     }
 }

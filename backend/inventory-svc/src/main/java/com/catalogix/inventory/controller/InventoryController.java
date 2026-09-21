@@ -53,11 +53,17 @@ public class InventoryController {
     public InventoryResponse adjust(
             @PathVariable Long productId,
             @RequestBody AdjustInventoryRequest req,
-            @RequestAttribute("userRole") String role
+            @RequestAttribute("userRole") String role,
+            // Optional idempotency headers sent by checkout-svc — see InventorySvc.adjust.
+            @RequestHeader(value = "X-Operation-Id", required = false) String operationId,
+            @RequestHeader(value = "X-Undo-Of", required = false) String undoOf
     ) {
         if (!"SYSTEM".equalsIgnoreCase(role)) {
             throw new ForbiddenException("Stock adjustments must go through checkout-svc or catalog-svc, not be called directly");
         }
-        return svc.adjust(productId, req.getDelta());
+        if (operationId == null && undoOf == null) {
+            return svc.adjust(productId, req.getDelta());
+        }
+        return svc.adjust(productId, req.getDelta(), operationId, undoOf);
     }
 }

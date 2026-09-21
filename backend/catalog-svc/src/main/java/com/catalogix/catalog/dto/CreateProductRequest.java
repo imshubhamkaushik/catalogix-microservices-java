@@ -26,6 +26,10 @@ public class CreateProductRequest {
 
     // Optional. See Product entity / V5 migration for why this is a plain
     // URL rather than a file upload.
+    // Optional. Only http(s) URLs (no javascript:/data: schemes) and at most 500 characters —
+    // the database column length; a longer value used to surface as a 500 instead of a 400.
+    @jakarta.validation.constraints.Size(max = 500, message = "imageUrl must be at most 500 characters")
+    @jakarta.validation.constraints.Pattern(regexp = "^(https?://\\S+)?$", message = "imageUrl must be an http(s) URL")
     private String imageUrl;
 
     public CreateProductRequest() {

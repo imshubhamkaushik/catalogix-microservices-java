@@ -46,9 +46,32 @@ public class InventoryClient {
 
     @CircuitBreaker(name = "inventorySvc", fallbackMethod = "fallback")
     public void adjust(Long productId, int delta) {
+        doAdjust(productId, delta, null, null);
+    }
+
+    /**
+     * Idempotent variant.
+     *
+     * @param operationId unique id of this adjustment; inventory-svc ignores a repeat of it.
+     * @param undoOf for a release: the operation id of the reservation being reversed. If that
+     *        reservation never reached inventory-svc (e.g. the request timed out) nothing is
+     *        added back, so releasing after an AMBIGUOUS failure is always safe.
+     */
+    @CircuitBreaker(name = "inventorySvc", fallbackMethod = "fallbackIdempotent")
+    public void adjust(Long productId, int delta, String operationId, String undoOf) {
+        doAdjust(productId, delta, operationId, undoOf);
+    }
+
+    private void doAdjust(Long productId, int delta, String operationId, String undoOf) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateSystemToken());
         headers.setContentType(MediaType.APPLICATION_JSON);
+        if (operationId != null) {
+            headers.set("X-Operation-Id", operationId);
+        }
+        if (undoOf != null) {
+            headers.set("X-Undo-Of", undoOf);
+        }
         var body = new java.util.HashMap<String, Object>();
         body.put("delta", delta);
         try {
@@ -63,6 +86,11 @@ public class InventoryClient {
         } catch (HttpClientErrorException.NotFound e) {
             throw new ProductUnavailableException("No stock record for product " + productId);
         }
+    }
+
+    @SuppressWarnings("unused")
+    private void fallbackIdempotent(Long productId, int delta, String operationId, String undoOf, Throwable t) {
+        fallback(productId, delta, t);
     }
 
     @SuppressWarnings("unused")

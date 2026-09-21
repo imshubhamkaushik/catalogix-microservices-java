@@ -379,7 +379,7 @@ class UserControllerTest {
         UpdateProfileRequest req = new UpdateProfileRequest();
         req.setName("New Name");
 
-        when(svc.updateProfile(eq(1L), any(UpdateProfileRequest.class)))
+        when(svc.updateProfile(eq(1L), any(UpdateProfileRequest.class), any()))
                 .thenReturn(new UserResponse(1L, "New Name", "x@x.com", "USER", true));
 
         mvc.perform(patch("/users/me")
@@ -396,7 +396,7 @@ class UserControllerTest {
         UpdateProfileRequest req = new UpdateProfileRequest();
         req.setEmail("new@x.com");
 
-        when(svc.updateProfile(eq(1L), any(UpdateProfileRequest.class)))
+        when(svc.updateProfile(eq(1L), any(UpdateProfileRequest.class), any()))
                 .thenThrow(new UnauthorizedException("currentPassword is required and must be correct"));
 
         mvc.perform(patch("/users/me")
@@ -431,7 +431,7 @@ class UserControllerTest {
                 .andExpect(jsonPath("$").isArray());
     }
 
-    // DELETE /users/me/sessions/{id}
+    // DELETE /users/me/sessions/{id} // revokes a session
     @Test
     void revokeSessionReturnsNoContent() throws Exception {
         mvc.perform(delete("/users/me/sessions/10").requestAttr("userId", 1L))
@@ -489,16 +489,76 @@ class UserControllerTest {
                 .andExpect(status().isForbidden());
     }
 
-    // POST /users/me/become-seller
+    // POST /users/me/become-seller — records a PENDING request; the role does not change
     @Test
     @SuppressWarnings("null")
-    void becomeSellerReturnsTheUpgradedProfile() throws Exception {
-        UserResponse upgraded = new UserResponse(1L, "John", "john@example.com", "SELLER", true,
-                java.time.Instant.now(), true, true);
-        when(svc.becomeSeller(1L)).thenReturn(upgraded);
+    void becomeSellerReturnsTheProfileWithAPendingRequest() throws Exception {
+        UserResponse pending = new UserResponse(1L, "John", "john@example.com", "USER", true,
+                java.time.Instant.now(), true, true, "SELLER");
+        when(svc.becomeSeller(1L)).thenReturn(pending);
 
         mvc.perform(post("/users/me/become-seller").requestAttr("userId", 1L))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andExpect(jsonPath("$.requestedRole").value("SELLER"));
+    }
+
+    // PUT /users/{id}/role — admin only
+    @Test
+    @SuppressWarnings("null")
+    void assignRoleAsAdminReturnsTheUpdatedUser() throws Exception {
+        when(svc.assignRole(2L, "SELLER", 1L))
+                .thenReturn(new UserResponse(2L, "Bob", "bob@example.com", "SELLER", true));
+
+        mvc.perform(put("/users/2/role")
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"SELLER\"}"))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("SELLER"));
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void assignRoleRejectsANonAdmin() throws Exception {
+        mvc.perform(put("/users/2/role")
+                .requestAttr("userId", 5L)
+                .requestAttr("userRole", "SELLER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isForbidden());
+
+        verify(svc, never()).assignRole(anyLong(), anyString(), anyLong());
+    }
+
+    @Test
+    @SuppressWarnings("null")
+    void assignRoleRejectsAnUnknownRoleValueWith400() throws Exception {
+        mvc.perform(put("/users/2/role")
+                .requestAttr("userId", 1L)
+                .requestAttr("userRole", "ADMIN")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"SUPERUSER\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // DELETE /users/{id}/role-request — admin only
+    @Test
+    void rejectRoleRequestAsAdminSucceeds() throws Exception {
+        when(svc.rejectRoleRequest(2L))
+                .thenReturn(new UserResponse(2L, "Bob", "bob@example.com", "USER", true));
+
+        mvc.perform(delete("/users/2/role-request").requestAttr("userRole", "ADMIN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"));
+    }
+
+    @Test
+    void rejectRoleRequestRejectsANonAdmin() throws Exception {
+        mvc.perform(delete("/users/2/role-request").requestAttr("userRole", "USER"))
+                .andExpect(status().isForbidden());
+
+        verify(svc, never()).rejectRoleRequest(anyLong());
     }
 }

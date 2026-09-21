@@ -19,10 +19,19 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    // "USER" or "ADMIN". Defaults to USER; promoted to ADMIN at registration
-    // time if the email matches the ADMIN_EMAILS allow-list (see UserSvc).
+    // "USER" (customer), "SELLER" or "ADMIN". Everyone registers as USER; only an
+    // admin can assign SELLER or ADMIN (see UserSvc.assignRole). The one
+    // bootstrap admin of a fresh deployment is created by AdminSeeder.
     @Column(nullable = false)
     private String role = "USER";
+
+    // A pending request for a higher role (currently only "SELLER"), waiting for
+    // an admin to approve or reject it. Both null when there is no pending request.
+    @Column(name = "requested_role")
+    private String requestedRole;
+
+    @Column(name = "role_requested_at")
+    private Instant roleRequestedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -90,6 +99,22 @@ public class User {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getRequestedRole() {
+        return requestedRole;
+    }
+
+    public void setRequestedRole(String requestedRole) {
+        this.requestedRole = requestedRole;
+    }
+
+    public Instant getRoleRequestedAt() {
+        return roleRequestedAt;
+    }
+
+    public void setRoleRequestedAt(Instant roleRequestedAt) {
+        this.roleRequestedAt = roleRequestedAt;
     }
 
     public Instant getCreatedAt() {

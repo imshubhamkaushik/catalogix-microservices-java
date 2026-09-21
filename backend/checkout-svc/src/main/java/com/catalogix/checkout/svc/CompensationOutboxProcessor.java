@@ -57,7 +57,14 @@ public class CompensationOutboxProcessor {
             String bearerToken = "Bearer " + jwtService.generateSystemToken();
             try {
                 switch (entry.getType()) {
-                    case RELEASE_STOCK -> inventoryClient.adjust(entry.getProductId(), entry.getDelta());
+                    case RELEASE_STOCK -> {
+                        if (entry.getOperationId() == null && entry.getUndoOf() == null) {
+                            inventoryClient.adjust(entry.getProductId(), entry.getDelta()); // queued before V9
+                        } else {
+                            inventoryClient.adjust(entry.getProductId(), entry.getDelta(),
+                                    entry.getOperationId(), entry.getUndoOf());
+                        }
+                    }
                     case RELEASE_COUPON -> promotionsClient.release(entry.getCouponCode(), bearerToken);
                 }
                 entry.setStatus(OutboxStatus.COMPLETED);

@@ -24,6 +24,22 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     @Query("UPDATE RefreshToken t SET t.revoked = true WHERE t.userId = :userId AND t.revoked = false")
     int revokeAllForUser(@Param("userId") Long userId);
 
+    // Every session of the user EXCEPT the one identified by keepHash — "sign out my
+    // other devices" (e.g. after a password change) without ending this one.
+    @Modifying
+    @Query("UPDATE RefreshToken t SET t.revoked = true "
+            + "WHERE t.userId = :userId AND t.revoked = false AND t.tokenHash <> :keepHash")
+    int revokeAllForUserExcept(@Param("userId") Long userId, @Param("keepHash") String keepHash);
+
+    // Atomic "use this token exactly once": a single conditional UPDATE. When two
+    // requests present the same refresh token at the same moment, the database
+    // serialises them — one updates the row (returns 1), the other finds
+    // revoked = true already and updates nothing (returns 0). The old
+    // read-check-then-save let both succeed and mint two replacement tokens.
+    @Modifying
+    @Query("UPDATE RefreshToken t SET t.revoked = true WHERE t.id = :id AND t.revoked = false")
+    int revokeIfActive(@Param("id") Long id);
+
     // Housekeeping: delete anything that's long past useful (expired or
     // revoked a while ago), so the table doesn't grow unbounded forever.
     @Modifying

@@ -99,7 +99,11 @@ public class CheckoutSvc {
         this.eventPublisher = eventPublisher;
     }
 
-    private record ReservedItem(Long productId, String productName, BigDecimal price, int quantity) {}
+    // reserveOperationId: the idempotency id sent to inventory-svc when this line was reserved,
+    // or null when the reservation belongs to an already-persisted order (then the release is
+    // keyed by the order instead — see compensateWithReason).
+    private record ReservedItem(Long productId, String productName, BigDecimal price, int quantity,
+                                String reserveOperationId) {}
 
     public record OrderCreationResult(OrderResponse order, boolean wasNew) {}
     public record OrderPaymentResult(OrderResponse order, boolean paymentSucceeded) {}
@@ -163,13 +167,25 @@ public class CheckoutSvc {
 
         List<ReservedItem> reserved = new ArrayList<>();
         String committedCouponCode = null;
+        // Groups every stock operation of THIS attempt. Reserve and release calls carry ids
+        // derived from it, so inventory-svc can recognise repeats and reverse exactly what it applied.
+        String reservationId = java.util.UUID.randomUUID().toString();
 
         try {
             BigDecimal subtotal = BigDecimal.ZERO;
+            int lineIndex = 0;
             for (CartClient.ItemLine line : items) {
                 CatalogClient.ProductDto product = clients.catalog().fetch(line.productId(), bearerToken);
-                clients.inventory().adjust(line.productId(), -line.quantity());
-                reserved.add(new ReservedItem(product.id(), product.name(), product.price(), line.quantity()));
+                String reserveOp = reservationId + ":reserve:" + lineIndex++;
+                ReservedItem item = new ReservedItem(
+                        product.id(), product.name(), product.price(), line.quantity(), reserveOp);
+                // Registered BEFORE the call, on purpose. If the call times out we cannot know
+                // whether inventory-svc applied it; only registered lines are compensated, so
+                // registering afterwards leaked stock in exactly that case. Releasing a
+                // reservation that never happened is harmless — the release names this
+                // reservation (undoOf) and inventory-svc adds nothing back for one it never saw.
+                reserved.add(item);
+                clients.inventory().adjust(line.productId(), -line.quantity(), reserveOp, null);
                 subtotal = subtotal.add(product.price().multiply(BigDecimal.valueOf(line.quantity())));
             }
 
@@ -217,7 +233,7 @@ public class CheckoutSvc {
             // order-save step itself (e.g. the concurrent idempotency-key
             // race below) left committed side effects with nothing to show
             // for them.
-            compensate(reserved, committedCouponCode, bearerToken);
+            compensate(reserved, committedCouponCode, bearerToken, "attempt-" + reservationId);
             throw failure;
         }
     }
@@ -249,7 +265,9 @@ public class CheckoutSvc {
             String userEmail,
             String idempotencyKey
     ) {
-        Order order = repo.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+        // Row-locked read: serialises concurrent pay/cancel attempts on the same order
+        // (see OrderRepository.findByIdForUpdate) so a double submit cannot charge twice.
+        Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
         assertCanAccess(order, userId, role);
 
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
@@ -405,7 +423,9 @@ public class CheckoutSvc {
 
     @Transactional
     public OrderResponse cancelOrder(Long id, Long userId, String role, String bearerToken, String userEmail) {
-        Order order = repo.findById(id).orElseThrow(() -> new OrderNotFoundException(id));
+        // Row-locked read — see payOrder: a cancel racing a payment (or a second cancel)
+        // must wait for the other to finish rather than act on stale status.
+        Order order = repo.findByIdForUpdate(id).orElseThrow(() -> new OrderNotFoundException(id));
         assertCanAccess(order, userId, role);
 
         if (order.getStatus() == OrderStatus.CANCELLED) {
@@ -420,7 +440,7 @@ public class CheckoutSvc {
                 && order.getPaymentMethod() != null
                 && order.getPaymentMethod() != PaymentMethod.COD) {
             try {
-                clients.refund().refund(order.getId(), order.getTotalAmount());
+                clients.refund().refund(order.getId(), order.getTotalAmount(), "cancel-order-" + order.getId());
             } catch (RuntimeException e) {
                 throw new RefundFailedException(
                         "Refund failed for cancelled order " + id);
@@ -437,25 +457,53 @@ public class CheckoutSvc {
         return toResponse(saved);
     }
 
+    /**
+     * Cancels an order that was placed but never paid, giving its reserved stock and coupon
+     * back. Called by PendingOrderExpiryJob. Without this, every abandoned checkout kept its
+     * stock reserved forever. Row-locked and status-checked, so it is a no-op if the customer
+     * paid (or cancelled) in the meantime.
+     *
+     * @return true if the order was expired by this call
+     */
+    @Transactional
+    public boolean expireUnpaidOrder(Long orderId, String systemBearerToken) {
+        Order order = repo.findByIdForUpdate(orderId).orElse(null);
+        if (order == null || order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+            return false;
+        }
+        releaseOrderSideEffects(order, systemBearerToken, "expire-unpaid-order-" + orderId);
+        order.setStatus(OrderStatus.CANCELLED);
+        order.addStatusEvent(OrderStatus.CANCELLED, "Cancelled automatically: payment was not received in time");
+        repo.save(order);
+        return true;
+    }
+
     private void releaseOrderSideEffects(Order order, String bearerToken, String outboxReason) {
         List<ReservedItem> asReserved = order.getItems().stream()
-                .map(i -> new ReservedItem(i.getProductId(), i.getProductName(), i.getUnitPrice(), i.getQuantity()))
+                .map(i -> new ReservedItem(i.getProductId(), i.getProductName(), i.getUnitPrice(), i.getQuantity(), null))
                 .toList();
-        compensateWithReason(asReserved, order.getAppliedCouponCode(), bearerToken, outboxReason);
+        compensateWithReason(asReserved, order.getAppliedCouponCode(), bearerToken, outboxReason, "order-" + order.getId());
     }
 
-    private void compensate(List<ReservedItem> reserved, String couponCode, String bearerToken) {
-        compensateWithReason(reserved, couponCode, bearerToken, "compensate-failed-order-creation");
+    private void compensate(List<ReservedItem> reserved, String couponCode, String bearerToken, String scope) {
+        compensateWithReason(reserved, couponCode, bearerToken, "compensate-failed-order-creation", scope);
     }
 
-    private void compensateWithReason(List<ReservedItem> reserved, String couponCode, String bearerToken, String reason) {
+    // scope makes each release's idempotency id unique to ONE logical release ("attempt-<uuid>"
+    // for a failed order creation, "order-<id>" for a cancel/expiry), so retrying it — live, or
+    // later from the outbox after a crash — releases each line at most once.
+    private void compensateWithReason(List<ReservedItem> reserved, String couponCode, String bearerToken,
+                                      String reason, String scope) {
+        int lineIndex = 0;
         for (ReservedItem r : reserved) {
+            String releaseOp = "release:" + scope + ":" + lineIndex++;
             try {
-                clients.inventory().adjust(r.productId(), r.quantity());
+                clients.inventory().adjust(r.productId(), r.quantity(), releaseOp, r.reserveOperationId());
             } catch (RuntimeException compensationError) {
                 log.warn("Live stock-release failed for product {} ({}), queuing to outbox: {}",
                         r.productId(), reason, compensationError.getMessage());
-                outboxRepo.save(CompensationOutbox.releaseStock(r.productId(), r.quantity(), reason));
+                outboxRepo.save(CompensationOutbox.releaseStock(
+                        r.productId(), r.quantity(), reason, releaseOp, r.reserveOperationId()));
             }
         }
         if (couponCode != null) {

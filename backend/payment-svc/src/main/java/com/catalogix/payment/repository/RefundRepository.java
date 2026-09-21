@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface RefundRepository extends JpaRepository<Refund, Long> {
     List<Refund> findByOrderId(Long orderId);
+
+    java.util.Optional<Refund> findByOrderIdAndIdempotencyKey(Long orderId, String idempotencyKey);
 }

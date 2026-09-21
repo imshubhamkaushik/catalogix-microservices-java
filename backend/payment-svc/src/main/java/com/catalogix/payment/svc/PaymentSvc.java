@@ -162,10 +162,33 @@ public class PaymentSvc {
     // Javadoc), since a COD order never has a SUCCEEDED Payment row to find here.
     @Transactional
     public RefundResponse refund(ProcessRefundRequest req) {
+        return refund(req, null);
+    }
+
+    /**
+     * @param idempotencyKey optional replay key. A repeat of a refund already made under the same
+     *        key for the same order returns that refund (HTTP-level replay) instead of refunding
+     *        again or failing with "would exceed the original payment".
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public RefundResponse refund(ProcessRefundRequest req, String idempotencyKey) {
         Payment original = repo.findByOrderIdOrderByCreatedAtDesc(req.getOrderId()).stream()
                 .filter(p -> p.getStatus() == PaymentStatus.SUCCEEDED)
                 .max(Comparator.comparing(Payment::getCreatedAt))
                 .orElseThrow(() -> new NoSuchPaymentException(req.getOrderId()));
+
+        // Serialise concurrent refunds of this payment; everything below runs under the lock.
+        original = repo.findByIdForUpdate(original.getId()).orElse(original);
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            java.util.Optional<Refund> replay = refundRepo.findByOrderIdAndIdempotencyKey(
+                    req.getOrderId(), idempotencyKey);
+            if (replay.isPresent()) {
+                Refund existing = replay.get();
+                return new RefundResponse(existing.getId(), existing.getOrderId(), existing.getAmount(),
+                        existing.getReference(), existing.getCreatedAt());
+            }
+        }
 
         BigDecimal alreadyRefunded = refundRepo.findByOrderId(req.getOrderId()).stream()
                 .map(Refund::getAmount)
@@ -179,6 +202,9 @@ public class PaymentSvc {
 
         Refund refund = new Refund(req.getOrderId(), original.getId(), req.getAmount(),
                 "MOCK-REFUND-" + UUID.randomUUID());
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            refund.setIdempotencyKey(idempotencyKey);
+        }
         Refund saved = refundRepo.save(refund);
         return new RefundResponse(saved.getId(), saved.getOrderId(), saved.getAmount(),
                 saved.getReference(), saved.getCreatedAt());

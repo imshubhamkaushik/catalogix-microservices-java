@@ -38,6 +38,13 @@ public class CompensationOutbox {
     @Column
     private Integer delta;
 
+    // RELEASE_STOCK only: idempotency keys for inventory-svc (null on rows queued before V9).
+    @Column(name = "operation_id", length = 120)
+    private String operationId;
+
+    @Column(name = "undo_of", length = 120)
+    private String undoOf;
+
     // Populated for RELEASE_COUPON, null for RELEASE_STOCK.
     @Column(name = "coupon_code", length = 50)
     private String couponCode;
@@ -75,6 +82,22 @@ public class CompensationOutbox {
         e.delta = delta;
         e.reason = reason;
         return e;
+    }
+
+    public static CompensationOutbox releaseStock(Long productId, Integer delta, String reason,
+                                                  String operationId, String undoOf) {
+        CompensationOutbox e = releaseStock(productId, delta, reason);
+        e.operationId = operationId;
+        e.undoOf = undoOf;
+        return e;
+    }
+
+    public String getOperationId() {
+        return operationId;
+    }
+
+    public String getUndoOf() {
+        return undoOf;
     }
 
     public static CompensationOutbox releaseCoupon(String couponCode, String reason) {

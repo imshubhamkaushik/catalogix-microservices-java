@@ -36,9 +36,21 @@ public class RefundClient {
     public record RefundOutcome(String reference) {}
 
     public RefundOutcome refund(Long orderId, BigDecimal amount) {
+        return refund(orderId, amount, null);
+    }
+
+    /**
+     * @param idempotencyKey stable key for this logical refund (e.g. "cancel-order-42"). payment-svc
+     *        returns the original refund for a repeat, so retrying a cancellation whose refund
+     *        already went through does not fail with "would exceed the original payment".
+     */
+    public RefundOutcome refund(Long orderId, BigDecimal amount, String idempotencyKey) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateSystemToken());
         headers.setContentType(MediaType.APPLICATION_JSON);
+        if (idempotencyKey != null) {
+            headers.set("Idempotency-Key", idempotencyKey);
+        }
 
         var body = new java.util.HashMap<String, Object>();
         body.put("orderId", orderId);

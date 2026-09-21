@@ -77,6 +77,15 @@ public class GlobalExceptionHandler {
                 .body(body);
     }
 
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleUserNotFound(UserNotFoundException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put(MESSAGE, ex.getMessage());
+        body.put(TIMESTAMP, new Date());
+        body.put(STATUS, HttpStatus.NOT_FOUND.value());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
     @ExceptionHandler(AddressNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleAddressNotFound(AddressNotFoundException ex) {
         Map<String, Object> body = new HashMap<>();

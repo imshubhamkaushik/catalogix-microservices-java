@@ -13,6 +13,7 @@ import com.catalogix.user.exception.ForbiddenException;
 import com.catalogix.user.event.EmailVerificationRequestedEvent;
 import com.catalogix.user.event.PasswordResetRequestedEvent;
 import com.catalogix.user.exception.UnauthorizedException;
+import com.catalogix.user.exception.UserNotFoundException;
 import com.catalogix.user.model.EmailVerificationToken;
 import com.catalogix.user.model.PasswordResetToken;
 import com.catalogix.user.model.User;
@@ -31,10 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Business logic for users:
@@ -61,7 +60,10 @@ public class UserSvc {
     private final TokenHasher tokenHasher;
     private final ApplicationEventPublisher eventPublisher;
     private final String frontendBaseUrl;
-    private final Set<String> adminEmails;
+    // A real hash of a random value, computed once on first use — only ever compared
+    // against, to equalise login timing for unknown emails (see loginInternal).
+    private volatile String dummyPasswordHash;
+    private static final Set<String> ASSIGNABLE_ROLES = Set.of("USER", "SELLER", "ADMIN");
     private static final String ACCOUNT_NO_LONGER_EXISTS = "Account no longer exists";
 
     public UserSvc(
@@ -74,8 +76,7 @@ public class UserSvc {
             PasswordResetTokenRepository passwordResetRepo,
             TokenHasher tokenHasher,
             ApplicationEventPublisher eventPublisher,
-            @Value("${FRONTEND_BASE_URL:http://localhost:11000}") String frontendBaseUrl,
-            @Value("${ADMIN_EMAILS:}") String adminEmailsCsv
+            @Value("${FRONTEND_BASE_URL:http://localhost:11000}") String frontendBaseUrl
     ) {
         this.repo = repo;
         this.passwordEncoder = passwordEncoder;
@@ -87,11 +88,6 @@ public class UserSvc {
         this.tokenHasher = tokenHasher;
         this.eventPublisher = eventPublisher;
         this.frontendBaseUrl = frontendBaseUrl;
-        this.adminEmails = Arrays.stream(adminEmailsCsv.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(String::toLowerCase)
-                .collect(Collectors.toSet());
     }
 
     // Register a new user. Throws IllegalArgumentException if email already exists.
@@ -116,11 +112,24 @@ public class UserSvc {
         user.setName(req.getName());
         user.setEmail(req.getEmail());
         user.setPassword(passwordEncoder.encode(req.getPassword())); // Hash password before saving
-        user.setRole(adminEmails.contains(req.getEmail().toLowerCase()) ? "ADMIN" : "USER");
+        // Everyone who registers is a customer. There is deliberately NO way to become
+        // a seller or admin by registering (an email allow-list used to grant ADMIN to
+        // whoever registered a matching address first — with no email verification, that
+        // was an open door). Higher roles are assigned by an admin; see assignRole().
+        user.setRole("USER");
 
         User saved = repo.save(user);
         sendVerificationEmail(saved);
         return issueAuthResponse(saved, userAgent);
+    }
+
+    private String dummyPasswordHash() {
+        String hash = dummyPasswordHash;
+        if (hash == null) {
+            hash = passwordEncoder.encode(java.util.UUID.randomUUID().toString());
+            dummyPasswordHash = hash;
+        }
+        return hash;
     }
 
     // Login user: returns fresh tokens + profile if credentials are valid.
@@ -141,7 +150,16 @@ public class UserSvc {
         loginAttemptTracker.assertNotLocked(req.getEmail());
 
         User user = repo.findByEmail(req.getEmail()).orElse(null);
-        boolean passwordOk = user != null && passwordEncoder.matches(req.getPassword(), user.getPassword());
+        boolean passwordOk;
+        if (user != null) {
+            passwordOk = passwordEncoder.matches(req.getPassword(), user.getPassword());
+        } else {
+            // Unknown email: do the same amount of hashing work anyway. Without this the
+            // response is measurably faster than for a real account, which lets an
+            // attacker enumerate registered emails by timing the login endpoint.
+            passwordEncoder.matches(req.getPassword(), dummyPasswordHash());
+            passwordOk = false;
+        }
 
         if (!passwordOk) {
             loginAttemptTracker.recordFailure(req.getEmail());
@@ -253,6 +271,16 @@ public class UserSvc {
     // Changing email resets verified to false and re-sends a verification email.
     @Transactional
     public UserResponse updateProfile(Long userId, UpdateProfileRequest req) {
+        return updateProfile(userId, req, null);
+    }
+
+    /**
+     * @param currentRefreshToken the caller's own refresh cookie, if any. When the password
+     *        changes, every OTHER session is signed out (a stolen session must not survive a
+     *        password change) while this one stays signed in; with no token, all sessions end.
+     */
+    @Transactional
+    public UserResponse updateProfile(Long userId, UpdateProfileRequest req, String currentRefreshToken) {
         User user = repo.findById(userId)
                 .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
 
@@ -280,6 +308,7 @@ public class UserSvc {
         }
         if (changingPassword) {
             user.setPassword(passwordEncoder.encode(req.getNewPassword()));
+            refreshTokenService.revokeAllForUserExcept(userId, currentRefreshToken);
         }
 
         User saved = repo.save(user);
@@ -335,7 +364,8 @@ public class UserSvc {
     private UserResponse toResponse(User u) {
         return new UserResponse(
                 u.getId(), u.getName(), u.getEmail(), u.getRole(), u.isVerified(),
-                u.getCreatedAt(), u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled());
+                u.getCreatedAt(), u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled(),
+                u.getRequestedRole());
     }
 
     // ---- Sessions (see RefreshTokenService for the underlying storage) ----
@@ -364,21 +394,82 @@ public class UserSvc {
         refreshTokenService.revokeById(sessionId, userId);
     }
 
-    // Self-serve seller opt-in — no admin approval step. Only actually
-    // changes anything for a plain USER account: an existing SELLER is a
-    // no-op (idempotent, same reasoning as every other seed/toggle method
-    // in this class), and an ADMIN is deliberately left as ADMIN rather
-    // than "downgraded" to SELLER, since ADMIN already has every
-    // capability SELLER does and then some.
+    // A customer ASKS to become a seller. Nothing is granted here: this only records
+    // a pending request that an admin reviews (assignRole approves it, rejectRoleRequest
+    // declines it). Idempotent — asking again keeps the original request time. An
+    // existing SELLER or ADMIN has nothing to request, so it is a no-op for them (an
+    // ADMIN in particular must never be "downgraded" by a stray request).
     @Transactional
     public UserResponse becomeSeller(Long userId) {
         User user = repo.findById(userId)
                 .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
-        if ("USER".equalsIgnoreCase(user.getRole())) {
-            user.setRole("SELLER");
+        if ("USER".equalsIgnoreCase(user.getRole()) && user.getRequestedRole() == null) {
+            user.setRequestedRole("SELLER");
+            user.setRoleRequestedAt(Instant.now());
             repo.save(user);
         }
         return toResponse(user);
+    }
+
+    // Admin action: assign a role (USER, SELLER or ADMIN) to a user. This is also how a
+    // pending seller request is approved. Any pending request is cleared, whatever role
+    // is assigned — assigning USER to a requester is a rejection.
+    //
+    // Guard rails:
+    //  * an admin cannot change their own role (avoids accidentally locking yourself out);
+    //  * the last remaining admin cannot be demoted, so the deployment can never end up
+    //    with nobody able to manage roles.
+    // A demotion also revokes the user's refresh tokens so they cannot mint fresh
+    // tokens carrying the old, higher role (an already-issued access token still
+    // lives until it expires, at most JWT_EXPIRATION_MS).
+    @Transactional
+    public UserResponse assignRole(Long targetUserId, String newRole, Long adminId) {
+        if (newRole == null || !ASSIGNABLE_ROLES.contains(newRole.toUpperCase())) {
+            throw new IllegalArgumentException("Unknown role: " + newRole);
+        }
+        String role = newRole.toUpperCase();
+        if (targetUserId.equals(adminId)) {
+            throw new ForbiddenException("You cannot change your own role");
+        }
+        User user = repo.findById(targetUserId)
+                .orElseThrow(() -> new UserNotFoundException(targetUserId));
+
+        String previous = user.getRole();
+        boolean demotingAdmin = "ADMIN".equalsIgnoreCase(previous) && !"ADMIN".equals(role);
+        if (demotingAdmin && repo.countByRole("ADMIN") <= 1) {
+            throw new IllegalArgumentException("Cannot remove the last admin");
+        }
+
+        user.setRole(role);
+        user.setRequestedRole(null);
+        user.setRoleRequestedAt(null);
+        User saved = repo.save(user);
+
+        if (isDemotion(previous, role)) {
+            refreshTokenService.revokeAllForUser(targetUserId);
+        }
+        return toResponse(saved);
+    }
+
+    // Admin action: decline a pending role request without changing the user's role.
+    @Transactional
+    public UserResponse rejectRoleRequest(Long targetUserId) {
+        User user = repo.findById(targetUserId)
+                .orElseThrow(() -> new UserNotFoundException(targetUserId));
+        user.setRequestedRole(null);
+        user.setRoleRequestedAt(null);
+        return toResponse(repo.save(user));
+    }
+
+    private static boolean isDemotion(String previous, String next) {
+        return roleRank(next) < roleRank(previous);
+    }
+
+    private static int roleRank(String role) {
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            return 2;
+        }
+        return "SELLER".equalsIgnoreCase(role) ? 1 : 0;
     }
 
     // ---- Notification preferences ----

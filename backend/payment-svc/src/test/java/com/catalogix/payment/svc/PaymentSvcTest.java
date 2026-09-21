@@ -249,6 +249,30 @@ class PaymentSvcTest {
     }
 
     @Test
+    void refundReplayWithTheSameIdempotencyKeyReturnsTheOriginalRefundInsteadOfRefundingAgain() {
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
+        Refund earlier = new Refund(42L, 1L, new BigDecimal("100.00"), "MOCK-REFUND-first");
+        earlier.setId(9L);
+        when(refundRepo.findByOrderIdAndIdempotencyKey(42L, "cancel-order-42")).thenReturn(java.util.Optional.of(earlier));
+
+        RefundResponse resp = svc.refund(refundReq("100.00"), "cancel-order-42");
+
+        assertThat(resp.getReference()).isEqualTo("MOCK-REFUND-first");
+        verify(refundRepo, never()).save(any(Refund.class));
+    }
+
+    @Test
+    void refundWithAnIdempotencyKeyStoresTheKey() {
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
+        when(refundRepo.findByOrderId(42L)).thenReturn(List.of());
+        when(refundRepo.findByOrderIdAndIdempotencyKey(42L, "cancel-order-42")).thenReturn(java.util.Optional.empty());
+
+        svc.refund(refundReq("100.00"), "cancel-order-42");
+
+        verify(refundRepo).save(org.mockito.ArgumentMatchers.argThat(r -> "cancel-order-42".equals(r.getIdempotencyKey())));
+    }
+
+    @Test
     void refundThrowsWhenThereIsNoSuccessfulPaymentForTheOrder() {
         when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of());
 

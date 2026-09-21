@@ -37,6 +37,10 @@ public class Refund {
     @Column(length = 100)
     private String reference;
 
+    // Caller-supplied replay key; unique per order (see V4). Null for callers that send none.
+    @Column(name = "idempotency_key", length = 100)
+    private String idempotencyKey;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -60,6 +64,9 @@ public class Refund {
 
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
+
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
 
     public String getReference() { return reference; }
     public void setReference(String reference) { this.reference = reference; }

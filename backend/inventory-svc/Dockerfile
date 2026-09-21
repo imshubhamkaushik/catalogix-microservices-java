@@ -1,43 +1,35 @@
 # Multi-stage Dockerfile for inventory-svc
-# ---------- Stage 1: Shared security-common builder ----------
-# Inlined from backend/Dockerfile.sec-shared rather than depending on a
-# separately pre-built "sec-shared" image. The old approach only worked
-# inside docker-compose, via Compose-specific "additional_contexts" wiring
-# (docker-compose.yaml's sec-shared service + each service's
-# additional_contexts: sec-shared: service:sec-shared) -- a plain
-# "docker build" (manual, CI, or an ECR build step for EKS) had no idea
-# what "FROM sec-shared" meant and failed outright trying to resolve it as
-# a registry image ("pull access denied, repository does not exist").
-# Inlining it as this file's own first stage makes a bare
-# "docker build -f backend/inventory-svc/Dockerfile ." (context = repo root) work
-# identically everywhere, with no prior build step and no
-# docker-compose-only mechanism involved. Docker's own layer cache still
-# dedupes this stage across all 9 services' builds as long as pom.xml and
-# security-common/'s content haven't changed, so this costs nothing extra
-# after the first build.
-FROM maven:3.9.16-eclipse-temurin-21-alpine AS sec-shared
+#
+# Build context = REPO ROOT:  docker build -f backend/inventory-svc/Dockerfile .
+#
+# ---------- Stage 1: Build ----------
+# security-common (the shared JWT/CORS/rate-limit library) is compiled and
+# installed into the local Maven repository in the same RUN that builds the
+# service. That is deliberate: the Maven cache mount below replaces
+# /root/.m2 for the duration of the RUN, so anything installed there by an
+# EARLIER layer would be invisible to it.
+#
+# The cache mount (BuildKit, on by default in current Docker) keeps downloaded
+# dependencies between builds, so a source-only change no longer re-downloads
+# the whole Spring dependency tree. The cache id is per service so parallel
+# service builds never write to the same local repository at the same time.
+# The mount is a build-time cache only: nothing in it ends up in the image.
+FROM maven:3.9.16-eclipse-temurin-21-alpine AS build
 WORKDIR /app
 
-# Install the root Maven parent POM
 COPY pom.xml ./pom.xml
-RUN mvn -B -N install
-
-# Build and install security-common into this image's local Maven repository
 COPY backend/security-common/pom.xml security-common/pom.xml
 COPY backend/security-common/src security-common/src
-
-RUN mvn -B -f security-common/pom.xml clean install -DskipTests
-
-# ---------- Stage 2: Build ----------
-FROM sec-shared AS build
-WORKDIR /app
-
 COPY backend/inventory-svc/pom.xml inventory-svc/pom.xml
 COPY backend/inventory-svc/src inventory-svc/src
-RUN mvn -B clean package -DskipTests -f inventory-svc/pom.xml
 
-# ---------- Stage 3: App ----------
-FROM gcr.io/distroless/java21-debian13:nonroot AS app
+RUN --mount=type=cache,id=catalogix-m2-inventory-svc,target=/root/.m2 \
+    mvn -B -N install \
+    && mvn -B -f security-common/pom.xml clean install -DskipTests \
+    && mvn -B -f inventory-svc/pom.xml clean package -DskipTests
+
+# ---------- Stage 2: Runtime ----------
+FROM gcr.io/distroless/java21-debian13:nonroot AS runtime
 WORKDIR /app
 
 COPY --from=build /app/inventory-svc/target/inventory-svc.jar inventory-svc.jar

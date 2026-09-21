@@ -5,6 +5,7 @@ import com.catalogix.user.exception.UnauthorizedException;
 import com.catalogix.user.model.RefreshToken;
 import com.catalogix.user.repository.RefreshTokenRepository;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +21,13 @@ import java.util.List;
  *
  * Tokens are rotated on every refresh: each use revokes the old token and
  * issues a new one, so a stolen-then-reused old token is easy to notice
- * (its hash will already be marked revoked).
+ * (its hash will already be marked revoked). The revoke is a single atomic
+ * conditional UPDATE, so two simultaneous refreshes with the same token can
+ * never both succeed.
+ *
+ * A session also has an ABSOLUTE maximum age (REFRESH_SESSION_MAX_MS, default 30
+ * days) measured from the original sign-in and carried through every rotation;
+ * without it, a session that kept refreshing never expired.
  */
 @Component
 public class RefreshTokenService {
@@ -28,15 +35,25 @@ public class RefreshTokenService {
     private final RefreshTokenRepository repo;
     private final TokenHasher tokenHasher;
     private final long expirationMs;
+    private final long maxSessionMs;
 
+    private static final long DEFAULT_MAX_SESSION_MS = 30L * 24 * 60 * 60 * 1000;
+
+    public RefreshTokenService(RefreshTokenRepository repo, TokenHasher tokenHasher, long expirationMs) {
+        this(repo, tokenHasher, expirationMs, DEFAULT_MAX_SESSION_MS);
+    }
+
+    @Autowired
     public RefreshTokenService(
             RefreshTokenRepository repo,
             TokenHasher tokenHasher,
-            @Value("${REFRESH_TOKEN_EXPIRATION_MS:604800000}") long expirationMs
+            @Value("${REFRESH_TOKEN_EXPIRATION_MS:604800000}") long expirationMs,
+            @Value("${REFRESH_SESSION_MAX_MS:2592000000}") long maxSessionMs
     ) {
         this.repo = repo;
         this.tokenHasher = tokenHasher;
         this.expirationMs = expirationMs;
+        this.maxSessionMs = maxSessionMs;
     }
 
     @Transactional
@@ -46,9 +63,14 @@ public class RefreshTokenService {
 
     @Transactional
     public String issue(Long userId, String userAgent) {
+        return issueInSession(userId, userAgent, Instant.now());
+    }
+
+    private String issueInSession(Long userId, String userAgent, Instant sessionStartedAt) {
         String rawToken = tokenHasher.generateRawToken();
         RefreshToken entity = new RefreshToken(
                 userId, tokenHasher.hash(rawToken), Instant.now().plusMillis(expirationMs), userAgent);
+        entity.setSessionStartedAt(sessionStartedAt);
         repo.save(entity);
         return rawToken;
     }
@@ -67,14 +89,26 @@ public class RefreshTokenService {
         RefreshToken existing = repo.findByTokenHash(tokenHasher.hash(rawToken))
                 .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
 
-        if (!existing.isValid(Instant.now())) {
+        Instant now = Instant.now();
+        if (!existing.isValid(now)) {
             throw new UnauthorizedException("Refresh token expired or already used");
         }
 
-        existing.setRevoked(true);
-        repo.save(existing);
+        Instant sessionStart = existing.getSessionStartedAt() != null
+                ? existing.getSessionStartedAt()
+                : existing.getCreatedAt();
+        boolean sessionTooOld = sessionStart.plusMillis(maxSessionMs).isBefore(now);
 
-        String newToken = issue(existing.getUserId(), existing.getUserAgent());
+        // Atomic single-use claim: only the caller whose UPDATE actually flips
+        // revoked=false -> true may continue.
+        if (repo.revokeIfActive(existing.getId()) == 0) {
+            throw new UnauthorizedException("Refresh token expired or already used");
+        }
+        if (sessionTooOld) {
+            throw new UnauthorizedException("Session expired — please sign in again");
+        }
+
+        String newToken = issueInSession(existing.getUserId(), existing.getUserAgent(), sessionStart);
         return new RotationResult(existing.getUserId(), newToken);
     }
 
@@ -89,6 +123,20 @@ public class RefreshTokenService {
     @Transactional
     public void revokeAllForUser(Long userId) {
         repo.revokeAllForUser(userId);
+    }
+
+    /**
+     * Signs the user out everywhere EXCEPT the session identified by
+     * {@code rawTokenToKeep} (the caller's own refresh cookie). If no token is
+     * given, every session is revoked.
+     */
+    @Transactional
+    public void revokeAllForUserExcept(Long userId, String rawTokenToKeep) {
+        if (rawTokenToKeep == null || rawTokenToKeep.isBlank()) {
+            repo.revokeAllForUser(userId);
+            return;
+        }
+        repo.revokeAllForUserExcept(userId, tokenHasher.hash(rawTokenToKeep));
     }
 
     // For the session-list UI. Only returns sessions that are actually still
