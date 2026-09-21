@@ -1,8 +1,9 @@
-FROM nginx:1.29.8-alpine
+FROM nginx:stable-alpine3.24
 
 # Run nginx unprivileged. The Helm deployment mounts writable emptyDir volumes
-# for nginx cache/run/log/tmp paths because the container root filesystem is
-# read-only in EKS.
+# for nginx cache and tmp paths because the container root filesystem is
+# read-only in EKS. /var/log/nginx is deliberately NOT mounted: the image links
+# access.log/error.log to stdout/stderr, which is how logs reach `kubectl logs`.
 RUN apk update && apk upgrade --no-cache \
     && sed -i '/^user /d' /etc/nginx/nginx.conf \
     && sed -i 's|^pid .*|pid /tmp/nginx.pid;|' /etc/nginx/nginx.conf \
