@@ -32,7 +32,7 @@ and turning order-svc into a proper saga orchestrator.
                                           │
                                   everything else
                                           ▼
-                                   frontend-svc
+                                   frontend
                                       :11001
 
       Gateway routes also include /api/cart, /api/wishlist, /api/coupons,
