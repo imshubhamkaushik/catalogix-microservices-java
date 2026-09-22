@@ -67,19 +67,19 @@ public class PaymentSvc {
      */
     @Transactional(noRollbackFor = DeclinedException.class)
     public PaymentResponse process(ProcessPaymentRequest req, Long requestedByUserId) {
-        return process(req, requestedByUserId, null).response();
+        return processInternal(req, requestedByUserId, null).response();
     }
 
-    /**
-     * Idempotent payment operation.
-     *
-     * Once a key has produced a payment result, reusing that key returns the
-     * same logical payment instead of creating another row. This is the
-     * critical protection for the failure mode where payment-svc commits but
-     * checkout-svc times out before it can persist CONFIRMED.
-     */
     @Transactional(noRollbackFor = DeclinedException.class)
     public ProcessResult process(
+            ProcessPaymentRequest req,
+            Long requestedByUserId,
+            String idempotencyKey
+    ) {
+        return processInternal(req, requestedByUserId, idempotencyKey);
+    }
+
+    private ProcessResult processInternal(
             ProcessPaymentRequest req,
             Long requestedByUserId,
             String idempotencyKey
@@ -87,13 +87,18 @@ public class PaymentSvc {
         String key = normalizeIdempotencyKey(idempotencyKey);
 
         if (key != null) {
-            var existing = repo.findByRequestedByUserIdAndIdempotencyKey(requestedByUserId, key);
+            var existing = repo.findByRequestedByUserIdAndIdempotencyKey(
+                    requestedByUserId, key
+            );
+
             if (existing.isPresent()) {
                 Payment payment = existing.get();
                 assertCompatibleWithExisting(payment, req, requestedByUserId);
+
                 if (payment.getStatus() == PaymentStatus.FAILED) {
                     throw new DeclinedException(declineMessage(payment.getMethod()));
                 }
+
                 return new ProcessResult(toResponse(payment), true);
             }
         }
@@ -103,11 +108,9 @@ public class PaymentSvc {
             case UPI -> processUpi(req, requestedByUserId);
             case COD -> processCod(req, requestedByUserId);
         };
+
         payment.setIdempotencyKey(key);
 
-        // Flush now rather than waiting until transaction commit so the
-        // unique-key race is surfaced to the controller while the request is
-        // still in flight. The controller can then read the winning row.
         Payment saved = repo.saveAndFlush(payment);
 
         if (saved.getStatus() == PaymentStatus.FAILED) {
@@ -162,31 +165,41 @@ public class PaymentSvc {
     // Javadoc), since a COD order never has a SUCCEEDED Payment row to find here.
     @Transactional
     public RefundResponse refund(ProcessRefundRequest req) {
-        return refund(req, null);
+        return refundInternal(req, null);
     }
 
-    /**
-     * @param idempotencyKey optional replay key. A repeat of a refund already made under the same
-     *        key for the same order returns that refund (HTTP-level replay) instead of refunding
-     *        again or failing with "would exceed the original payment".
-     */
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public RefundResponse refund(ProcessRefundRequest req, String idempotencyKey) {
+        return refundInternal(req, idempotencyKey);
+    }
+
+    private RefundResponse refundInternal(
+            ProcessRefundRequest req,
+            String idempotencyKey
+    ) {
         Payment original = repo.findByOrderIdOrderByCreatedAtDesc(req.getOrderId()).stream()
                 .filter(p -> p.getStatus() == PaymentStatus.SUCCEEDED)
                 .max(Comparator.comparing(Payment::getCreatedAt))
                 .orElseThrow(() -> new NoSuchPaymentException(req.getOrderId()));
 
-        // Serialise concurrent refunds of this payment; everything below runs under the lock.
+        // Serialise concurrent refunds of this payment.
         original = repo.findByIdForUpdate(original.getId()).orElse(original);
 
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            java.util.Optional<Refund> replay = refundRepo.findByOrderIdAndIdempotencyKey(
-                    req.getOrderId(), idempotencyKey);
+            Optional<Refund> replay = refundRepo.findByOrderIdAndIdempotencyKey(
+                    req.getOrderId(), idempotencyKey
+            );
+
             if (replay.isPresent()) {
                 Refund existing = replay.get();
-                return new RefundResponse(existing.getId(), existing.getOrderId(), existing.getAmount(),
-                        existing.getReference(), existing.getCreatedAt());
+
+                return new RefundResponse(
+                        existing.getId(),
+                        existing.getOrderId(),
+                        existing.getAmount(),
+                        existing.getReference(),
+                        existing.getCreatedAt()
+                );
             }
         }
 
@@ -196,18 +209,33 @@ public class PaymentSvc {
 
         if (alreadyRefunded.add(req.getAmount()).compareTo(original.getAmount()) > 0) {
             throw new IllegalArgumentException(
-                    "Refund of " + req.getAmount() + " would exceed the original payment of "
-                    + original.getAmount() + " (" + alreadyRefunded + " already refunded)");
+                    "Refund of " + req.getAmount()
+                            + " would exceed the original payment of "
+                            + original.getAmount()
+                            + " (" + alreadyRefunded + " already refunded)"
+            );
         }
 
-        Refund refund = new Refund(req.getOrderId(), original.getId(), req.getAmount(),
-                "MOCK-REFUND-" + UUID.randomUUID());
+        Refund refund = new Refund(
+                req.getOrderId(),
+                original.getId(),
+                req.getAmount(),
+                "MOCK-REFUND-" + UUID.randomUUID()
+        );
+
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             refund.setIdempotencyKey(idempotencyKey);
         }
+
         Refund saved = refundRepo.save(refund);
-        return new RefundResponse(saved.getId(), saved.getOrderId(), saved.getAmount(),
-                saved.getReference(), saved.getCreatedAt());
+
+        return new RefundResponse(
+                saved.getId(),
+                saved.getOrderId(),
+                saved.getAmount(),
+                saved.getReference(),
+                saved.getCreatedAt()
+        );
     }
 
     private Payment processCard(ProcessPaymentRequest req, Long requestedByUserId) {

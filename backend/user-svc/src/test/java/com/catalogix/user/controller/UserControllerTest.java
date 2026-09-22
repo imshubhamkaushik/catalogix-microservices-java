@@ -457,8 +457,15 @@ class UserControllerTest {
         req.setOrderEmailsEnabled(false);
         req.setPromoEmailsEnabled(true);
 
-        UserResponse updated = new UserResponse(1L, "John", "john@example.com", "USER", true,
-                java.time.Instant.now(), false, true);
+        UserResponse updated = new UserResponse();
+        updated.setId(1L);
+        updated.setName("John");
+        updated.setEmail("john@example.com");
+        updated.setRole("USER");
+        updated.setVerified(true);
+        updated.setCreatedAt(java.time.Instant.now());
+        updated.setOrderEmailsEnabled(false);
+        updated.setPromoEmailsEnabled(true);
         when(svc.updateNotificationPreferences(eq(1L), any(NotificationPreferencesRequest.class)))
                 .thenReturn(updated);
 
@@ -493,8 +500,16 @@ class UserControllerTest {
     @Test
     @SuppressWarnings("null")
     void becomeSellerReturnsTheProfileWithAPendingRequest() throws Exception {
-        UserResponse pending = new UserResponse(1L, "John", "john@example.com", "USER", true,
-                java.time.Instant.now(), true, true, "SELLER");
+        UserResponse pending = new UserResponse();
+        pending.setId(1L);
+        pending.setName("John");
+        pending.setEmail("john@example.com");
+        pending.setRole("USER");
+        pending.setVerified(true);
+        pending.setCreatedAt(java.time.Instant.now());
+        pending.setOrderEmailsEnabled(true);
+        pending.setPromoEmailsEnabled(true);
+        pending.setRequestedRole("SELLER");
         when(svc.becomeSeller(1L)).thenReturn(pending);
 
         mvc.perform(post("/users/me/become-seller").requestAttr("userId", 1L))

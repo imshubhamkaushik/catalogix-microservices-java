@@ -8,7 +8,9 @@ public class NotificationPreferencesRequest {
     private boolean orderEmailsEnabled;
     private boolean promoEmailsEnabled;
 
-    public NotificationPreferencesRequest() {}
+    public NotificationPreferencesRequest() {
+        // Default constructor for serialization/deserialization
+    }
 
     public boolean isOrderEmailsEnabled() { return orderEmailsEnabled; }
     public void setOrderEmailsEnabled(boolean orderEmailsEnabled) { this.orderEmailsEnabled = orderEmailsEnabled; }

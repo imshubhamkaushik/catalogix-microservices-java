@@ -7,7 +7,11 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.*;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -25,7 +29,7 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, "Validation failed");
         body.put("errors", errors);
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.BAD_REQUEST.value());
         return ResponseEntity.badRequest().body(body);
     }
@@ -35,7 +39,7 @@ public class GlobalExceptionHandler {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
         body.put(STATUS, HttpStatus.CONFLICT.value());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
@@ -43,7 +47,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleAll(Exception ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.INTERNAL_SERVER_ERROR.value());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
     }
@@ -52,7 +56,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.UNAUTHORIZED.value());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
@@ -61,7 +65,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.FORBIDDEN.value());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
@@ -70,7 +74,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleAccountLocked(AccountLockedException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.TOO_MANY_REQUESTS.value());
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
@@ -81,7 +85,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleUserNotFound(UserNotFoundException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.NOT_FOUND.value());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
@@ -90,7 +94,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleAddressNotFound(AddressNotFoundException ex) {
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, new Date());
+        body.put(TIMESTAMP, Instant.now());
         body.put(STATUS, HttpStatus.NOT_FOUND.value());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }

@@ -34,10 +34,17 @@ public class OrderClient {
     public boolean isVerifiedPurchase(Long productId, String bearerToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.AUTHORIZATION, bearerToken);
+
         var resp = restTemplate.exchange(
                 checkoutSvcUrl + "/orders/verified-purchase?productId=" + productId,
-                HttpMethod.GET, new HttpEntity<>(headers), RawVerifiedPurchase.class);
-        return resp.getBody() != null && resp.getBody().verified;
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                RawVerifiedPurchase.class
+        );
+
+        RawVerifiedPurchase body = resp.getBody();
+
+        return body != null && body.verified;
     }
 
     @SuppressWarnings("unused")

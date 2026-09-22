@@ -3,6 +3,7 @@ package com.catalogix.checkout.svc;
 import com.catalogix.checkout.client.InventoryClient;
 import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.model.CompensationOutbox;
+import com.catalogix.checkout.model.CompensationType;
 import com.catalogix.checkout.model.OutboxStatus;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
 import com.catalogix.security.JwtService;
@@ -56,16 +57,25 @@ public class CompensationOutboxProcessor {
             // now mints its own system token internally (see InventoryClient).
             String bearerToken = "Bearer " + jwtService.generateSystemToken();
             try {
-                switch (entry.getType()) {
-                    case RELEASE_STOCK -> {
-                        if (entry.getOperationId() == null && entry.getUndoOf() == null) {
-                            inventoryClient.adjust(entry.getProductId(), entry.getDelta()); // queued before V9
-                        } else {
-                            inventoryClient.adjust(entry.getProductId(), entry.getDelta(),
-                                    entry.getOperationId(), entry.getUndoOf());
-                        }
+                if (entry.getType() == CompensationType.RELEASE_STOCK) {
+                    if (entry.getOperationId() == null && entry.getUndoOf() == null) {
+                        inventoryClient.adjust(
+                                entry.getProductId(),
+                                entry.getDelta()
+                        );
+                    } else {
+                        inventoryClient.adjust(
+                                entry.getProductId(),
+                                entry.getDelta(),
+                                entry.getOperationId(),
+                                entry.getUndoOf()
+                        );
                     }
-                    case RELEASE_COUPON -> promotionsClient.release(entry.getCouponCode(), bearerToken);
+                } else if (entry.getType() == CompensationType.RELEASE_COUPON) {
+                    promotionsClient.release(
+                            entry.getCouponCode(),
+                            bearerToken
+                    );
                 }
                 entry.setStatus(OutboxStatus.COMPLETED);
             } catch (RuntimeException e) {

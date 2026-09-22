@@ -292,10 +292,14 @@ class PaymentSvcTest {
 
     @Test
     void refundRejectsAnAmountExceedingTheOriginalPayment() {
-        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(
+                List.of(succeededPayment(new BigDecimal("100.00")))
+        );
         when(refundRepo.findByOrderId(42L)).thenReturn(List.of());
 
-        assertThatThrownBy(() -> svc.refund(refundReq("100.01")))
+        ProcessRefundRequest req = refundReq("100.01");
+
+        assertThatThrownBy(() -> svc.refund(req))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -304,11 +308,17 @@ class PaymentSvcTest {
     // refund request checked in isolation against the original amount.
     @Test
     void refundRejectsWhenPriorPartialRefundsWouldPushTheTotalOverTheOriginal() {
-        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
-        Refund priorRefund = new Refund(42L, 1L, new BigDecimal("60.00"), "MOCK-REFUND-prior");
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(
+                List.of(succeededPayment(new BigDecimal("100.00")))
+        );
+        Refund priorRefund = new Refund(
+                42L, 1L, new BigDecimal("60.00"), "MOCK-REFUND-prior"
+        );
         when(refundRepo.findByOrderId(42L)).thenReturn(List.of(priorRefund));
 
-        assertThatThrownBy(() -> svc.refund(refundReq("40.01")))
+        ProcessRefundRequest req = refundReq("40.01");
+
+        assertThatThrownBy(() -> svc.refund(req))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

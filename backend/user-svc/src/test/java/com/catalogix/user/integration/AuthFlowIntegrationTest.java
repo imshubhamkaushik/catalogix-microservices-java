@@ -1,5 +1,6 @@
 package com.catalogix.user.integration;
 
+import com.catalogix.user.UserSvcApplication;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,21 +33,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * catch a bug that lives in filter wiring — only a real end-to-end request
  * through the real chain can. This is the first test in the whole repo
  * that does that.
- *
- * NOT compiled or run anywhere in this sandbox — Maven Central isn't on the
- * network allowlist here, so `mvn test` can't resolve dependencies, and
- * there's no Docker daemon available for Testcontainers to start a real
- * Postgres container. Written and reviewed by hand against the real
- * request/response contracts in UserController, CreateUserRequest,
- * LoginRequest, and AuthResponse, but treat it the same way this project's
- * own authors flag their own unverified assumptions elsewhere (e.g.
- * Jenkinsfile.lint's header comment): confirm it actually compiles and
- * passes in a real environment with Docker + Maven Central access before
- * trusting it as a CI gate.
  */
 @Tag("integration")
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        classes = UserSvcApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+)
 @AutoConfigureTestRestTemplate
 class AuthFlowIntegrationTest {
 

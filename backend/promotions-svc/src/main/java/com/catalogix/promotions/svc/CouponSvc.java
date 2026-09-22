@@ -111,7 +111,18 @@ public class CouponSvc {
     }
 
     private CouponResponse toResponse(Coupon c) {
-        return new CouponResponse(c.getId(), c.getCode(), c.getDiscountType(), c.getDiscountValue(),
-                c.getMaxUses(), c.getUsedCount(), c.getExpiresAt(), c.isActive(), c.getCreatedAt());
+        CouponResponse response = new CouponResponse();
+
+        response.setId(c.getId());
+        response.setCode(c.getCode());
+        response.setDiscountType(c.getDiscountType());
+        response.setDiscountValue(c.getDiscountValue());
+        response.setMaxUses(c.getMaxUses());
+        response.setUsedCount(c.getUsedCount());
+        response.setExpiresAt(c.getExpiresAt());
+        response.setActive(c.isActive());
+        response.setCreatedAt(c.getCreatedAt());
+
+        return response;
     }
 }

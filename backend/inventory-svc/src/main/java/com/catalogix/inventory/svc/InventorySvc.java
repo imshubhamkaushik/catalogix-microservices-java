@@ -23,7 +23,10 @@ public class InventorySvc {
     }
 
     @Autowired
-    public InventorySvc(InventoryItemRepository repo, InventoryOperationRepository operations) {
+    public InventorySvc(
+            InventoryItemRepository repo,
+            InventoryOperationRepository operations
+    ) {
         this.operations = operations;
         this.repo = repo;
     }
@@ -32,18 +35,40 @@ public class InventorySvc {
     public InventoryResponse get(Long productId) {
         InventoryItem item = repo.findById(productId)
                 .orElseThrow(() -> new InventoryItemNotFoundException(productId));
-        return new InventoryResponse(item.getProductId(), item.getQuantity());
+
+        return new InventoryResponse(
+                item.getProductId(),
+                item.getQuantity()
+        );
     }
 
     @Transactional
     public InventoryResponse init(Long productId, int initialQuantity) {
-        if (repo.existsById(productId)) {
-            // Idempotent: catalog-svc may retry product creation's follow-up
-            // call after a timeout without knowing whether it landed.
-            return get(productId);
+        // Idempotent: catalog-svc may retry product creation's follow-up
+        // call after a timeout without knowing whether it landed.
+        //
+        // Read the existing row directly instead of calling the transactional
+        // get() method through this instance. This also avoids the extra
+        // repository round-trip that existsById() + get() would require.
+        java.util.Optional<InventoryItem> existing = repo.findById(productId);
+
+        if (existing.isPresent()) {
+            InventoryItem item = existing.get();
+
+            return new InventoryResponse(
+                    item.getProductId(),
+                    item.getQuantity()
+            );
         }
-        InventoryItem saved = repo.save(new InventoryItem(productId, initialQuantity));
-        return new InventoryResponse(saved.getProductId(), saved.getQuantity());
+
+        InventoryItem saved = repo.save(
+                new InventoryItem(productId, initialQuantity)
+        );
+
+        return new InventoryResponse(
+                saved.getProductId(),
+                saved.getQuantity()
+        );
     }
 
     /**
@@ -55,34 +80,72 @@ public class InventorySvc {
      */
     @Transactional
     public InventoryResponse adjust(Long productId, int delta) {
-        return adjust(productId, delta, null, null);
+        return adjustInternal(productId, delta, null, null);
     }
 
     /**
      * Idempotent adjustment.
      *
-     * @param operationId caller-chosen unique id. A second call with an id already recorded is a
-     *        no-op that returns the current quantity — safe to retry or replay.
-     * @param undoOf the operation id of the reservation this call reverses (a release). If that
-     *        reservation was never recorded — its request timed out before reaching us — there is
-     *        nothing to undo, so nothing is added back; a tombstone is stored so the reservation
-     *        cannot be applied later if the original request is still in flight.
+     * @param operationId caller-chosen unique id. A second call with an id already
+     *        recorded is a no-op that returns the current quantity — safe to
+     *        retry or replay.
+     * @param undoOf the operation id of the reservation this call reverses
+     *        (a release). If that reservation was never recorded — its request
+     *        timed out before reaching us — there is nothing to undo, so nothing
+     *        is added back; a tombstone is stored so the reservation cannot be
+     *        applied later if the original request is still in flight.
      *
-     * Everything runs after the product row is locked, so concurrent calls for one product are
-     * serialised and the "already recorded?" checks cannot race.
+     * Everything runs after the product row is locked, so concurrent calls for
+     * one product are serialised and the "already recorded?" checks cannot race.
      */
     @Transactional
-    public InventoryResponse adjust(Long productId, int delta, String operationId, String undoOf) {
-        java.util.Optional<InventoryItem> locked = repo.findByProductIdForUpdate(productId);
+    public InventoryResponse adjust(
+            Long productId,
+            int delta,
+            String operationId,
+            String undoOf
+    ) {
+        return adjustInternal(productId, delta, operationId, undoOf);
+    }
 
-        if (operations != null && operationId != null && operations.existsById(operationId)) {
+    private InventoryResponse adjustInternal(
+            Long productId,
+            int delta,
+            String operationId,
+            String undoOf
+    ) {
+        java.util.Optional<InventoryItem> locked =
+                repo.findByProductIdForUpdate(productId);
+
+        if (operations != null
+                && operationId != null
+                && operations.existsById(operationId)) {
+
             return currentQuantity(productId, locked);
         }
-        if (operations != null && undoOf != null && !operations.existsById(undoOf)) {
-            operations.save(new InventoryOperation(undoOf, productId, 0));
+
+        if (operations != null
+                && undoOf != null
+                && !operations.existsById(undoOf)) {
+
+            operations.save(
+                    new InventoryOperation(
+                            undoOf,
+                            productId,
+                            0
+                    )
+            );
+
             if (operationId != null) {
-                operations.save(new InventoryOperation(operationId, productId, 0));
+                operations.save(
+                        new InventoryOperation(
+                                operationId,
+                                productId,
+                                0
+                        )
+                );
             }
+
             return currentQuantity(productId, locked);
         }
 
@@ -90,18 +153,42 @@ public class InventorySvc {
                 .orElseThrow(() -> new InventoryItemNotFoundException(productId));
 
         int newQuantity = item.getQuantity() + delta;
+
         if (newQuantity < 0) {
-            throw new InsufficientInventoryException(productId, item.getQuantity(), -delta);
+            throw new InsufficientInventoryException(
+                    productId,
+                    item.getQuantity(),
+                    -delta
+            );
         }
+
         item.setQuantity(newQuantity);
+
         InventoryItem saved = repo.save(item);
+
         if (operations != null && operationId != null) {
-            operations.save(new InventoryOperation(operationId, productId, delta));
+            operations.save(
+                    new InventoryOperation(
+                            operationId,
+                            productId,
+                            delta
+                    )
+            );
         }
-        return new InventoryResponse(saved.getProductId(), saved.getQuantity());
+
+        return new InventoryResponse(
+                saved.getProductId(),
+                saved.getQuantity()
+        );
     }
 
-    private static InventoryResponse currentQuantity(Long productId, java.util.Optional<InventoryItem> item) {
-        return new InventoryResponse(productId, item.map(InventoryItem::getQuantity).orElse(0));
+    private static InventoryResponse currentQuantity(
+            Long productId,
+            java.util.Optional<InventoryItem> item
+    ) {
+        return new InventoryResponse(
+                productId,
+                item.map(InventoryItem::getQuantity).orElse(0)
+        );
     }
 }

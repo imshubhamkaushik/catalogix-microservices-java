@@ -64,7 +64,7 @@ public class PaymentController {
             if (existing.getStatus() == PaymentStatus.FAILED) {
                 throw new DeclinedException("Payment declined");
             }
-            return ResponseEntity.ok(existing);
+            return ResponseEntity.status(HttpStatus.OK).body(existing);
         }
     }
 

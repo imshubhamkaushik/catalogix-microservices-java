@@ -14,7 +14,9 @@ public class ReviewResponse {
     private boolean verifiedPurchase;
     private Instant createdAt;
 
-    public ReviewResponse() {}
+    public ReviewResponse() {
+        // Default constructor for serialization/deserialization
+    }
 
     public static ReviewResponse from(Review r) {
         ReviewResponse resp = new ReviewResponse();

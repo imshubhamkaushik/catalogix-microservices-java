@@ -49,6 +49,9 @@ public class UserSvc {
 
     private static final long EMAIL_VERIFICATION_TTL_MS = 24L * 60 * 60 * 1000; // 24h
     private static final long PASSWORD_RESET_TTL_MS = 60L * 60 * 1000;          // 1h
+    private static final String ROLE_USER = "USER";
+    private static final String ROLE_SELLER = "SELLER";
+    private static final String ROLE_ADMIN = "ADMIN";
 
     private final UserRepository repo;
     private final PasswordEncoder passwordEncoder;
@@ -63,7 +66,8 @@ public class UserSvc {
     // A real hash of a random value, computed once on first use — only ever compared
     // against, to equalise login timing for unknown emails (see loginInternal).
     private volatile String dummyPasswordHash;
-    private static final Set<String> ASSIGNABLE_ROLES = Set.of("USER", "SELLER", "ADMIN");
+    private static final Set<String> ASSIGNABLE_ROLES =
+        Set.of(ROLE_USER, ROLE_SELLER, ROLE_ADMIN);
     private static final String ACCOUNT_NO_LONGER_EXISTS = "Account no longer exists";
 
     public UserSvc(
@@ -270,51 +274,90 @@ public class UserSvc {
     // password requires currentPassword as a lightweight re-auth check.
     // Changing email resets verified to false and re-sends a verification email.
     @Transactional
-    public UserResponse updateProfile(Long userId, UpdateProfileRequest req) {
-        return updateProfile(userId, req, null);
+    public UserResponse updateProfile(
+            Long userId,
+            UpdateProfileRequest req
+    ) {
+        return updateProfileInternal(userId, req, null);
     }
 
-    /**
-     * @param currentRefreshToken the caller's own refresh cookie, if any. When the password
-     *        changes, every OTHER session is signed out (a stolen session must not survive a
-     *        password change) while this one stays signed in; with no token, all sessions end.
-     */
     @Transactional
-    public UserResponse updateProfile(Long userId, UpdateProfileRequest req, String currentRefreshToken) {
-        User user = repo.findById(userId)
-                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
+    public UserResponse updateProfile(
+            Long userId,
+            UpdateProfileRequest req,
+            String currentRefreshToken
+    ) {
+        return updateProfileInternal(
+                userId,
+                req,
+                currentRefreshToken
+        );
+    }
 
-        boolean changingEmail = StringUtils.hasText(req.getEmail()) && !req.getEmail().equalsIgnoreCase(user.getEmail());
-        boolean changingPassword = StringUtils.hasText(req.getNewPassword());
+    private UserResponse updateProfileInternal(
+            Long userId,
+            UpdateProfileRequest req,
+            String currentRefreshToken
+    ) {
+        User user = repo.findById(userId)
+                .orElseThrow(() ->
+                        new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
+
+        boolean changingEmail =
+                StringUtils.hasText(req.getEmail())
+                        && !req.getEmail().equalsIgnoreCase(user.getEmail());
+
+        boolean changingPassword =
+                StringUtils.hasText(req.getNewPassword());
 
         if (changingEmail || changingPassword) {
-            boolean currentPasswordOk = StringUtils.hasText(req.getCurrentPassword())
-                    && passwordEncoder.matches(req.getCurrentPassword(), user.getPassword());
+            boolean currentPasswordOk =
+                    StringUtils.hasText(req.getCurrentPassword())
+                            && passwordEncoder.matches(
+                                    req.getCurrentPassword(),
+                                    user.getPassword()
+                            );
+
             if (!currentPasswordOk) {
                 throw new UnauthorizedException(
-                        "currentPassword is required and must be correct to change email or password");
+                        "currentPassword is required and must be correct "
+                                + "to change email or password"
+                );
             }
         }
 
         if (StringUtils.hasText(req.getName())) {
             user.setName(req.getName());
         }
+
         if (changingEmail) {
             if (repo.findByEmail(req.getEmail()).isPresent()) {
-                throw new IllegalArgumentException("Email already registered");
+                throw new IllegalArgumentException(
+                        "Email already registered"
+                );
             }
+
             user.setEmail(req.getEmail());
             user.setVerified(false);
         }
+
         if (changingPassword) {
-            user.setPassword(passwordEncoder.encode(req.getNewPassword()));
-            refreshTokenService.revokeAllForUserExcept(userId, currentRefreshToken);
+            user.setPassword(
+                    passwordEncoder.encode(req.getNewPassword())
+            );
+
+            refreshTokenService.revokeAllForUserExcept(
+                    userId,
+                    currentRefreshToken
+            );
         }
 
         User saved = repo.save(user);
+
         if (changingEmail) {
             sendVerificationEmail(saved);
         }
+
         return toResponse(saved);
     }
 
@@ -343,7 +386,7 @@ public class UserSvc {
             return false;
         }
         boolean isSelf = id.equals(requesterId);
-        boolean isAdmin = "ADMIN".equalsIgnoreCase(requesterRole);
+        boolean isAdmin = ROLE_ADMIN.equalsIgnoreCase(requesterRole);
         if (!isSelf && !isAdmin) {
             throw new ForbiddenException("You may only delete your own account");
         }
@@ -362,10 +405,19 @@ public class UserSvc {
     }
 
     private UserResponse toResponse(User u) {
-        return new UserResponse(
-                u.getId(), u.getName(), u.getEmail(), u.getRole(), u.isVerified(),
-                u.getCreatedAt(), u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled(),
-                u.getRequestedRole());
+        UserResponse response = new UserResponse();
+
+        response.setId(u.getId());
+        response.setName(u.getName());
+        response.setEmail(u.getEmail());
+        response.setRole(u.getRole());
+        response.setVerified(u.isVerified());
+        response.setCreatedAt(u.getCreatedAt());
+        response.setOrderEmailsEnabled(u.isOrderEmailsEnabled());
+        response.setPromoEmailsEnabled(u.isPromoEmailsEnabled());
+        response.setRequestedRole(u.getRequestedRole());
+
+        return response;
     }
 
     // ---- Sessions (see RefreshTokenService for the underlying storage) ----
@@ -403,8 +455,8 @@ public class UserSvc {
     public UserResponse becomeSeller(Long userId) {
         User user = repo.findById(userId)
                 .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
-        if ("USER".equalsIgnoreCase(user.getRole()) && user.getRequestedRole() == null) {
-            user.setRequestedRole("SELLER");
+        if (ROLE_USER.equalsIgnoreCase(user.getRole()) && user.getRequestedRole() == null) {
+            user.setRequestedRole(ROLE_SELLER);
             user.setRoleRequestedAt(Instant.now());
             repo.save(user);
         }
@@ -435,8 +487,8 @@ public class UserSvc {
                 .orElseThrow(() -> new UserNotFoundException(targetUserId));
 
         String previous = user.getRole();
-        boolean demotingAdmin = "ADMIN".equalsIgnoreCase(previous) && !"ADMIN".equals(role);
-        if (demotingAdmin && repo.countByRole("ADMIN") <= 1) {
+        boolean demotingAdmin = ROLE_ADMIN.equalsIgnoreCase(previous) && !ROLE_ADMIN.equals(role);
+        if (demotingAdmin && repo.countByRole(ROLE_ADMIN) <= 1) {
             throw new IllegalArgumentException("Cannot remove the last admin");
         }
 
@@ -466,10 +518,10 @@ public class UserSvc {
     }
 
     private static int roleRank(String role) {
-        if ("ADMIN".equalsIgnoreCase(role)) {
+        if (ROLE_ADMIN.equalsIgnoreCase(role)) {
             return 2;
         }
-        return "SELLER".equalsIgnoreCase(role) ? 1 : 0;
+        return ROLE_SELLER.equalsIgnoreCase(role) ? 1 : 0;
     }
 
     // ---- Notification preferences ----

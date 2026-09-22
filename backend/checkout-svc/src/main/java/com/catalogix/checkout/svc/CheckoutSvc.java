@@ -252,7 +252,15 @@ public class CheckoutSvc {
             String bearerToken,
             String userEmail
     ) {
-        return payOrder(orderId, userId, role, req, bearerToken, userEmail, null);
+        return payOrderInternal(
+                orderId,
+                userId,
+                role,
+                req,
+                bearerToken,
+                userEmail,
+                null
+        );
     }
 
     @Transactional
@@ -265,48 +273,109 @@ public class CheckoutSvc {
             String userEmail,
             String idempotencyKey
     ) {
+        return payOrderInternal(
+                orderId,
+                userId,
+                role,
+                req,
+                bearerToken,
+                userEmail,
+                idempotencyKey
+        );
+    }
+
+    private OrderPaymentResult payOrderInternal(
+            Long orderId,
+            Long userId,
+            String role,
+            PayOrderRequest req,
+            String bearerToken,
+            String userEmail,
+            String idempotencyKey
+    ) {
         // Row-locked read: serialises concurrent pay/cancel attempts on the same order
         // (see OrderRepository.findByIdForUpdate) so a double submit cannot charge twice.
-        Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+        Order order = repo.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+
         assertCanAccess(order, userId, role);
 
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             throw new InvalidOrderStateException(
-                    "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
+                    "Order " + orderId
+                            + " is not awaiting payment (current status: "
+                            + order.getStatus() + ")"
+            );
         }
 
         PaymentClient.PaymentOutcome payment =
                 (idempotencyKey == null || idempotencyKey.isBlank())
-                        ? clients.payment().process(orderId, userId, order.getTotalAmount(), req)
+                        ? clients.payment().process(
+                                orderId,
+                                userId,
+                                order.getTotalAmount(),
+                                req
+                        )
                         : clients.payment().process(
-                                orderId, userId, order.getTotalAmount(), req, idempotencyKey);
+                                orderId,
+                                userId,
+                                order.getTotalAmount(),
+                                req,
+                                idempotencyKey
+                        );
 
         if (payment.succeeded()) {
             order.setStatus(OrderStatus.CONFIRMED);
             order.setPaymentMethod(req.getMethod());
             order.setPaymentReference(payment.reference());
             order.setCustomerEmail(userEmail);
+
             // COD never actually captured anything — the note should say
             // so, not claim a payment happened that didn't (see
             // PaymentSvc#processCod on the payment-svc side for why
             // COD_PENDING still counts as payment.succeeded() here: the
-            // order IS confirmed the moment COD is chosen, same as real
-            // storefronts, even though no money has moved yet).
+            // order IS confirmed the moment COD is chosen, even though no
+            // money has moved yet).
             boolean isCod = "COD_PENDING".equals(payment.status());
-            order.addStatusEvent(OrderStatus.CONFIRMED,
-                    isCod ? "Order confirmed — pay on delivery" : "Payment confirmed");
+
+            order.addStatusEvent(
+                    OrderStatus.CONFIRMED,
+                    isCod
+                            ? "Order confirmed — pay on delivery"
+                            : "Payment confirmed"
+            );
         } else {
-            releaseOrderSideEffects(order, bearerToken, "payment-failed-order-" + orderId);
+            releaseOrderSideEffects(
+                    order,
+                    bearerToken,
+                    "payment-failed-order-" + orderId
+            );
+
             order.setStatus(OrderStatus.CANCELLED);
-            order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
+            order.addStatusEvent(
+                    OrderStatus.CANCELLED,
+                    "Payment declined"
+            );
         }
 
         Order saved = repo.save(order);
+
         if (payment.succeeded()) {
-            eventPublisher.publishEvent(new OrderConfirmedEvent(
-                    saved.getId(), saved.getUserId(), userEmail, toEventItems(saved), saved.getTotalAmount()));
+            eventPublisher.publishEvent(
+                    new OrderConfirmedEvent(
+                            saved.getId(),
+                            saved.getUserId(),
+                            userEmail,
+                            toEventItems(saved),
+                            saved.getTotalAmount()
+                    )
+            );
         }
-        return new OrderPaymentResult(toResponse(saved), payment.succeeded());
+
+        return new OrderPaymentResult(
+                toResponse(saved),
+                payment.succeeded()
+        );
     }
 
     @Transactional

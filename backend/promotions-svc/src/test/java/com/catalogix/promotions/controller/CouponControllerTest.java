@@ -59,8 +59,17 @@ class CouponControllerTest {
     }
 
     private CouponResponse sampleCoupon() {
-        return new CouponResponse(1L, "SAVE10", DiscountType.PERCENTAGE, BigDecimal.TEN,
-                null, 0, null, true, Instant.now());
+        CouponResponse response = new CouponResponse();
+        response.setId(1L);
+        response.setCode("SAVE10");
+        response.setDiscountType(DiscountType.PERCENTAGE);
+        response.setDiscountValue(BigDecimal.TEN);
+        response.setMaxUses(null);
+        response.setUsedCount(0);
+        response.setExpiresAt(null);
+        response.setActive(true);
+        response.setCreatedAt(Instant.now());
+        return response;
     }
 
     // ---- internal preview/commit/release, called by cart-svc/checkout-svc ----
@@ -159,8 +168,18 @@ class CouponControllerTest {
     @Test
     @SuppressWarnings("null")
     void deactivateAllowsAdmin() throws Exception {
-        when(svc.deactivate(1L)).thenReturn(new CouponResponse(1L, "SAVE10", DiscountType.PERCENTAGE,
-                BigDecimal.TEN, null, 0, null, false, Instant.now()));
+        CouponResponse deactivatedCoupon = new CouponResponse();
+        deactivatedCoupon.setId(1L);
+        deactivatedCoupon.setCode("SAVE10");
+        deactivatedCoupon.setDiscountType(DiscountType.PERCENTAGE);
+        deactivatedCoupon.setDiscountValue(BigDecimal.TEN);
+        deactivatedCoupon.setMaxUses(null);
+        deactivatedCoupon.setUsedCount(0);
+        deactivatedCoupon.setExpiresAt(null);
+        deactivatedCoupon.setActive(false);
+        deactivatedCoupon.setCreatedAt(Instant.now());
+
+        when(svc.deactivate(1L)).thenReturn(deactivatedCoupon);
 
         mvc.perform(patch("/coupons/1/deactivate").requestAttr("userRole", "ADMIN"))
                 .andExpect(status().isOk())

@@ -54,18 +54,24 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<Map<String, Object>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    public ResponseEntity<Map<String, Object>> handleTypeMismatch(
+            MethodArgumentTypeMismatchException ex
+    ) {
+        Class<?> requiredType = ex.getRequiredType();
+
         String message;
-        if (ex.getRequiredType() != null && ex.getRequiredType().isEnum()) {
+        if (requiredType != null && requiredType.isEnum()) {
             message = "Invalid value for '" + ex.getName() + "': " + ex.getValue()
-                    + ". Valid values: " + Arrays.toString(ex.getRequiredType().getEnumConstants());
+                    + ". Valid values: " + Arrays.toString(requiredType.getEnumConstants());
         } else {
             message = "Invalid value for '" + ex.getName() + "': " + ex.getValue();
         }
+
         Map<String, Object> body = new HashMap<>();
         body.put(MESSAGE, message);
         body.put(TIMESTAMP, Instant.now().toString());
         body.put(STATUS, HttpStatus.BAD_REQUEST.value());
+
         return ResponseEntity.badRequest().body(body);
     }
 

@@ -3,7 +3,6 @@ package com.catalogix.user.dto;
 import java.time.Instant;
 
 // DTO returned to client (never includes password).
-
 public class UserResponse {
 
     private Long id;
@@ -17,73 +16,104 @@ public class UserResponse {
     // Pending request for a higher role awaiting admin approval; null when none.
     private String requestedRole;
 
-    public UserResponse() {}
+    public UserResponse() {
+    }
 
-    // Kept for existing callers that don't care about verification status
-    // (defaults verified to false); prefer the fuller constructor for real use.
+    // Kept for existing callers that don't care about verification status.
+    // Defaults verified to false.
     public UserResponse(Long id, String name, String email, String role) {
         this(id, name, email, role, false);
     }
 
-    // Kept for existing callers from before createdAt/notification prefs
-    // existed (see V6 migration) — defaults createdAt to null and both
-    // preference flags to their DB default of true.
-    public UserResponse(Long id, String name, String email, String role, boolean verified) {
-        this(id, name, email, role, verified, null, true, true);
-    }
-
-    public UserResponse(Long id, String name, String email, String role, boolean verified,
-                         Instant createdAt, boolean orderEmailsEnabled, boolean promoEmailsEnabled) {
-        this(id, name, email, role, verified, createdAt, orderEmailsEnabled, promoEmailsEnabled, null);
-    }
-
-    public UserResponse(Long id, String name, String email, String role, boolean verified,
-                         Instant createdAt, boolean orderEmailsEnabled, boolean promoEmailsEnabled,
-                         String requestedRole) {
-        this.requestedRole = requestedRole;
+    // Kept for existing callers from before createdAt/notification prefs existed.
+    // Defaults createdAt to null and both preference flags to true.
+    public UserResponse(
+            Long id,
+            String name,
+            String email,
+            String role,
+            boolean verified
+    ) {
         this.id = id;
         this.name = name;
         this.email = email;
         this.role = role;
         this.verified = verified;
+        this.createdAt = null;
+        this.orderEmailsEnabled = true;
+        this.promoEmailsEnabled = true;
+        this.requestedRole = null;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public boolean isOrderEmailsEnabled() {
+        return orderEmailsEnabled;
+    }
+
+    public void setOrderEmailsEnabled(boolean orderEmailsEnabled) {
         this.orderEmailsEnabled = orderEmailsEnabled;
+    }
+
+    public boolean isPromoEmailsEnabled() {
+        return promoEmailsEnabled;
+    }
+
+    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) {
         this.promoEmailsEnabled = promoEmailsEnabled;
     }
 
-    public Long getId() { return id;}
+    public String getRequestedRole() {
+        return requestedRole;
+    }
 
-    public String getName() { return name;}
-
-    public String getEmail() { return email; }
-
-    public String getRole() { return role; }
-
-    public boolean isVerified() { return verified; }
-
-    public Instant getCreatedAt() { return createdAt; }
-
-    public boolean isOrderEmailsEnabled() { return orderEmailsEnabled; }
-
-    public boolean isPromoEmailsEnabled() { return promoEmailsEnabled; }
-
-    public String getRequestedRole() { return requestedRole; }
-
-    public void setRequestedRole(String requestedRole) { this.requestedRole = requestedRole; }
-
-    public void setId(Long id) { this.id = id; }
-
-    public void setName(String name) { this.name = name; }
-
-    public void setEmail(String email) { this.email = email; }
-
-    public void setRole(String role) { this.role = role; }
-
-    public void setVerified(boolean verified) { this.verified = verified; }
-
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
-
-    public void setOrderEmailsEnabled(boolean orderEmailsEnabled) { this.orderEmailsEnabled = orderEmailsEnabled; }
-
-    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) { this.promoEmailsEnabled = promoEmailsEnabled; }
+    public void setRequestedRole(String requestedRole) {
+        this.requestedRole = requestedRole;
+    }
 }

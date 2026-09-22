@@ -38,6 +38,7 @@ class ProductSvcTest {
     @Mock private ProductRepository repo;
     @Mock private InventoryClient inventoryClient;
     @Mock private ReviewClient reviewClient;
+    @Mock private ProductCacheSvc productCacheSvc;
 
     private ProductSvc svc;
 
@@ -46,7 +47,7 @@ class ProductSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new ProductSvc(repo, inventoryClient, reviewClient);
+        svc = new ProductSvc(repo, inventoryClient, reviewClient, productCacheSvc);
         // Default for every test that doesn't care about ratings — without
         // this, any test exercising toResponse/findById (i.e. almost all of
         // them) would NPE on the unstubbed fetchSummary() call, since
@@ -186,7 +187,28 @@ class ProductSvcTest {
 
     @Test
     void findByIdReturnsProductWithLiveStock() {
-        when(repo.findById(1L)).thenReturn(Optional.of(product(1L, "Phone", "100.00", "ELECTRONICS", 42L)));
+        Product p = product(
+                1L,
+                "Phone",
+                "100.00",
+                "ELECTRONICS",
+                42L
+        );
+
+        when(productCacheSvc.cacheCore(1L))
+                .thenReturn(Optional.of(
+                        new ProductCacheSvc.ProductCore(
+                                p.getId(),
+                                p.getName(),
+                                p.getDescription(),
+                                p.getPrice(),
+                                p.getCategory(),
+                                p.getOwnerId(),
+                                p.getImageUrl(),
+                                p.getCreatedAt()
+                        )
+                ));
+
         when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(7);
 
         Optional<ProductResponse> resp = svc.findById(1L, TOKEN);
@@ -197,9 +219,11 @@ class ProductSvcTest {
 
     @Test
     void findByIdReturnsEmptyWhenNotFound() {
-        when(repo.findById(99L)).thenReturn(Optional.empty());
+        when(productCacheSvc.cacheCore(99L))
+            .thenReturn(Optional.empty());
 
         assertTrue(svc.findById(99L, TOKEN).isEmpty());
+        
         verifyNoInteractions(inventoryClient);
     }
 

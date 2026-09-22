@@ -605,7 +605,7 @@ class CheckoutSvcTest {
         svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
         verify(refundClient).refund(5L, new BigDecimal("200.00"), "cancel-order-5");
-        verify(inventoryClient).adjust(1L, 2, any(), any());
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
     }
 
     @Test
