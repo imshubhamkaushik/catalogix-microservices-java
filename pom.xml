@@ -151,11 +151,13 @@
                         <excludedGroups>integration</excludedGroups>
                     </configuration>
                 </plugin>
+                <!-- Integration Tests -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>3.1.2</version>
                     <configuration>
+                        <classesDirectory>${project.build.outputDirectory}</classesDirectory>
                         <groups>integration</groups>
                         <includes>
                             <include>**/*IntegrationTest.java</include>
