@@ -33,7 +33,7 @@ provider "aws" {
     tags = {
       Project     = "Catalogix"
       ManagedBy   = "Terraform"
-      Environment = "dev"
+      Environment = var.environment
     }
   }
 }
@@ -91,7 +91,7 @@ provider "postgresql" {
   host            = module.rds.rds_address
   port            = 5432
   username        = local.db_username
-  password        = random_password.db.result
+  password        = local.db_master_password
   superuser       = false
   connect_timeout = 15
   sslmode         = "require"

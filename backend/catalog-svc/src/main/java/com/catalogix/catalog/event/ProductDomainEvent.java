@@ -1,6 +1,5 @@
 package com.catalogix.catalog.event;
 
-import com.catalogix.catalog.model.Product.ModerationStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 

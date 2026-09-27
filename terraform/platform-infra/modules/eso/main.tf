@@ -122,6 +122,13 @@ resource "kubectl_manifest" "cluster_secret_store" {
     metadata:
       name: aws-secrets-manager
     spec:
+      # Only these namespaces may reference this store. Without a condition ANY
+      # namespace could create an ExternalSecret and read every secret the ESO
+      # IAM role can reach (JWT signing key, DB passwords, ...).
+      conditions:
+        - namespaces:
+            - catalogix
+            - monitoring
       provider:
         aws:
           service: SecretsManager

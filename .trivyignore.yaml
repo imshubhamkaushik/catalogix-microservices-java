@@ -1,0 +1,52 @@
+# Trivy ignore file (YAML format, so every entry can carry an expiry date).
+#
+# Used by:
+#   - image scans   -> vars/buildAndScanImage.groovy   (--ignorefile /.trivyignore.yaml)
+#   - IaC scan      -> Jenkinsfile.platform-infra      (--ignorefile /iac/.trivyignore.yaml)
+#
+# Every entry expires. When `expired_at` passes, Trivy stops honouring the entry
+# and the finding fails the build again — that is the point: an accepted risk must
+# be re-reviewed and consciously renewed, not forgotten. To renew, re-check the
+# "revisit" condition, then push the date out.
+
+vulnerabilities:
+  - id: CVE-2026-22695
+    statement: >-
+      libpng (OS layer of the base images), HIGH. Heap buffer over-read in
+      png_image_finish_read() (simplified read API), triggered only when an
+      application reads a crafted PNG through that API. No workload in this project
+      (Spring Boot services, nginx frontend/gateway, RabbitMQ, Postgres, Prometheus,
+      Grafana, Alertmanager) reads PNGs through libpng; it is present as an indirect
+      OS dependency only. Revisit: when the base image is next updated; delete the
+      entry once the distro ships a patched libpng.
+    expired_at: 2026-12-31
+
+  - id: CVE-2026-22801
+    statement: >-
+      libpng (OS layer of the base images), HIGH. Information disclosure / DoS via
+      integer truncation in the simplified WRITE API (png_image_write_to_file /
+      png_image_write_to_memory). This project never writes PNG files at runtime and
+      no workload reaches that function. Revisit: when the base image is next
+      updated; delete once a patched libpng is shipped.
+    expired_at: 2026-12-31
+
+  - id: CVE-2026-25646
+    statement: >-
+      libpng < 1.6.55 (OS layer of the base images), HIGH (CVSS 8.1). Out-of-bounds
+      read / infinite loop in png_set_quantize() on a crafted palette image. Only
+      triggered by an application explicitly calling png_set_quantize(); no workload
+      in this project does. Revisit: delete once the distro ships libpng >= 1.6.55
+      (Alpine 1.6.55-r0 or the Debian/Ubuntu equivalent).
+    expired_at: 2026-12-31
+
+misconfigurations:
+  - id: AWS-0040
+    statement: >-
+      RDS instance without deletion protection (deletion_protection = false).
+      Intentional for the DEVELOPMENT environment only: protection blocks
+      `terraform destroy` and the dev database holds only seed data (as does
+      skip_final_snapshot = true). NOTE: Trivy matches this finding at the shared
+      module (terraform/platform-infra/modules/rds), so this entry also silences it
+      for staging. Do not carry it into any environment with real user data —
+      enable deletion_protection there first, then remove this entry.
+    expired_at: 2026-12-31

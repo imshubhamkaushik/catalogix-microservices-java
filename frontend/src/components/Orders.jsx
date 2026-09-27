@@ -871,6 +871,10 @@ export default function Orders() {
                         Invoice
                       </button>
                     )}
+
+                    <Link className="btn-small" to="/shipments">
+                      Shipments
+                    </Link>
                   </div>
 
                   {trackingOpenFor === order.id && (

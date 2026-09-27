@@ -454,6 +454,124 @@ services:
   # container-level healthcheck isn't practical for them; they rely on
   # depends_on + restart: unless-stopped instead.
 
+  seller-svc:
+    mem_limit: 384m
+    cpus: 0.25
+    image: catalogix-seller-svc:latest
+    build: { context: ., dockerfile: backend/seller-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_seller
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11011"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    networks: [catalogix]
+
+  fulfillment-svc:
+    mem_limit: 384m
+    cpus: 0.25
+    image: catalogix-fulfillment-svc:latest
+    build: { context: ., dockerfile: backend/fulfillment-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_fulfillment
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11012"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    networks: [catalogix]
+
+  search-svc:
+    mem_limit: 384m
+    cpus: 0.25
+    image: catalogix-search-svc:latest
+    build: { context: ., dockerfile: backend/search-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_search
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      CATALOG_SVC_URL: http://catalog-svc:11002
+      SEARCH_REINDEX_ENABLED: "true"
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11013"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy }, catalog-svc: { condition: service_started } }
+    networks: [catalogix]
+
+  recommendation-svc:
+    mem_limit: 384m
+    cpus: 0.25
+    image: catalogix-recommendation-svc:latest
+    build: { context: ., dockerfile: backend/recommendation-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_recommendation
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11014"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    networks: [catalogix]
+
+  audit-svc:
+    mem_limit: 384m
+    cpus: 0.25
+    image: catalogix-audit-svc:latest
+    build: { context: ., dockerfile: backend/audit-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_audit
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11015"]
+    depends_on: { postgres: { condition: service_healthy }, rabbitmq: { condition: service_healthy } }
+    networks: [catalogix]
+
+  feature-svc:
+    mem_limit: 256m
+    cpus: 0.15
+    image: catalogix-feature-svc:latest
+    build: { context: ., dockerfile: backend/feature-svc/Dockerfile }
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/catalogix_feature
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+    expose: ["11016"]
+    depends_on: { postgres: { condition: service_healthy } }
+    networks: [catalogix]
+
   frontend:
     # Internal service port; only gateway publishes host port 11000.
     mem_limit: 256m
@@ -490,6 +608,18 @@ services:
       notification-svc:
         condition: service_started
       review-svc:
+        condition: service_started
+      seller-svc:
+        condition: service_started
+      fulfillment-svc:
+        condition: service_started
+      search-svc:
+        condition: service_started
+      recommendation-svc:
+        condition: service_started
+      audit-svc:
+        condition: service_started
+      feature-svc:
         condition: service_started
       frontend:
         condition: service_healthy

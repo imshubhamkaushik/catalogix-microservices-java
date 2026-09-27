@@ -43,7 +43,23 @@ public class ProductController {
             @PageableDefault(size = 20, sort = "id") Pageable pageable,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(svc.search(search, category, minPrice, maxPrice, sortBy, pageable, bearer(request), (Long) request.getAttribute("userId"), (String) request.getAttribute("userRole")));
+        ProductSvc.RequesterContext requester = new ProductSvc.RequesterContext(
+            bearer(request), 
+            (Long) request.getAttribute("userId"), 
+            (String) request.getAttribute("userRole")
+        );
+        
+        return ResponseEntity.ok(
+            svc.search(
+                search, 
+                category, 
+                minPrice, 
+                maxPrice, 
+                sortBy, 
+                pageable, 
+                requester
+            )
+        );
     }
 
     // Only sellers and admins may list products — a plain buyer account has

@@ -13,21 +13,19 @@ pipeline {
 
     environment {
         AWS_REGION   = "ap-south-1"
-        // Must match Terraform's local.env_prefix exactly — see the same
-        // fix's full explanation in Jenkinsfile.app-cicd. This file has
-        // more at stake from the mismatch than app-cicd does: every SSM
-        // path below (loki-bucket, loki-role-arn, tempo-bucket,
-        // tempo-role-arn), the node group name, and every `aws eks`/
-        // `kubectl` call keyed off CLUSTER_NAME would all have pointed at
-        // resources that don't exist under the old "catalogix-cluster-*"
-        // name.
-        CLUSTER_NAME = "catalogix-${params.ENV}"
+        // Must equal Terraform's local.env_prefix for the selected environment.
+        // dev and staging use var.cluster_name="catalogix-cluster", so the
+        //  real names are "catalogix-cluster-dev" and"catalogix-staging".
+        //  Keep this expression identical in Jenkinsfile.app-cicd — see the explanation there. 
+        // Every SSM path below (loki-bucket, ...), the Secrets Manager names
+        // and every `aws eks`/`kubectl` call derive from this one value.
+        CLUSTER_NAME = "${params.ENV == 'dev' ? 'catalogix-cluster-dev' : 'catalogix-cluster-' + params.ENV}"
         TF_DIR       = "terraform/platform-infra/env/${params.ENV}"
         // GIT_REPO_URL is injected by JCasC from /etc/default/jenkins — update group_vars/all/jenkins.yaml
         GIT_REPO_URL = "${env.GIT_REPO_URL}"
-        // KUBECONFIG is pre-configured by Ansible at /var/lib/jenkins/.kube/config
-        // Pipelines use it directly — no aws eks update-kubeconfig needed
-        KUBECONFIG   = "/var/lib/jenkins/.kube/config"
+        // One kubeconfig per cluster, written and verified on every run by
+        // ensureKubernetesAccess() (Ansible does not create a kubeconfig).
+        KUBECONFIG   = "/var/lib/jenkins/.kube/${CLUSTER_NAME}.config"
     }
 
     parameters { 
@@ -88,7 +86,9 @@ pipeline {
 
     options {
         timestamps()
-        disableConcurrentBuilds(abortPrevious: true)
+        // Queue, never abort: killing a run mid `terraform apply/destroy`
+        // leaves a stale state lock and half-created resources.
+        disableConcurrentBuilds()
         timeout(time: 90, unit: 'MINUTES')
     }
 
@@ -141,16 +141,23 @@ pipeline {
             }
         }
 
-        stage("Terraform Format Check - terraform/platform-infra/"){ 
+        // The passwords YOU chose (RDS master, RabbitMQ, app admin, Grafana) are read from
+        // "<cluster>/operator-credentials" in Secrets Manager — nothing is passed to this
+        // pipeline. Fail early, with a message that says what to do, if they aren't there
+        // yet or don't meet the policy, instead of a cryptic Terraform error mid-apply.
+        // (Staging's Terraform still generates its own passwords — deferred with the rest of staging.)
+        stage("Verify Operator Credentials") {
             when {
-                expression { params.ACTION == 'Apply' }
+                expression { params.ACTION == 'Apply' && params.ENV == 'dev' }
             }
-            steps { 
-                sh "terraform fmt -check -recursive terraform/platform-infra/"
-            } 
+            steps {
+                sh "python3 scripts/python/credentials.py --env ${params.ENV} --check"
+            }
         }
 
-        stage("Trivy IaC Scan") {
+        // Terraform formatting for this directory is already gated in
+        // Jenkinsfile.lint on every push, so it isn't repeated here.
+        stage("Trivy Terraform IaC Scan") {
             when {
                 expression { params.ACTION == 'Apply' }
             }
@@ -166,7 +173,7 @@ pipeline {
                 set -e
                 docker run --rm -v \$(pwd):/iac ${TRIVY_IMAGE} config \\
                     --severity HIGH,CRITICAL --exit-code 1 \\
-                    --ignorefile /iac/.trivyignore \\
+                    --ignorefile /iac/.trivyignore.yaml \\
                     /iac/terraform/platform-infra/
                 """
             }
@@ -230,7 +237,8 @@ pipeline {
                         return
                     }
 
-                    input message: "Review the terraform plan above. Approve apply?", ok: "Apply"
+                    input message: "Review the terraform plan above. Approve apply?", ok: "Apply",
+                          submitter: (env.JENKINS_ADMIN_USER ?: '')
 
                     dir("${TF_DIR}") {
                         sh """
@@ -365,6 +373,11 @@ pipeline {
                     // Helm-templated at write time, so this is the only
                     // way a Terraform-generated bucket name/role ARN
                     // reaches a `helm upgrade` invocation).
+                    // Grafana's login comes from the operator-chosen credentials (dev only —
+                    // staging keeps the chart default until it is brought up to parity).
+                    env.OPERATOR_HELM_ARGS = (params.ENV == 'dev')
+                        ? "--set global.operatorSecretName=${env.CLUSTER_NAME}/operator-credentials --set kube-prometheus-stack.grafana.admin.existingSecret=grafana-admin-secret"
+                        : ""
                     env.LOKI_BUCKET = sh(
                         script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-bucket --query Parameter.Value --output text --region ${AWS_REGION}",
                         returnStdout: true
@@ -373,16 +386,16 @@ pipeline {
                         script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-role-arn --query Parameter.Value --output text --region ${AWS_REGION}",
                         returnStdout: true
                     ).trim()
-                    env.TEMPO_BUCKET = sh(
-                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/tempo-bucket --query Parameter.Value --output text --region ${AWS_REGION}",
-                        returnStdout: true
-                    ).trim()
-                    env.TEMPO_ROLE_ARN = sh(
-                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/tempo-role-arn --query Parameter.Value --output text --region ${AWS_REGION}",
-                        returnStdout: true
-                    ).trim()
                 }
 
+                // Free-form job parameters are passed as ENVIRONMENT VARIABLES and
+                // referenced as "$VAR" in the shell — never interpolated into
+                // the script text, where a crafted value could run commands.
+                withEnv([
+                    "ALERT_EMAIL_TO_PARAM=${params.ALERT_EMAIL_TO}",
+                    "SMTP_HOST_PARAM=${params.SMTP_HOST}",
+                    "SMTP_USERNAME_PARAM=${params.SMTP_USERNAME}",
+                ]) {
                 sh """
                 set -e
 
@@ -399,19 +412,18 @@ pipeline {
                     --namespace monitoring \\
                     --create-namespace \\
                     --set global.alertingSecretName=${CLUSTER_NAME}/alerting-secrets \\
-                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=${params.ALERT_EMAIL_TO}' \\
-                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].smarthost=${params.SMTP_HOST}' \\
-                    --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].auth_username=${params.SMTP_USERNAME}' \\
+                    ${OPERATOR_HELM_ARGS} \\
+                    --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=\$ALERT_EMAIL_TO_PARAM" \\
+                    --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].smarthost=\$SMTP_HOST_PARAM" \\
+                    --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].auth_username=\$SMTP_USERNAME_PARAM" \\
                     --set loki.loki.storage.bucketNames.chunks=${LOKI_BUCKET} \\
                     --set loki.loki.storage.bucketNames.ruler=${LOKI_BUCKET} \\
                     --set loki.loki.storage.bucketNames.admin=${LOKI_BUCKET} \\
                     --set loki.loki.storage.s3.region=${AWS_REGION} \\
                     --set loki.serviceAccount.annotations.'eks\\.amazonaws\\.com/role-arn'=${LOKI_ROLE_ARN} \\
-                    --set tempo.tempo.storage.trace.s3.bucket=${TEMPO_BUCKET} \\
-                    --set tempo.tempo.storage.trace.s3.region=${AWS_REGION} \\
-                    --set tempo.serviceAccount.annotations.'eks\\.amazonaws\\.com/role-arn'=${TEMPO_ROLE_ARN} \\
                     --wait --timeout 300s
                 """
+                }
             }
         }
 
@@ -466,7 +478,8 @@ You are about to PERMANENTLY DELETE all infrastructure managed by this Terraform
  
 This action is IRREVERSIBLE. Review the destroy plan in the stage above carefully.
 Are you absolutely sure?""",
-                      ok: "Yes, destroy everything"
+                      ok: "Yes, destroy everything",
+                      submitter: (env.JENKINS_ADMIN_USER ?: '')
             }
         }
 
@@ -541,6 +554,27 @@ Are you absolutely sure?""",
                 }
             }
         }
+
+        // Terraform never created "<cluster>/operator-credentials" — it can't (see
+        // credentials.py's module docstring: the RDS master password must exist in it BEFORE
+        // Terraform's first apply, so Terraform can't be the thing that creates the container).
+        // Without this, a plain terraform destroy silently leaves it behind, and a later
+        // rebuild of this environment would quietly inherit the old passwords. Runs only for
+        // dev (--check earlier in this pipeline is dev-only for the same reason: staging's
+        // Terraform still generates its own secrets internally, deferred with the rest of
+        // staging) and only after the destroy above actually succeeded — never delete
+        // credentials for a cluster that destroy failed to tear down.
+        stage("Delete Operator Credentials") {
+            when {
+                allOf {
+                    expression { params.ACTION == 'Destroy' }
+                    expression { params.ENV == 'dev' }
+                }
+            }
+            steps {
+                sh "python3 scripts/python/credentials.py --env ${params.ENV} --delete --yes"
+            }
+        }
     }
 
     post {
@@ -573,7 +607,7 @@ Are you absolutely sure?""",
                         # Without this wait, Spring Boot starts, fails to read credentials,
                         # and enters CrashLoopBackOff before the Secret is created.
                         
-                        kubectl wait externalsecret/catalogix-db-credentials \\
+                        kubectl wait externalsecret/catalogix-app-secrets \\
                             -n catalogix --for=condition=Ready --timeout=120s || true
                         """
                         echo "Triggering app deployment pipeline..."

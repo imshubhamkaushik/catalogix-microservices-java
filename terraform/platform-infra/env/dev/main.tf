@@ -18,16 +18,60 @@ data "aws_iam_session_context" "current" {
   arn = data.aws_caller_identity.current.arn
 }
 
-# random_password - Generates a random password for the RDS instance, stored in Secrets Manager and synced to K8s via ESO.
-resource "random_password" "db" {
-  length  = 16
-  special = false # avoids JDBC URL encoding issues with special characters 
+# ---------------------------------------------------------------------------
+# Credentials chosen by the OPERATOR (whoever deploys), not generated here.
+#
+# scripts/python/credentials.py (run from your laptop: `python bootstrap.py credentials`)
+# stores them in ONE Secrets Manager secret, "<env_prefix>/operator-credentials". This
+# pipeline needs no parameters: it just reads that secret. The IAM role of the Jenkins host
+# already allows secretsmanager:GetSecretValue on "catalogix-*" secrets.
+#
+# Only the RDS master password has to pass through Terraform. The application admin,
+# RabbitMQ and Grafana passwords are read straight from the same secret by External
+# Secrets (helm/catalogix-hc, helm/monitoring) and never enter Terraform or its state.
+#
+# The RDS master password DOES land in the (encrypted, access-restricted) state file, exactly
+# as the previous random_password did — Terraform must hand it to RDS and to the postgresql
+# provider. Choosing it yourself changes who knows it, not where it is stored.
+# ---------------------------------------------------------------------------
+data "aws_secretsmanager_secret_version" "operator" {
+  secret_id = "${local.env_prefix}/operator-credentials"
+}
 
-  # keepers tie the password lifecycle to the RDS instance name.
-  # Without keepers, a terraform state refresh or re-import silently regenerates the password, rotating the secret and breaking the running app.
-  # Password only changes if the RDS name changes — which is always intentional.
-  keepers = {
-    rds_name = "${local.env_prefix}-db"
+locals {
+  operator_credentials = jsondecode(data.aws_secretsmanager_secret_version.operator.secret_string)
+
+  db_master_password = lookup(local.operator_credentials, "db_master_password", "")
+
+  # Optional human read-only database login (both keys, or neither).
+  db_readonly_username = lookup(local.operator_credentials, "db_readonly_username", "")
+  db_readonly_password = lookup(local.operator_credentials, "db_readonly_password", "")
+}
+
+# Same password policy as scripts/python/credentials.py. The pipeline's "Verify Operator
+# Credentials" stage already checks this; the preconditions are the backstop for anyone
+# running Terraform by hand.
+resource "terraform_data" "operator_credentials_check" {
+  lifecycle {
+    precondition {
+      condition     = length(local.db_master_password) > 0
+      error_message = "db_master_password is missing from ${local.env_prefix}/operator-credentials. Run: python scripts/python/credentials.py --env dev"
+    }
+    precondition {
+      condition = (
+        length(local.db_master_password) >= 8 &&
+        length(local.db_master_password) <= 64 &&
+        can(regex("[a-z]", local.db_master_password)) &&
+        can(regex("[A-Z]", local.db_master_password)) &&
+        can(regex("[0-9]", local.db_master_password)) &&
+        !can(regex("[/\"@[:space:]]", local.db_master_password))
+      )
+      error_message = "db_master_password must be 8-64 characters with a lowercase letter, an uppercase letter and a digit, and must not contain / \" @ or whitespace (RDS rejects those). Change it with: python scripts/python/credentials.py --env dev --only db_master_password"
+    }
+    precondition {
+      condition     = (local.db_readonly_username == "") == (local.db_readonly_password == "")
+      error_message = "db_readonly_username and db_readonly_password must be set together (or both left out) in ${local.env_prefix}/operator-credentials."
+    }
   }
 }
 
@@ -44,20 +88,7 @@ resource "random_password" "jwt" {
   }
 }
 
-# RabbitMQ admin credentials — consumed by the in-cluster RabbitMQ
-# StatefulSet (helm/catalogix-hc/templates/rabbitmq.yaml) via the same
-# ExternalSecret flow as the DB password and JWT secret. RabbitMQ itself is
-# NOT a Terraform-managed resource — it's part of the app's own Helm release
-# (deployed by Jenkins alongside the 9 services), consistent with keeping
-# Terraform scoped to platform infra and Jenkins/Helm scoped to the app.
-resource "random_password" "rabbitmq" {
-  length  = 24
-  special = false
 
-  keepers = {
-    cluster_name = local.env_prefix
-  }
-}
 
 # KMS key for EKS secrets encryption. Using a customer-managed key is a best practice for production workloads, but not strictly required for this demo since the default AWS-managed key would work fine for encrypting EKS secrets.
 resource "aws_kms_key" "eks" {
@@ -155,9 +186,9 @@ data "aws_eks_cluster" "this" {
 module "ecr" {
   source = "../../modules/ecr"
   repositories = [
-    "catalogix_user-svc", "catalogix_catalog-svc", "catalogix_inventory-svc", "catalogix_cart-svc", "catalogix_promotions-svc",
-    "catalogix_payment-svc", "catalogix_checkout-svc", "catalogix_notification-svc", "catalogix_review-svc",
-    "catalogix_frontend", "catalogix_gateway"
+    "catalogix-user-svc", "catalogix-catalog-svc", "catalogix-inventory-svc", "catalogix-cart-svc", "catalogix-promotions-svc",
+    "catalogix-payment-svc", "catalogix-checkout-svc", "catalogix-notification-svc", "catalogix-review-svc",
+    "catalogix-frontend", "catalogix-gateway"
   ]
 }
 
@@ -173,20 +204,6 @@ module "alb" {
   depends_on = [module.eks, module.sg]
 }
 
-# WAF — creates the Web ACL and publishes its ARN to SSM. The ALB itself is
-# created later by the AWS Load Balancer Controller (via the Ingress in
-# helm/catalogix-hc), which is what actually performs the association using
-# the wafv2-acl-arn annotation. See modules/waf/main.tf for the full reasoning.
-module "waf" {
-  source = "../../modules/waf"
-
-  name               = local.env_prefix
-  region             = var.aws_region
-  ssm_parameter_path = "/${local.env_prefix}/waf-acl-arn"
-
-  depends_on = [module.alb]
-}
-
 # RDS
 module "rds" {
   source = "../../modules/rds"
@@ -194,12 +211,12 @@ module "rds" {
   project_name = "${local.env_prefix}-db"
   # RDS requires SOME initial database name at instance creation — this one
   # is never used by any service. The 9 real per-service databases
-  # (catalogix_users, catalogix_catalog, etc.) are created by
+  # (catalogix-<service>, etc.) are created by
   # module.db_roles below, matching postgres-init/01-create-databases.sh's
   # local-dev naming exactly.
   db_name                 = "catalogix_admin"
   username                = local.db_username
-  password                = random_password.db.result
+  password                = local.db_master_password
   private_subnets         = local.private_subnets
   security_group_id       = module.sg.rds_sg
   db_engine_version       = "18.1"
@@ -208,6 +225,9 @@ module "rds" {
   skip_final_snapshot     = true
 
   ssm_parameter_path = "/${local.env_prefix}/rds-endpoint"
+
+  # Never create the database with a password that failed the policy check.
+  depends_on = [terraform_data.operator_credentials_check]
 }
 
 # Per-service databases + roles — see modules/db-roles/main.tf for the full
@@ -221,22 +241,27 @@ module "db_roles" {
   source = "../../modules/db-roles"
 
   services = {
-    "user-svc"         = "catalogix_users"
-    "catalog-svc"      = "catalogix_catalog"
-    "inventory-svc"    = "catalogix_inventory"
-    "cart-svc"         = "catalogix_cart"
-    "promotions-svc"   = "catalogix_promotions"
-    "payment-svc"      = "catalogix_payment"
-    "checkout-svc"     = "catalogix_checkout"
-    "notification-svc" = "catalogix_notification"
-    "review-svc"       = "catalogix_reviews"
+    "user-svc"         = "catalogix-users"
+    "catalog-svc"      = "catalogix-catalog"
+    "inventory-svc"    = "catalogix-inventory"
+    "cart-svc"         = "catalogix-cart"
+    "promotions-svc"   = "catalogix-promotions"
+    "payment-svc"      = "catalogix-payment"
+    "checkout-svc"     = "catalogix-checkout"
+    "notification-svc" = "catalogix-notification"
+    "review-svc"       = "catalogix-reviews"
   }
+
+  # Optional human read-only login (off unless both keys are in the operator secret) —
+  # lets you look at the data with psql/pgAdmin without ever using the master credential.
+  readonly_username = local.db_readonly_username
+  readonly_password = local.db_readonly_password
 
   depends_on = [module.rds]
 }
 
 # Secrets Manager
-# Stores the generated credentials so the ap can read them via ESO
+# Stores the generated credentials so the app can read them via ESO
 # No one ever needs to know or handle the password except the app itself
 module "secrets" {
   source = "../../modules/secrets-manager"
@@ -246,7 +271,7 @@ module "secrets" {
 
   secret_values = {
     db_user = local.db_username
-    db_pass = random_password.db.result
+    db_pass = local.db_master_password
   }
 }
 
@@ -255,9 +280,10 @@ module "secrets" {
 # the two rotate independently: a JWT/RabbitMQ credential rotation
 # shouldn't touch the DB password's lifecycle or vice versa.
 #
-# Property names here (jwt_secret, rabbitmq_user, rabbitmq_password) must
-# match what helm/catalogix-hc/templates/external-secrets.yaml's second
-# ExternalSecret reads via `property:` — see that file if you rename any of these.
+# Key names here (jwt_secret, db_user_<svc>, db_password_<svc>, ...)
+# are copied VERBATIM into the 'catalogix-secrets' K8s Secret by
+# helm/catalogix-hc/templates/external-secrets.yaml (dataFrom.extract), and
+# referenced by name from _helpers.tpl and values-*.yaml — rename with care.
 module "app_secrets" {
   source = "../../modules/secrets-manager"
 
@@ -269,9 +295,10 @@ module "app_secrets" {
   # was the first draft and got reverted).
   secret_values = merge(
     {
-      jwt_secret        = random_password.jwt.result
-      rabbitmq_user     = "catalogix"
-      rabbitmq_password = random_password.rabbitmq.result
+      # Machine secrets only. The passwords a human chooses (RabbitMQ, the bootstrap admin,
+      # Grafana, RDS master) live in "<env_prefix>/operator-credentials" instead — see the
+      # data source at the top of this file. helm/catalogix-hc's ExternalSecret merges the two.
+      jwt_secret = random_password.jwt.result
     },
     { for svc, creds in module.db_roles.credentials : "db_user_${replace(svc, "-", "_")}" => creds.username },
     { for svc, creds in module.db_roles.credentials : "db_password_${replace(svc, "-", "_")}" => creds.password }
@@ -320,7 +347,7 @@ module "eso" {
 
 }
 
-# S3 + IRSA for Loki/Tempo — see modules/observability-storage/main.tf for
+# S3 + IRSA for Loki — see modules/observability-storage/main.tf for
 # why this is a separate module (and separate IAM roles) from ESO above,
 # not folded into it. Bucket names and role ARNs are published to SSM;
 # Jenkinsfile.platform-infra's "Deploy Monitoring Stack" stage reads them

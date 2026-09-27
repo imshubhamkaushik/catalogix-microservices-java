@@ -257,8 +257,7 @@ public class ReturnSvc {
          *
          * Even if the same approval request is retried after a network
          * timeout, payment-svc receives the same idempotency key:
-         *
-         * return-refund-{returnId}
+         * return-refund-{returnId}.
          *
          * so the same refund operation is not charged twice.
          */

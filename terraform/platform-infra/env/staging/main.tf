@@ -2,8 +2,7 @@
 # bootstrap-infra must be applied first before running platform-infra.
 #
 # Staging shares the same VPC as dev (single bootstrap-infra layer).
-# Cluster and RDS resources are fully isolated by separate module instances
-# and name-prefixed with "catalogix-staging".
+# Cluster and RDS resources are fully isolated by separate module instances and name-prefixed with "catalogix-staging".
 
 data "terraform_remote_state" "bootstrap" {
   backend = "s3"
@@ -184,10 +183,10 @@ module "rds" {
   project_name = "${local.env_prefix}-db"
   # RDS requires SOME initial database name at instance creation — this one
   # is never used by any service. The 9 real per-service databases
-  # (catalogix_users, catalogix_catalog, etc.) are created by
+  # (catalogix-users, catalogix-catalog, etc.) are created by
   # module.db_roles below, matching postgres-init/01-create-databases.sh's
   # local-dev naming exactly.
-  db_name                 = "catalogix_admin"
+  db_name                 = "catalogix-admin"
   username                = local.db_username
   password                = random_password.db.result
   private_subnets         = local.private_subnets
@@ -204,15 +203,15 @@ module "db_roles" {
   source = "../../modules/db-roles"
 
   services = {
-    "user-svc"         = "catalogix_users"
-    "catalog-svc"      = "catalogix_catalog"
-    "inventory-svc"    = "catalogix_inventory"
-    "cart-svc"         = "catalogix_cart"
-    "promotions-svc"   = "catalogix_promotions"
-    "payment-svc"      = "catalogix_payment"
-    "checkout-svc"     = "catalogix_checkout"
-    "notification-svc" = "catalogix_notification"
-    "review-svc"       = "catalogix_reviews"
+    "user-svc"         = "catalogix-users"
+    "catalog-svc"      = "catalogix-catalog"
+    "inventory-svc"    = "catalogix-inventory"
+    "cart-svc"         = "catalogix-cart"
+    "promotions-svc"   = "catalogix-promotions"
+    "payment-svc"      = "catalogix-payment"
+    "checkout-svc"     = "catalogix-checkout"
+    "notification-svc" = "catalogix-notification"
+    "review-svc"       = "catalogix-reviews"
   }
 
   depends_on = [module.rds]

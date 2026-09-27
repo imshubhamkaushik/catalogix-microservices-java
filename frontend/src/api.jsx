@@ -158,7 +158,10 @@ export const revokeSession = async (id) => {
 };
 
 export const updateNotificationPreferences = async (preferences) => {
-  const res = await http.patch(`${USER_API_BASE}/me/notification-preferences`, preferences);
+  const res = await http.patch(
+    `${USER_API_BASE}/me/notification-preferences`,
+    preferences,
+  );
   return res.data;
 };
 
@@ -531,3 +534,63 @@ export const getNotificationLog = async (params = {}) => {
   const res = await http.get(NOTIFICATION_API_BASE, { params });
   return res.data; // { content, page, size, totalElements, totalPages }
 };
+
+// -------- MARKETPLACE / PLATFORM APIs --------
+const SELLER_API_BASE = "/sellers";
+const FULFILLMENT_API_BASE = "/fulfillments";
+const SEARCH_API_BASE = "/search";
+const RECOMMENDATION_API_BASE = "/recommendations";
+const AUDIT_API_BASE = "/audit";
+const FEATURE_API_BASE = "/features";
+
+export const getSellerProfile = async () =>
+  (await http.get(`${SELLER_API_BASE}/me`)).data;
+export const onboardSeller = async (payload) =>
+  (await http.post(`${SELLER_API_BASE}/me/onboarding`, payload)).data;
+export const requestSellerPayout = async (
+  amount,
+  idempotencyKey = crypto.randomUUID(),
+) =>
+  (
+    await http.post(
+      `${SELLER_API_BASE}/me/payouts`,
+      { amount },
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    )
+  ).data;
+export const getSellers = async (status) =>
+  (await http.get(SELLER_API_BASE, { params: status ? { status } : undefined }))
+    .data;
+export const updateSellerStatus = async (id, status) =>
+  (await http.patch(`${SELLER_API_BASE}/${id}/status`, { status })).data;
+
+export const getSellerShipments = async () =>
+  (await http.get(`${FULFILLMENT_API_BASE}/seller/me`)).data;
+export const getMyShipments = async () =>
+  (await http.get(`${FULFILLMENT_API_BASE}/mine`)).data;
+export const getAllShipments = async () =>
+  (await http.get(`${FULFILLMENT_API_BASE}/all`)).data;
+export const getOrderShipments = async (orderId) =>
+  (await http.get(`${FULFILLMENT_API_BASE}/orders/${orderId}`)).data;
+export const updateShipmentStatus = async (id, status) =>
+  (await http.patch(`${FULFILLMENT_API_BASE}/${id}/status`, { status })).data;
+
+export const searchProducts = async (params = {}) =>
+  (await http.get(`${SEARCH_API_BASE}/products`, { params })).data;
+export const getRecommendations = async (productId, limit = 6) =>
+  (
+    await http.get(`${RECOMMENDATION_API_BASE}/products/${productId}`, {
+      params: { limit },
+    })
+  ).data;
+export const getAuditLog = async (params = {}) =>
+  (await http.get(AUDIT_API_BASE, { params })).data;
+export const getFeatures = async () => (await http.get(FEATURE_API_BASE)).data;
+export const setFeature = async (name, enabled) =>
+  (await http.put(`${FEATURE_API_BASE}/${name}`, { enabled })).data;
+export const moderateProduct = async (id, status) =>
+  (
+    await http.patch(`${PRODUCT_API_BASE}/${id}/moderation`, null, {
+      params: { status },
+    })
+  ).data;

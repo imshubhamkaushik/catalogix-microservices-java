@@ -24,7 +24,7 @@ A small microservices-based product catalogue: register, log in, browse/manage p
                   /api/*                 / *
                     │                       │
                     ▼                       ▼
-             backend services         frontend-svc
+             backend services         frontend
              11002–11010            nginx :11001
 
  Local host entry point: http://localhost:11000 → gateway:11000.
@@ -35,10 +35,10 @@ A small microservices-based product catalogue: register, log in, browse/manage p
 - **catalog-svc** — product catalogue: search, pagination, categories, pricing and product metadata
 - **checkout-svc** — owns orders and orchestrates catalog/inventory/cart/promotions/payment with compensation and idempotency; fires order confirmation/cancellation events
 - **notification-svc** — RabbitMQ-driven email delivery plus an admin notification log; everything it sends lands in Mailpit locally
-- **frontend-svc** — React (Vite) SPA, served as static files by nginx
+- **frontend** — React (Vite) SPA, served as static files by nginx
 - **gateway** — nginx application gateway + rate limiting; the single browser entry point in both local Compose and EKS (behind the AWS ALB)
 
-Current backend services use ports **11002–11009**, plus **user-svc on 11010** (moved off 11001 once the gateway took that range's low end) — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the full per-service map; `frontend-svc` listens on **11001** internally, and the browser-facing gateway is **localhost:11000** locally (gateway container port 11000 — no longer a privileged port, so the container no longer needs `NET_BIND_SERVICE`).
+Current backend services use ports **11002–11009**, plus **user-svc on 11010** (moved off 11001 once the gateway took that range's low end) — see [ARCHITECTURE.md](./ARCHITECTURE.md) for the full per-service map; `frontend` listens on **11001** internally, and the browser-facing gateway is **localhost:11000** locally (gateway container port 11000 — no longer a privileged port, so the container no longer needs `NET_BIND_SERVICE`).
 
 Each backend service exposes interactive API docs at `/swagger-ui.html` when reached through its own service endpoint. In local Compose, backend ports are internal to the Docker network, so direct browser access to a service requires temporarily publishing that service for debugging rather than relying on the gateway.
 
@@ -46,13 +46,14 @@ Each backend service exposes interactive API docs at `/swagger-ui.html` when rea
 
 ```bash
 cp .env.example .env
-# edit .env — at minimum set a real JWT_SECRET (32+ chars) for anything beyond local testing
+# edit .env — you MUST replace JWT_SECRET (the services refuse to start with the placeholder):
+#   openssl rand -base64 48
 cp secrets/postgres_password.txt.example secrets/postgres_password.txt
 # make sure secrets/postgres_password.txt's contents match POSTGRES_PASSWORD in .env exactly
 docker compose up --build
 ```
 
-Then open **http://localhost:11000**. Register an account, or register with an email listed in `ADMIN_EMAILS` to get an admin account (admins see everyone's orders and can manage the user directory).
+Then open **http://localhost:11000**. A fresh deployment has exactly one admin, created automatically on first start: **admin@catalogix.local / Admin@12345** (local Compose only — on AWS the password is the one you choose with `python scripts/python/bootstrap.py credentials`, see [DEVOPS.md](DEVOPS.md)). Everyone who registers is a **customer**; a customer can *request* seller access from their Account page, and the admin approves or declines it — and can assign the seller or admin role to anyone — on the **Users** page. There is no way to become a seller or admin by registering.
 
 Postgres is published on `localhost:5432`; backend service ports are internal to the Docker network so the gateway is the sole browser-facing application entry point. Every email any service sends lands in **Mailpit** at `http://localhost:8025` — nothing is ever actually delivered anywhere, so this is where you'll see verification links, password reset links, and order confirmations.
 
@@ -77,16 +78,19 @@ Postgres is published on `localhost:5432`; backend service ports are internal to
 - **Gateway-level rate limiting**, stricter on `/users/login|register|refresh` specifically, as defense-in-depth on top of each service's own per-IP `RateLimiterFilter`.
 - **Fail-fast startup check** if `JWT_SECRET` is still the placeholder value from `.env.example`.
 - **Docker secret for the Postgres password** (the officially-supported `POSTGRES_PASSWORD_FILE` convention — see `secrets/`). The app services still connect via `SPRING_DATASOURCE_PASSWORD` as a plain env var, which is how a real secrets manager (Vault, AWS/GCP Secrets Manager) would inject it in production anyway — this repo's `.env` file is the local stand-in for that.
-- Roles (`USER`/`ADMIN` via `ADMIN_EMAILS`), ownership checks on delete/manage — unchanged from before.
+- Approval-based roles: `USER` (customer, the default), `SELLER` and `ADMIN`. Only an admin can grant `SELLER`/`ADMIN` (`PUT /users/{id}/role`); customers request seller access and an admin approves or declines. An admin cannot change their own role or remove the last admin. The first admin is seeded on first start (`AdminSeeder`).
 
-### Reliability (order-svc)
+### Reliability (checkout-svc)
 - **Idempotent order creation.** Pass an `Idempotency-Key` header when placing an order; a retried request with the same key returns the original order (`200`) instead of creating a duplicate (`201`) — including recovering cleanly from the rare race where two concurrent requests with the same key both try to create the order at once.
-- **Circuit breaker** (Resilience4j) around every call order-svc makes to product-svc. Opens after real infrastructure failures (timeouts, connection refused, 5xx) — not business outcomes like "out of stock" or "not found," which are deliberately excluded from tripping it.
-- **Outbox pattern for compensation.** If restoring stock (on order cancellation, or rolling back an earlier line item after a later one fails) can't reach product-svc live, the intent is written to a `stock_adjustment_outbox` table in the same transaction, and a scheduled job retries it until it succeeds or exhausts 10 attempts (then it's marked `DEAD_LETTER` for manual attention — see `GET /admin/outbox` and `POST /admin/outbox/{id}/retry`, admin-only). The background job authenticates to product-svc with a short-lived system-issued token, since there's no user request to forward one from.
+- **Circuit breakers** (Resilience4j) around checkout's calls to inventory-svc and the other services. They open after real infrastructure failures (timeouts, connection refused, 5xx) — not business outcomes like "out of stock" or "not found".
+- **Idempotent stock reservation and release.** Every reserve/release sent to inventory-svc carries an operation id (`X-Operation-Id`), recorded in `inventory_operations`; a repeat is a no-op. A release also names the reservation it reverses (`X-Undo-Of`), so releasing a reservation whose request timed out — and may never have been applied — cannot add phantom stock.
+- **Outbox pattern for compensation.** If a stock or coupon release can't reach its service live, the intent is written to `compensation_outbox` in the same transaction and `CompensationOutboxProcessor` retries it (5 attempts, then `DEAD_LETTER` — see the outbox admin page). It relies on `@EnableScheduling`, which was previously missing: the processor never actually ran.
+- **Unpaid orders expire.** `PendingOrderExpiryJob` cancels orders still `PENDING_PAYMENT` after `ORDER_PAYMENT_TIMEOUT_MINUTES` (default 30) and releases their stock and coupon.
+- **No double charge / double refund.** Paying or cancelling an order takes a row lock on it, so concurrent requests are serialised; refunds are idempotent per `Idempotency-Key` and serialised on the payment row.
 
 ### API & performance polish
 - **OpenAPI/Swagger UI** on all three services (`/swagger-ui.html`, `/v3/api-docs`), via springdoc — zero extra code beyond the existing controller annotations.
-- **In-memory caching** (Caffeine, 30s TTL) on product-svc's single-product read — the hot path order-svc hits when pricing every line item.
+- **In-memory caching** (Caffeine, 30s TTL) on product-svc's single-product read — the hot path checkout-svc hits when pricing every line item.
 - **Frontend tests** (Vitest + React Testing Library) covering the login/register flow, the auth context's token lifecycle (including silent refresh and forced logout), and the order cart/idempotency-key flow.
 - Bumped `axios` and `vite` to patched versions after `npm audit` flagged known CVEs in the versions this project started with.
 
@@ -124,7 +128,7 @@ See `.env.example` for the full list. Must-changes for anything beyond local tes
 
 ```bash
 mvn test                    # all backend services
-cd frontend-svc && npm test # Vitest + React Testing Library
+cd frontend && npm test # Vitest + React Testing Library
 ```
 
 ## Known limitations
@@ -133,7 +137,7 @@ Being upfront about what's *not* production-hardened here:
 
 - **Still not a full distributed saga at the reservation-loop level.** The compensation outbox (see below) reliably undoes partial failures now, but the initial multi-item reservation loop in checkout-svc's `createOrder`-equivalent is still synchronous, one item at a time. RabbitMQ exists in this system (compensation events, notification delivery), but this specific loop doesn't use it yet.
 - **In-memory state doesn't survive a restart or scale past one replica.** The login-lockout tracker, the Caffeine product cache, and the circuit breaker's state are all per-instance. Fine for a single instance; a multi-replica deployment would want these backed by something shared (Redis, typically) instead.
-- **Backend services have no container-level healthcheck.** They run on a distroless base image with no shell or wget, so `docker compose`'s `healthcheck:` isn't practical there; they rely on `depends_on` + `restart: unless-stopped` instead. `gateway` and `frontend-svc` (both nginx-based) do have real healthchecks.
+- **Backend services have no container-level healthcheck.** They run on a distroless base image with no shell or wget, so `docker compose`'s `healthcheck:` isn't practical there; they rely on `depends_on` + `restart: unless-stopped` instead. `gateway` and `frontend` (both nginx-based) do have real healthchecks.
 - **Email verification isn't a login gate.** An unverified account can still do everything — the UI just shows a banner. Making it a hard gate is a product decision more than a technical one (it locks out anyone whose verification email got lost/delayed/spam-filtered), so this build tracks the status without enforcing it. Flip it in `UserSvc.login()` if you want it enforced.
 - **notification-svc's `notification_log` is an audit trail, not a retry queue.** A failed send is recorded and returned as `status: FAILED`, but nothing automatically retries a failed *email send itself* — unlike checkout-svc's compensation outbox, which does retry with backoff for failed compensations (stock releases, coupon restores). A lost password-reset email today just means the user requests another one.
 - **PATCH /products/{id}/stock is open to any authenticated user**, not just the product's owner — intentional, since placing an order needs to decrement a *different* user's stock, but it does mean any logged-in user could technically restock or deplete someone else's listing directly if they called the endpoint themselves outside the normal order flow.
