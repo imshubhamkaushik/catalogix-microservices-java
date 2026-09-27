@@ -117,7 +117,7 @@ services:
   user-svc:
     mem_limit: 512m
     cpus: 0.325
-    image: catalogix_user-svc:latest
+    image: catalogix-user-svc:latest
     build:
       context: .
       dockerfile: backend/user-svc/Dockerfile
@@ -131,7 +131,6 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
       REFRESH_TOKEN_EXPIRATION_MS: ${REFRESH_TOKEN_EXPIRATION_MS}
-      ADMIN_EMAILS: ${ADMIN_EMAILS}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
@@ -152,12 +151,11 @@ services:
       # If register/login mysteriously "work but don't stay logged in"
       # again in the future, this line is the first thing to check exists.
       REFRESH_COOKIE_SECURE: "false"
-      # See AdminSeeder's Javadoc. Fixed local-only credentials — this file
-      # never leaves your machine, unlike the Helm values files where the
-      # same password is deliberately left for `helm install --set` instead.
-      SEED_DATA: "true"
+      # See AdminSeeder's Javadoc: the bootstrap admin, created on first start if no admin
+      # exists yet. Fixed local-only credentials — this file never leaves your machine.
+      # (On AWS it is the password you chose with `python bootstrap.py credentials`.)
       SEED_ADMIN_EMAIL: admin@catalogix.local
-      SEED_ADMIN_PASSWORD: Admin@12345
+      SEED_ADMIN_PASSWORD: AdminAdminAdmin
     expose:
       - "11010"
     depends_on:
@@ -173,7 +171,7 @@ services:
   catalog-svc:
     mem_limit: 512m
     cpus: 0.325
-    image: catalogix_catalog-svc:latest
+    image: catalogix-catalog-svc:latest
     build:
       context: .
       dockerfile: backend/catalog-svc/Dockerfile
@@ -214,7 +212,7 @@ services:
   inventory-svc:
     mem_limit: 384m
     cpus: 0.275
-    image: catalogix_inventory-svc:latest
+    image: catalogix-inventory-svc:latest
     build:
       context: .
       dockerfile: backend/inventory-svc/Dockerfile
@@ -240,7 +238,7 @@ services:
   cart-svc:
     mem_limit: 384m
     cpus: 0.275
-    image: catalogix_cart-svc:latest
+    image: catalogix-cart-svc:latest
     build:
       context: .
       dockerfile: backend/cart-svc/Dockerfile
@@ -269,7 +267,7 @@ services:
   promotions-svc:
     mem_limit: 384m
     cpus: 0.275
-    image: catalogix_promotions-svc:latest
+    image: catalogix-promotions-svc:latest
     build:
       context: .
       dockerfile: backend/promotions-svc/Dockerfile
@@ -296,7 +294,7 @@ services:
   payment-svc:
     mem_limit: 384m
     cpus: 0.275
-    image: catalogix_payment-svc:latest
+    image: catalogix-payment-svc:latest
     build:
       context: .
       dockerfile: backend/payment-svc/Dockerfile
@@ -322,7 +320,7 @@ services:
   checkout-svc:
     mem_limit: 640m
     cpus: 0.25
-    image: catalogix_checkout-svc:latest
+    image: catalogix-checkout-svc:latest
     build:
       context: .
       dockerfile: backend/checkout-svc/Dockerfile
@@ -373,7 +371,7 @@ services:
   notification-svc:
     mem_limit: 384m
     cpus: 0.25
-    image: catalogix_notification-svc:latest
+    image: catalogix-notification-svc:latest
     build:
       context: .
       dockerfile: backend/notification-svc/Dockerfile
@@ -431,7 +429,7 @@ services:
   review-svc:
     mem_limit: 384m
     cpus: 0.25
-    image: catalogix_review-svc:latest
+    image: catalogix-review-svc:latest
     build:
       context: .
       dockerfile: backend/review-svc/Dockerfile
@@ -460,7 +458,7 @@ services:
     # Internal service port; only gateway publishes host port 11000.
     mem_limit: 256m
     cpus: 0.1
-    image: catalogix_frontend:latest
+    image: catalogix-frontend:latest
     build:
       context: ./frontend
     restart: unless-stopped
@@ -472,7 +470,7 @@ services:
     # Sole browser-facing host endpoint: localhost:11000 -> gateway:11000.
     mem_limit: 128m
     cpus: 0.1
-    image: catalogix_gateway:latest
+    image: catalogix-gateway:latest
     build:
       context: ./gateway
     restart: unless-stopped
