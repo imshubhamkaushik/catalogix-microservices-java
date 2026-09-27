@@ -9,6 +9,11 @@ spec:
   {{- if not (and .Values.gateway.hpa .Values.gateway.hpa.enabled) }}
   replicas: {{ .Values.gateway.replicaCount | default 2 }}
   {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: gateway
@@ -17,6 +22,7 @@ spec:
       labels:
         app: gateway
     spec:
+      terminationGracePeriodSeconds: {{ .Values.global.terminationGracePeriodSeconds | default 45 }}
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
@@ -34,8 +40,8 @@ spec:
             # nginx writes proxy temp files here at runtime.
             - name: nginx-cache
               mountPath: /var/cache/nginx
-            - name: nginx-log
-              mountPath: /var/log/nginx
+            # No /var/log/nginx mount on purpose — see frontend.yaml: an emptyDir
+            # there hides the stdout/stderr log links and makes logs invisible.
             # gateway/Dockerfile relocates the pid file to /tmp/nginx.pid
             # specifically because /var/run isn't guaranteed writable by a
             # non-root UID on this base image — this mount is what makes
@@ -62,6 +68,7 @@ spec:
           # defined in gateway/nginx.conf) rather than '/' — '/' would proxy
           # to frontend per nginx.conf's routing and isn't a meaningful
           # gateway-liveness check on its own.
+          {{- include "catalogix.lifecycle" . | nindent 10 }}
           readinessProbe:
             httpGet:
               path: /gateway/health
@@ -102,8 +109,6 @@ spec:
               drop: ["ALL"]
       volumes:
         - name: nginx-cache
-          emptyDir: {}
-        - name: nginx-log
           emptyDir: {}
         - name: tmp
           emptyDir: {}

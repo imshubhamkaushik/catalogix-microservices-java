@@ -34,11 +34,9 @@
 #     backend services + gateway + frontend + rabbitmq + postgres at 2 replicas
 #     each would ask for far more CPU/memory than most dev machines have
 #     free alongside everything else running on it.
-#   - No tracing backend: global.otlpEndpoint still points at a `monitoring`
-#     namespace Tempo Service that won't exist unless you also install
-#     helm/monitoring locally. This is harmless — the OTLP exporter just
-#     logs connection-refused warnings in the background, it doesn't block
-#     app startup — but worth knowing if you see those in the logs.
+#   - No tracing: Tempo (and the OTLP env vars that pointed at it) has been
+#     removed entirely — see the app chart's global values and _helpers.tpl.
+#     Local dev never had a tracing backend of its own either way.
 
 global:
   cloudProvider: "local"
@@ -73,26 +71,21 @@ hpa:
 backendServices:
   user-svc:
     replicaCount: 1
-    # Full re-declaration, not just the password — Helm REPLACES (doesn't
-    # merge) list values across -f files, so overriding just one entry's
-    # value here would silently drop ALLOWED_ORIGINS/CORS_ALLOW_CREDENTIALS/
-    # ADMIN_EMAILS/REFRESH_COOKIE_SECURE from values-dev.yaml's version of
-    # this same list. Keep this in sync with values-dev.yaml's user-svc
-    # extraEnv if that one ever changes. Only actual difference from it:
-    # SEED_ADMIN_PASSWORD has a real fixed value here instead of requiring
-    # --set, since this file never leaves your machine (see docker-compose.yaml's
-    # matching comment on its own SEED_ADMIN_PASSWORD for the same reasoning).
+    # Local clusters are plain HTTP on localhost, so opt OUT of the derived
+    # FRONTEND_BASE_URL / REFRESH_COOKIE_SECURE (values-dev sets publicUrlEnv: true)
+    # and set them by hand below.
+    publicUrlEnv: false
+    # Full re-declaration, not just the password — Helm REPLACES (doesn't merge)
+    # list values across -f files. Keep this in sync with values-dev.yaml's
+    # user-svc extraEnv. Differences: SEED_ADMIN_PASSWORD has a real fixed value
+    # here instead of coming from Secrets Manager, since this file never leaves
+    # your machine (see docker-compose.yaml's matching comment), and the
+    # cookie/URL settings are explicit.
     extraEnv:
-      - name: ALLOWED_ORIGINS
-        value: "*"
-      - name: CORS_ALLOW_CREDENTIALS
-        value: "true"
-      - name: ADMIN_EMAILS
-        value: "admin@example.com"
       - name: REFRESH_COOKIE_SECURE
         value: "false"
-      - name: SEED_DATA
-        value: "true"
+      - name: FRONTEND_BASE_URL
+        value: "http://localhost:11000"
       - name: SEED_ADMIN_EMAIL
         value: "admin@catalogix.local"
       - name: SEED_ADMIN_PASSWORD

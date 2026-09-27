@@ -1,10 +1,11 @@
 Catalogix deployed to namespace: {{ .Release.Namespace }}
 
-Backend services ({{ len .Values.backendServices }} total):
+Backend services ({{ len .Values.backendServices }} total, all reached through the gateway at /api/<service>/...):
 {{- range $name, $svc := .Values.backendServices }}
-  - {{ $name }} :{{ $svc.port }}{{ if $svc.routeToALB }} (routed: {{ $svc.ingressPath }}){{ else }} (internal-only, no ALB route){{ end }}
+  - {{ $name }} :{{ $svc.port }}
 {{- end }}
-  - frontend :{{ .Values.frontend.service.port }} (routed: {{ .Values.ingress.paths.frontend }})
+  - frontend :{{ .Values.frontend.service.port }}
+  - gateway  :{{ .Values.gateway.service.port }} (the only workload the ALB routes to)
 
 Check rollout status:
   kubectl get pods -n {{ .Release.Namespace }}

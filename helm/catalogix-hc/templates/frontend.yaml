@@ -9,6 +9,11 @@ spec:
   {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.frontend.replicaCount | default 2 }}
   {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: frontend
@@ -17,6 +22,7 @@ spec:
       labels:
         app: frontend
     spec:
+      terminationGracePeriodSeconds: {{ .Values.global.terminationGracePeriodSeconds | default 45 }}
       securityContext:
         runAsNonRoot: true
         fsGroup: 1000
@@ -34,8 +40,11 @@ spec:
               mountPath: /var/cache/nginx
             - name: nginx-run
               mountPath: /var/run
-            - name: nginx-log
-              mountPath: /var/log/nginx
+            # No /var/log/nginx mount on purpose: the nginx image points
+            # access.log/error.log at /dev/stdout and /dev/stderr, and an emptyDir
+            # mounted over that directory hides those links — nginx then writes
+            # real files nobody can see with `kubectl logs` (or Loki) and that
+            # grow on the node's disk.
             - name: tmp
               mountPath: /tmp
           securityContext:
@@ -46,6 +55,7 @@ spec:
             capabilities:
               drop:
                 - ALL
+          {{- include "catalogix.lifecycle" . | nindent 10 }}
           readinessProbe:
             httpGet:
               path: /
@@ -64,8 +74,6 @@ spec:
         - name: nginx-cache
           emptyDir: {}
         - name: nginx-run
-          emptyDir: {}
-        - name: nginx-log
           emptyDir: {}
         - name: tmp
           emptyDir: {}

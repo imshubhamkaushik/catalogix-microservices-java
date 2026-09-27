@@ -2,9 +2,6 @@ global:
   imageRegistry: ""
   imageTag: "1.0-0"
   cloudProvider: "aws"
-  # Every service exports traces here (Jaeger/Tempo collector in the
-  # `monitoring` namespace) via OTLP — see the upgrade plan doc, section 6.
-  otlpEndpoint: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
 database:
   host: ""          # set at deploy time: --set database.host=<RDS endpoint from SSM>

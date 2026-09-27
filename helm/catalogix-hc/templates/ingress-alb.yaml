@@ -8,7 +8,14 @@ metadata:
   name: catalogix-gateway-ingress
   namespace: {{ .Release.Namespace }}
   annotations:
-    alb.ingress.kubernetes.io/load-balancer-name: catalogix-alb
+    {{- /* ALB names are unique per AWS account + region. This used to be the fixed
+           string "catalogix-alb", so a second environment in the same account
+           (dev + staging share one) could never create its load balancer. The
+           pipeline passes ingress.loadBalancerName=catalogix-<env>-alb; when it is
+           unset the annotation is omitted and the controller generates a unique name. */}}
+    {{- with .Values.ingress.loadBalancerName }}
+    alb.ingress.kubernetes.io/load-balancer-name: {{ . }}
+    {{- end }}
     alb.ingress.kubernetes.io/group.name: catalogix
     alb.ingress.kubernetes.io/group.order: "10"
     alb.ingress.kubernetes.io/scheme: internet-facing
@@ -28,13 +35,15 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
-    {{ if .Values.ingress.wafAclArn }}
-    alb.ingress.kubernetes.io/wafv2-acl-arn: {{ .Values.ingress.wafAclArn }}
-    {{ end }}
 spec:
   ingressClassName: alb
   rules:
+    {{- if .Values.ingress.host }}
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+    {{- else }}
     - http:
+    {{- end }}
         paths:
           - path: /
             pathType: Prefix

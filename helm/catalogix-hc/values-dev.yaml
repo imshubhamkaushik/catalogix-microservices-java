@@ -2,13 +2,16 @@ global:
   imageRegistry: ""
   imageTag: "1.0-0"
   cloudProvider: "aws"
-  # Every service exports traces here (Jaeger/Tempo collector in the
-  # `monitoring` namespace) via OTLP — see the upgrade plan doc, section 6.
-  otlpEndpoint: "http://monitoring-tempo.monitoring.svc.cluster.local:4318/v1/traces"
 
 database:
   host: "" # set at deploy time: --set database.host=<RDS endpoint from SSM>
   port: 5432
+  # HikariCP pool size PER POD. Every pod of every service shares one small RDS
+  # instance, so total connections = pods x pool. Dev budget (worst case, every
+  # HPA at max): 8 services x 3 pods x 3 + checkout-svc 3 pods x 6 = 90 — under
+  # the ~100 max_connections of a db.t4g.micro. Raise pool and instance class
+  # together, never one alone.
+  maxPoolSize: 3
   # No shared username here anymore — each service authenticates with its
   # own role (db_user_<svc>/db_password_<svc>, see
   # templates/_helpers.tpl's commonEnv), created by
@@ -16,12 +19,18 @@ database:
   # master role is now used only by Terraform's postgresql provider itself
   # to create those per-service roles, never by an app service directly.
 
-# DB password, JWT secret, and RabbitMQ credentials are NOT stored here —
-# they're pulled from AWS Secrets Manager by the ExternalSecret template
-# (templates/external-secrets.yaml) into the 'catalogix-secrets' K8s Secret.
+# Per-service DB credentials, the JWT secret, RabbitMQ credentials and the
+# bootstrap admin password are NOT stored here — they're pulled from AWS
+# Secrets Manager by the ExternalSecret template (templates/external-secrets.yaml)
+# into the 'catalogix-secrets' K8s Secret. The pipeline overrides this name with
+# "<cluster name>/app-secrets" (see Jenkinsfile.app-cicd, 'Prepare Helm
+# Arguments'); the value below is what a manual `helm install` would use.
 secretsManager:
-  dbSecretName: "catalogix-cluster-dev/db-credentials"
-  appSecretName: "catalogix-cluster-dev/app-secrets" # JWT_SECRET + RabbitMQ creds
+  appSecretName: "catalogix-cluster-dev/app-secrets"
+  # Passwords the operator chose with `python bootstrap.py credentials` (RabbitMQ, the bootstrap
+  # admin). Read directly by External Secrets — Terraform never sees them. Leave empty to fall
+  # back to values in appSecretName (what staging still does).
+  operatorSecretName: "catalogix-cluster-dev/operator-credentials"
 
 rabbitmq:
   host: "rabbitmq" # in-cluster headless Service, see templates/rabbitmq.yaml
@@ -36,15 +45,20 @@ rabbitmq:
 
 ingress:
   enabled: true
+  # Public DNS name and ACM certificate — both normally supplied by the pipeline
+  # (INGRESS_HOST / TLS_CERT_ARN build parameters) and both empty here.
+  # They are the SINGLE source for everything that depends on how the site is
+  # reached: the ALB host rule, the HTTPS listener + HTTP->HTTPS redirect, the
+  # app's public URL (links in emails) and the Secure flag of the refresh-token
+  # cookie (see _helpers.tpl: catalogix.publicBaseUrl / catalogix.cookieSecure).
+  # Nothing else needs to be flipped by hand when HTTPS is switched on.
   host: ""
-  # ACM certificate ARN for the ALB's HTTPS:443 listener. Empty by
-  # default (HTTP:80 only) until a real cert exists for this env's
-  # domain — set at deploy time with --set ingress.tlsCertArn=<arn>,
-  # same pattern as database.host. Once set, flip REFRESH_COOKIE_SECURE
-  # back to true (or remove the override) in this file's user-svc block.
   tlsCertArn: ""
-  paths:
-    frontend: /
+  # Optional explicit override of the public URL, e.g. the raw ALB URL for an
+  # HTTP-only environment with no DNS name.
+  publicUrl: ""
+  # Must be unique per AWS account + region; the pipeline sets catalogix-<env>-alb.
+  loadBalancerName: "catalogix-dev-alb"
 
 hpa:
   enabled: true
@@ -54,72 +68,56 @@ hpa:
 # a 10th service is a new map entry, not a new template.
 backendServices:
   user-svc:
-    dbName: catalogix_users
+    dbName: catalogix-users
     usesRabbitMQ: true   # publishes user.email-verification-requested / user.password-reset-requested
-    image: { repository: "catalogix_user-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix-user-svc", pullPolicy: "IfNotPresent" }
     port: 11010
+    # FRONTEND_BASE_URL and REFRESH_COOKIE_SECURE are derived from ingress.host /
+    # ingress.tlsCertArn (see templates/_helpers.tpl) — never set them in extraEnv.
+    publicUrlEnv: true
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /users
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "500m", memory: "512Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
     extraEnv:
-      - name: ALLOWED_ORIGINS
-        value: "*"
-      - name: CORS_ALLOW_CREDENTIALS
-        value: "true"
-      - name: ADMIN_EMAILS
-        value: "admin@example.com"
-      # TEMPORARY: the ALB ingress (templates/ingress-alb.yaml) currently
-      # only listens on HTTP:80 — there's no ACM cert/443 listener wired up
-      # yet (see ingress.tlsCertArn below). Until that's added, this must
-      # stay false or the browser silently drops the Secure-flagged refresh
-      # cookie, exactly like the local docker-compose issue. Flip this back
-      # to true (or just delete the override) once ingress.tlsCertArn is set.
-      - name: REFRESH_COOKIE_SECURE
-        value: "false"
-      # See backend/user-svc's AdminSeeder Javadoc. Email is fixed and safe
-      # to commit (just an identifier); password is deliberately left blank
-      # here — AdminSeeder skips seeding entirely rather than create an
-      # admin with an empty password. Supply the real one at deploy time —
-      # with this array in its current order, that's:
-      #   helm install ... --set backendServices.user-svc.extraEnv[6].value=<password>
-      # (index 6 = this entry's position below; re-count if this array's
-      # order ever changes). See values-local.yaml for the fully-fixed
-      # local equivalent of this same block, which doesn't need --set.
-      - name: SEED_DATA
-        value: "true"
+      # The bootstrap admin: created on first start if NO admin exists yet, so a
+      # fresh deployment always has one working login. Nobody can register as an
+      # admin — every self-registered account is a customer, and only an existing
+      # admin can grant the seller or admin role. The email is just an identifier;
+      # the password is the one YOU chose with `python bootstrap.py credentials`
+      # (key seed_admin_password in <cluster>/operator-credentials, synced by
+      # External Secrets). The pipelines refuse to run when it is missing (stage
+      # 'Verify Operator Credentials'), so a first deploy can't silently end up
+      # with no admin. `optional: true` only keeps pod startup
+      # alive if that check is bypassed (AdminSeeder then logs a loud ERROR).
       - name: SEED_ADMIN_EMAIL
         value: "admin@catalogix.local"
       - name: SEED_ADMIN_PASSWORD
-        value: ""
+        valueFrom:
+          secretKeyRef:
+            name: catalogix-secrets
+            key: seed_admin_password
+            optional: true
 
   catalog-svc:
-    dbName: catalogix_catalog
-    image: { repository: "catalogix_catalog-svc", pullPolicy: "IfNotPresent" }
+    dbName: catalogix-catalog
+    image: { repository: "catalogix-catalog-svc", pullPolicy: "IfNotPresent" }
     port: 11002
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /products
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "500m", memory: "512Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
     extraEnv:
       - name: INVENTORY_SVC_URL
@@ -134,55 +132,37 @@ backendServices:
         value: "http://review-svc:11009"
       - name: SEED_DATA
         value: "true"
-      # REQUIRED by every service — see CorsConfig in security-common,
-      # which every backendService here scans in via scanBasePackages.
-      # @Value("${ALLOWED_ORIGINS}") has no default, so a service missing
-      # this env var fails ApplicationContext startup entirely and
-      # crash-loops. "*" mirrors docker-compose's dev-only setting.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   inventory-svc:
-    dbName: catalogix_inventory
-    image: { repository: "catalogix_inventory-svc", pullPolicy: "IfNotPresent" }
+    dbName: catalogix-inventory
+    image: { repository: "catalogix-inventory-svc", pullPolicy: "IfNotPresent" }
     port: 11003
     replicaCount: 2
     # Internal-only, service-to-service — no ALB path, mirrors the gateway's
     # nginx.conf rule in the local docker-compose setup.
-    routeToALB: false
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
-    extraEnv:
-      # REQUIRED — see catalog-svc's comment above; CorsConfig in
-      # security-common needs this on every service or the app crash-loops.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   cart-svc:
-    dbName: catalogix_cart
-    image: { repository: "catalogix_cart-svc", pullPolicy: "IfNotPresent" }
+    dbName: catalogix-cart
+    image: { repository: "catalogix-cart-svc", pullPolicy: "IfNotPresent" }
     port: 11004
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /cart
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
     extraEnv:
       - name: CATALOG_SVC_URL
@@ -191,77 +171,58 @@ backendServices:
         value: "http://inventory-svc:11003"
       - name: PROMOTIONS_SVC_URL
         value: "http://promotions-svc:11005"
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   promotions-svc:
-    dbName: catalogix_promotions
+    dbName: catalogix-promotions
     image:
-      { repository: "catalogix_promotions-svc", pullPolicy: "IfNotPresent" }
+      { repository: "catalogix-promotions-svc", pullPolicy: "IfNotPresent" }
     port: 11005
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /coupons
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
-    extraEnv:
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   payment-svc:
-    dbName: catalogix_payment
-    image: { repository: "catalogix_payment-svc", pullPolicy: "IfNotPresent" }
+    dbName: catalogix-payment
+    image: { repository: "catalogix-payment-svc", pullPolicy: "IfNotPresent" }
     port: 11006
     replicaCount: 2
     # Internal-only — checkout-svc is its ONLY caller. No ALB path.
     # Pair with a NetworkPolicy restricting ingress to checkout-svc's pod
     # selector (see upgrade plan doc, section 7) once NetworkPolicies land.
-    routeToALB: false
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
-    extraEnv:
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   checkout-svc:
-    dbName: catalogix_checkout
+    dbName: catalogix-checkout
     usesRabbitMQ: true   # publishes order.confirmed / order.cancelled
-    image: { repository: "catalogix_checkout-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix-checkout-svc", pullPolicy: "IfNotPresent" }
     port: 11007
+    # Each checkout holds its DB connection for the whole multi-service call
+    # chain, so it needs a bigger pool than the other services.
+    dbPoolSize: 6
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /orders
-      - /admin
     resources:
-      requests: { cpu: "150m", memory: "192Mi" } # orchestrates 5 downstream calls per checkout — a bit more headroom
+      requests: { cpu: "200m", memory: "320Mi" } # orchestrates 5 downstream calls per checkout — a bit more headroom
       limits: { cpu: "600m", memory: "640Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 70,
-        memoryUtilization: 75,
       }
     extraEnv:
       - name: CATALOG_SVC_URL
@@ -281,36 +242,21 @@ backendServices:
       # breaking address lookups during checkout at runtime.
       - name: USER_SVC_URL
         value: "http://user-svc:11010"
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   notification-svc:
-    dbName: catalogix_notification
+    dbName: catalogix-notification
     usesRabbitMQ: true   # consumes order.* and user.* events
-    image: { repository: "catalogix_notification-svc", pullPolicy: "IfNotPresent" }
+    image: { repository: "catalogix-notification-svc", pullPolicy: "IfNotPresent" }
     port: 11008
     replicaCount: 2
-    # CORRECTED: this was routeToALB: false with the reasoning "pure
-    # RabbitMQ consumer, nothing calls it synchronously" — true for the
-    # event-CONSUMING side, but incomplete: NotificationController also
-    # exposes a real admin-only GET /notifications (read-only visibility
-    # into what's been sent/failed), which needs external routing for an
-    # admin UI to ever reach it. Caught while building the admin
-    # notification-log page — the endpoint existed in code the whole time,
-    # this Helm config just never accounted for it.
-    routeToALB: true
-    ingressPaths:
-      - /notifications
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
     extraEnv:
       - name: MAIL_FROM
@@ -319,27 +265,20 @@ backendServices:
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
       - name: USER_SVC_URL
         value: "http://user-svc:11010"
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   review-svc:
-    dbName: catalogix_reviews
-    image: { repository: "catalogix_review-svc", pullPolicy: "IfNotPresent" }
+    dbName: catalogix-reviews
+    image: { repository: "catalogix-review-svc", pullPolicy: "IfNotPresent" }
     port: 11009
     replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /reviews
     resources:
-      requests: { cpu: "100m", memory: "128Mi" }
+      requests: { cpu: "150m", memory: "256Mi" }
       limits: { cpu: "400m", memory: "384Mi" }
     hpa:
       {
         minReplicas: 2,
-        maxReplicas: 4,
+        maxReplicas: 3,
         cpuUtilization: 75,
-        memoryUtilization: 75,
       }
     extraEnv:
       # REQUIRED — OrderClient's @Value("${CHECKOUT_SVC_URL}") has no
@@ -348,13 +287,10 @@ backendServices:
       # crash-loops, exactly like catalog-svc's missing REVIEW_SVC_URL.
       - name: CHECKOUT_SVC_URL
         value: "http://checkout-svc:11007"
-      # REQUIRED — see catalog-svc's comment above.
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
 gateway:
   image:
-    repository: "catalogix_gateway"
+    repository: "catalogix-gateway"
     pullPolicy: "IfNotPresent"
   replicaCount: 2
   service:
@@ -371,7 +307,7 @@ gateway:
 
 frontend:
   image:
-    repository: "catalogix_frontend"
+    repository: "catalogix-frontend"
     pullPolicy: "IfNotPresent"
   replicaCount: 2
   service:
@@ -384,10 +320,3 @@ frontend:
     minReplicas: 2
     maxReplicas: 4
     cpuUtilization: 75
-
-monitoring:
-  enabled: true
-
-aws:
-  accountId: ""
-  region: "ap-south-1"

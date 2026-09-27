@@ -86,7 +86,7 @@ Usage: {{ include "catalogix.waitForDeps" (dict "svc" $svc "root" $) | nindent 6
 {{- define "catalogix.waitForDeps" -}}
 initContainers:
   - name: wait-for-postgres
-    image: "busybox:1.36"
+    image: "busybox:1.36.1"
     command:
       - sh
       - -c
@@ -118,7 +118,7 @@ initContainers:
       limits: { cpu: "50m", memory: "32Mi" }
   {{- if .svc.usesRabbitMQ }}
   - name: wait-for-rabbitmq
-    image: "busybox:1.36"
+    image: "busybox:1.36.1"
     command:
       - sh
       - -c
@@ -150,18 +150,14 @@ connection, and the OTLP tracing endpoint.
 
 Secret key names here (jwt_secret, rabbitmq_user, db_user_<svc>, etc.) are
 lowercase and must exactly match the AWS Secrets Manager JSON keys, because
-templates/external-secrets.yaml's app-secrets ExternalSecret uses
+templates/external-secrets.yaml's single ExternalSecret uses
 `dataFrom.extract` — it copies every key from the AWS secret into the K8s
-Secret VERBATIM (no per-key renaming), unlike the db-credentials
-ExternalSecret above it, which uses an explicit `data:` list and does
-rename its key (db_pass -> DB_PASSWORD). Two different ExternalSecrets in
-the same file, two different naming conventions — deliberate, but easy to
-get wrong when adding a new env var here; check which ExternalSecret
-resource owns the key before assuming its casing.
+Secret VERBATIM (no per-key renaming). (The RDS master password is
+deliberately NOT synced into the cluster: no service uses it.)
 
-Service-specific env (ALLOWED_ORIGINS, ADMIN_EMAILS, inter-service URLs
-like CATALOG_SVC_URL) is layered on top via each service's own `extraEnv`
-in values.yaml — see templates/deployments.yaml.
+Service-specific env (inter-service URLs like CATALOG_SVC_URL, seed settings)
+is layered on top via each service's own `extraEnv` in values.yaml — see
+templates/backend-deployments.yaml.
 Usage: {{ include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) | nindent 12 }}
 */}}
 {{- define "catalogix.commonEnv" -}}
@@ -232,6 +228,62 @@ Usage: {{ include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) 
     secretKeyRef:
       name: catalogix-secrets
       key: rabbitmq_password
-- name: OTLP_ENDPOINT
-  value: "{{ .root.Values.global.otlpEndpoint }}"   # Tempo's OTLP HTTP receiver, monitoring namespace
+# Tracing removed along with Tempo — nothing consumes OTLP_ENDPOINT any more, so this chart no
+# longer sets it. If you reintroduce a tracing backend, add its OTLP endpoint env var here.
+# Connection pool per pod. Total connections = pods x pool, and every pod of
+# every service shares one RDS instance whose max_connections is small on
+# micro/small classes — size this together with hpa.maxReplicas.
+# Per-service override: backendServices.<svc>.dbPoolSize.
+- name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+  value: {{ .svc.dbPoolSize | default .root.Values.database.maxPoolSize | default 5 | quote }}
+{{- end -}}
+
+{{/*
+catalogix.lifecycle
+Graceful shutdown for rolling updates. When a pod is deleted, Kubernetes removes
+it from Service endpoints / the ALB target group AND sends SIGTERM at roughly
+the same time — but the removal takes a few seconds to propagate, so requests
+keep arriving at a pod that is already shutting down. A short preStop sleep
+keeps the pod serving until the routing tables have caught up; the Spring
+services then drain in-flight requests (server.shutdown=graceful) and nginx
+gets SIGQUIT from its image's STOPSIGNAL.
+
+Uses the native `sleep` handler (no shell/binary needed, so it also works in the
+distroless Java images). Needs Kubernetes >= 1.30.
+terminationGracePeriodSeconds must cover preStop + drain time — see the
+`terminationGracePeriodSeconds` line in each Deployment.
+Usage: {{ include "catalogix.lifecycle" $ | nindent 10 }}
+*/}}
+{{- define "catalogix.lifecycle" -}}
+lifecycle:
+  preStop:
+    sleep:
+      seconds: {{ .Values.global.preStopSleepSeconds | default 10 }}
+{{- end -}}
+
+{{/*
+catalogix.publicBaseUrl
+The externally visible base URL of the site (used for links in emails).
+Single source of truth, in priority order:
+  1. ingress.publicUrl      — explicit override (e.g. the raw ALB URL on a first deploy)
+  2. ingress.host           — https:// if a TLS certificate is configured, else http://
+  3. empty                  — unknown; the application falls back to its own default
+*/}}
+{{- define "catalogix.publicBaseUrl" -}}
+{{- if .Values.ingress.publicUrl -}}
+{{- .Values.ingress.publicUrl | trimSuffix "/" -}}
+{{- else if .Values.ingress.host -}}
+{{- if .Values.ingress.tlsCertArn -}}https{{- else -}}http{{- end -}}://{{ .Values.ingress.host }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+catalogix.cookieSecure
+"true" exactly when the ALB terminates TLS (a certificate ARN is configured).
+A Secure cookie over plain HTTP is silently dropped by the browser, so this must
+follow the listener configuration — deriving it here removes the manual
+"remember to flip REFRESH_COOKIE_SECURE" step.
+*/}}
+{{- define "catalogix.cookieSecure" -}}
+{{- if .Values.ingress.tlsCertArn -}}true{{- else -}}false{{- end -}}
 {{- end -}}

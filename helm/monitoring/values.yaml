@@ -5,9 +5,14 @@ global:
   targetNamespace: catalogix
   # Set via --set at deploy time: --set global.alertingSecretName=<cluster-name>/alerting-secrets
   # Deterministic string Jenkins already knows (CLUSTER_NAME env var) —
-  # unlike the Loki/Tempo bucket names, this doesn't need an SSM round-trip
+  # unlike the Loki bucket name, this doesn't need an SSM round-trip
   # since it's not a Terraform-generated value, just a naming convention.
   alertingSecretName: ""
+
+  # Set via --set at deploy time: --set global.operatorSecretName=<cluster-name>/operator-credentials
+  # The secret holding the Grafana login the operator chose. Empty = do not create
+  # grafana-admin-secret (Grafana then keeps the chart's default credentials).
+  operatorSecretName: ""
 
 kube-prometheus-stack:
 
@@ -47,14 +52,9 @@ kube-prometheus-stack:
   grafana:
     enabled: true
 
-    # DEV NOTE: existingSecret is empty so Grafana uses its default credentials.
-    # For production, create a k8s secret and reference it here:
-    #  kubectl create secret generic grafana-admin-secret \
-    #    --from-literal=admin-user=admin \
-    #    --from-literal=admin-password=<strong-password> \
-    #    -n monitoring
-    # Then set:
-    #   existingSecret: "grafana-admin-secret"
+    # The pipeline sets existingSecret to "grafana-admin-secret", an ExternalSecret
+    # (templates/grafana-admin-secret.yaml) filled from the operator-chosen credentials.
+    # Left empty here, Grafana would use the chart's well-known default password.
 
     admin:
       existingSecret: ""
@@ -169,7 +169,7 @@ kube-prometheus-stack:
             # Jenkinsfile.platform-infra's --set flags at deploy time,
             # same convention as every other Terraform-generated or
             # environment-specific value in this project (database.host,
-            # the Loki/Tempo bucket names, etc.) — none of it lives in a
+            # the Loki bucket name, etc.) — none of it lives in a
             # committed values.yaml.
             - to: ""            # --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=ops@example.com'
               from: "alertmanager@catalogix.local"
@@ -319,6 +319,20 @@ kube-prometheus-stack:
                 summary: "Queue {{ $labels.queue }} has a growing backlog"
                 description: "{{ $value }} messages ready and waiting in {{ $labels.queue }} for over 10 minutes — a consumer may be stuck or too slow."
 
+            - alert: DeadLetterQueueNotEmpty
+              # notification-svc dead-letters an event after its retries are exhausted (e.g.
+              # the SMTP provider was down). Nothing consumes that queue, so anything sitting
+              # in it is a verification / reset / order email that was NEVER sent and will
+              # not be retried on its own — it needs a person to look at it.
+              expr: |
+                rabbitmq_queue_messages{namespace="catalogix", queue=~".*dlq.*"} > 0
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "Dead-letter queue {{ $labels.queue }} is not empty"
+                description: "{{ $value }} undelivered message(s) in {{ $labels.queue }} for over 10 minutes — emails were dropped after retries. Inspect in the RabbitMQ management UI (kubectl port-forward svc/rabbitmq 15672:15672 -n catalogix)."
+
             - alert: RabbitMQQueueNoConsumers
               # The dangerous combination specifically: messages waiting
               # AND nobody listening. A queue with 0 consumers but also 0
@@ -342,9 +356,8 @@ kube-prometheus-stack:
 # queries. This is the right choice at this scale — the distributed
 # multi-component mode exists for much higher log volume than a 9-service
 # fresher project generates, and would just be more moving parts to operate
-# for no real benefit yet. Storage is a local PVC (filesystem backend), same
-# reasoning as not using S3 for Tempo below: no object storage needed until
-# this needs multi-replica HA.
+# for no real benefit yet. Storage is a local PVC (filesystem backend): no
+# object storage needed until this needs multi-replica HA.
 loki:
   deploymentMode: SingleBinary
   # Bucket name, region, and the IRSA role ARN come from Terraform
@@ -428,38 +441,3 @@ promtail:
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "128Mi" }
-
-# ─── Tempo — distributed tracing (cluster only) ───────────────────────────
-# Monolithic mode, same reasoning as Loki's SingleBinary mode above.
-# Local docker-compose dev keeps using Jaeger — this is additive for the
-# cluster, not a replacement for local dev's existing tracing setup.
-tempo:
-  serviceAccount:
-    create: true
-    # MUST exactly match modules/observability-storage's tempo IRSA trust
-    # policy sub condition ("system:serviceaccount:monitoring:tempo-sa").
-    name: "tempo-sa"
-    annotations: {}   # role-arn annotation injected via --set at deploy time
-  tempo:
-    storage:
-      trace:
-        backend: s3
-        s3:
-          bucket: ""     # --set at deploy time: tempo.tempo.storage.trace.s3.bucket
-          region: ""     # --set at deploy time: tempo.tempo.storage.trace.s3.region
-          endpoint: "s3.amazonaws.com"
-    resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits: { cpu: "500m", memory: "1Gi" }
-  # Same reasoning as Loki's singleBinary.persistence above — small local
-  # disk for the WAL, actual trace data lives in S3 now (10Gi -> 5Gi).
-  persistence:
-    enabled: true
-    storageClassName: "gp3-sc"
-    size: 5Gi
-  # OTLP receiver — every backend service's OTLP_ENDPOINT (see
-  # helm/catalogix-hc/values-dev.yaml global.otlpEndpoint) points here.
-  # Both gRPC (4317) and HTTP (4318) are enabled by the chart's defaults;
-  # the app currently uses the HTTP path.
-  serviceMonitor:
-    enabled: false  # enable once Tempo's own metrics are worth alerting on

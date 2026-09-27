@@ -1,5 +1,14 @@
 {{- if and .Values.hpa .Values.hpa.enabled }}
-# HPA for backend services
+# HPA for backend services.
+# Every iteration ends with its own "---". Without it all nine HPAs were emitted
+# into ONE YAML document with repeated top-level keys (apiVersion, kind, ...),
+# so at most one HPA survived — and because Deployments omit `replicas` when HPAs
+# are enabled, the others silently ran a single replica with no autoscaling.
+#
+# Memory is an OPTIONAL metric (set hpa.memoryUtilization to opt in). For a JVM
+# it is a poor scaling signal: heap stays committed after load drops, so the
+# average never falls back below the target and the service never scales in.
+# CPU is the signal used by default.
 {{- range $name, $svc := .Values.backendServices }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
@@ -20,15 +29,17 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ $svc.hpa.cpuUtilization }}
+    {{- if $svc.hpa.memoryUtilization }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
           averageUtilization: {{ $svc.hpa.memoryUtilization }}
-{{- end }}
+    {{- end }}
 ---
-# HPA for frontend 
+{{- end }}
+# HPA for frontend
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
