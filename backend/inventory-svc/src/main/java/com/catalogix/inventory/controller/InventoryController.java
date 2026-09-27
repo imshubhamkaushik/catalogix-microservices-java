@@ -44,7 +44,13 @@ public class InventoryController {
     }
 
     @PostMapping
-    public ResponseEntity<InventoryResponse> init(@Valid @RequestBody InitInventoryRequest req) {
+    public ResponseEntity<InventoryResponse> init(
+            @Valid @RequestBody InitInventoryRequest req,
+            @RequestAttribute("userRole") String role
+    ) {
+        if (!"SYSTEM".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Inventory initialization must be initiated by catalog-svc");
+        }
         InventoryResponse resp = svc.init(req.getProductId(), req.getQuantity());
         return ResponseEntity.status(HttpStatus.CREATED).body(resp);
     }

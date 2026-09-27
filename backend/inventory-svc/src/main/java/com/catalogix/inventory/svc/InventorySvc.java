@@ -3,6 +3,7 @@ package com.catalogix.inventory.svc;
 import com.catalogix.inventory.dto.InventoryResponse;
 import com.catalogix.inventory.exception.InsufficientInventoryException;
 import com.catalogix.inventory.exception.InventoryItemNotFoundException;
+import com.catalogix.inventory.exception.IdempotencyConflictException;
 import com.catalogix.inventory.model.InventoryItem;
 import com.catalogix.inventory.model.InventoryOperation;
 import com.catalogix.inventory.repository.InventoryItemRepository;
@@ -117,11 +118,16 @@ public class InventorySvc {
         java.util.Optional<InventoryItem> locked =
                 repo.findByProductIdForUpdate(productId);
 
-        if (operations != null
-                && operationId != null
-                && operations.existsById(operationId)) {
-
-            return currentQuantity(productId, locked);
+        if (operations != null && operationId != null) {
+            java.util.Optional<InventoryOperation> existing = operations.findById(operationId);
+            if (existing.isPresent()) {
+                InventoryOperation prior = existing.get();
+                if (!prior.getProductId().equals(productId) || prior.getDelta() != delta) {
+                    throw new IdempotencyConflictException(
+                            "Operation id was already used for a different inventory adjustment");
+                }
+                return currentQuantity(productId, locked);
+            }
         }
 
         if (operations != null

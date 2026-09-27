@@ -3,6 +3,8 @@ package com.catalogix.promotions.svc;
 import com.catalogix.promotions.dto.*;
 import com.catalogix.promotions.exception.CouponInvalidException;
 import com.catalogix.promotions.model.Coupon;
+import com.catalogix.promotions.model.CouponRedemption;
+import com.catalogix.promotions.repository.CouponRedemptionRepository;
 import com.catalogix.promotions.repository.CouponRepository;
 
 import org.springframework.stereotype.Service;
@@ -17,9 +19,11 @@ import java.util.List;
 public class CouponSvc {
 
     private final CouponRepository repo;
+    private final CouponRedemptionRepository redemptionRepo;
 
-    public CouponSvc(CouponRepository repo) {
+    public CouponSvc(CouponRepository repo, CouponRedemptionRepository redemptionRepo) {
         this.repo = repo;
+        this.redemptionRepo = redemptionRepo;
     }
 
     /**
@@ -58,6 +62,44 @@ public class CouponSvc {
         return new DiscountResponse(coupon.getCode(), calculateDiscount(coupon, subtotal));
     }
 
+    /** Idempotent redemption path used by checkout-svc. */
+    @Transactional
+    public DiscountResponse commit(String code, BigDecimal subtotal, String operationId) {
+        if (operationId == null || operationId.isBlank()) {
+            return commit(code, subtotal);
+        }
+
+        Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
+                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
+        String normalizedOperationId = operationId.trim();
+        var existing = redemptionRepo.findById(normalizedOperationId);
+        if (existing.isPresent()) {
+            CouponRedemption redemption = existing.get();
+            if (!redemption.getCouponCode().equalsIgnoreCase(coupon.getCode())) {
+                throw new IllegalArgumentException("Coupon operation id is already associated with another coupon");
+            }
+            if (redemption.getReleasedAt() != null) {
+                // A compensation for this operation has already been recorded.
+                // Never allow a late/ambiguous commit to consume a second use.
+                throw new CouponInvalidException("Coupon redemption operation was already released");
+            }
+            if (redemption.getSubtotal().compareTo(subtotal) != 0) {
+                throw new IllegalArgumentException(
+                        "Coupon operation id was already used for a different subtotal");
+            }
+            return new DiscountResponse(coupon.getCode(), redemption.getDiscountAmount());
+        }
+
+        if (!coupon.isCurrentlyRedeemable(Instant.now())) {
+            throw new CouponInvalidException("Coupon is no longer valid: " + code);
+        }
+        BigDecimal discount = calculateDiscount(coupon, subtotal);
+        coupon.setUsedCount(coupon.getUsedCount() + 1);
+        repo.save(coupon);
+        redemptionRepo.save(new CouponRedemption(normalizedOperationId, coupon.getCode(), subtotal, discount));
+        return new DiscountResponse(coupon.getCode(), discount);
+    }
+
     /**
      * Compensation: called by checkout-svc's outbox when an order that had
      * already committed a coupon use ends up failing/cancelled downstream
@@ -70,6 +112,60 @@ public class CouponSvc {
             c.setUsedCount(Math.max(0, c.getUsedCount() - 1));
             repo.save(c);
         });
+    }
+
+    /** Idempotent compensation path used by checkout-svc/outbox. */
+    @Transactional
+    public void release(String code, String operationId) {
+        if (operationId == null || operationId.isBlank()) {
+            release(code);
+            return;
+        }
+
+        String normalizedOperationId = operationId.trim();
+
+        // A replay after a successful release is already complete. Check the
+        // operation ledger first so a retry remains successful even if the
+        // coupon record is later cleaned up/deactivated.
+        CouponRedemption record = redemptionRepo.findById(normalizedOperationId).orElse(null);
+        if (record != null && record.getReleasedAt() != null) {
+            if (!record.getCouponCode().equalsIgnoreCase(code)) {
+                throw new IllegalArgumentException("Coupon operation id belongs to another coupon");
+            }
+            return;
+        }
+
+        // Lock the coupon before deciding that a still-unreleased operation is
+        // unknown. This serializes release with a concurrent commit for the
+        // same coupon. Re-read the operation after taking the lock because a
+        // commit may have become visible between the first lookup and the
+        // lock acquisition.
+        Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
+                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
+        record = redemptionRepo.findById(normalizedOperationId).orElse(null);
+        if (record != null) {
+            if (!record.getCouponCode().equalsIgnoreCase(coupon.getCode())) {
+                throw new IllegalArgumentException("Coupon operation id belongs to another coupon");
+            }
+            if (record.getReleasedAt() != null) {
+                return;
+            }
+
+            coupon.setUsedCount(Math.max(0, coupon.getUsedCount() - 1));
+            repo.save(coupon);
+            record.setReleasedAt(Instant.now());
+            redemptionRepo.save(record);
+            return;
+        }
+
+        // Release can arrive before the original commit is visible (e.g. a
+        // timeout after the commit's downstream request). Persist a zero-use
+        // tombstone so the late commit is rejected rather than consuming a
+        // coupon after its compensation has already been requested.
+        CouponRedemption tombstone = new CouponRedemption(
+                normalizedOperationId, coupon.getCode(), BigDecimal.ZERO, BigDecimal.ZERO);
+        tombstone.setReleasedAt(Instant.now());
+        redemptionRepo.save(tombstone);
     }
 
     private BigDecimal calculateDiscount(Coupon coupon, BigDecimal subtotal) {

@@ -27,8 +27,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 // than via a real token, so JwtAuthFilter/RateLimiterFilter are excluded from this slice —
 // they'd otherwise need a real JwtService bean (JWT_SECRET etc.) just to construct.
 // This is an internal, non-gateway-routed service (see InventoryController's Javadoc).
-// adjust() specifically requires userRole=SYSTEM (see adjustRejectsNonSystemCaller below);.
-// GET/init have no role check, since read/init aren't privileged operations.
+// adjust() and init() specifically require userRole=SYSTEM. GET remains
+// readable without a privileged role because it does not mutate state.
 @WebMvcTest(
         controllers = InventoryController.class,
         excludeFilters = @ComponentScan.Filter(
@@ -70,6 +70,7 @@ class InventoryControllerTest {
         when(svc.init(1L, 10)).thenReturn(new InventoryResponse(1L, 10));
 
         mvc.perform(post("/inventory")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
@@ -82,6 +83,7 @@ class InventoryControllerTest {
         req.setQuantity(10);
 
         mvc.perform(post("/inventory")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
@@ -94,9 +96,23 @@ class InventoryControllerTest {
         req.setQuantity(-1);
 
         mvc.perform(post("/inventory")
+                .requestAttr("userRole", "SYSTEM")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void initRejectsNonSystemCaller() throws Exception {
+        InitInventoryRequest req = new InitInventoryRequest();
+        req.setProductId(1L);
+        req.setQuantity(10);
+
+        mvc.perform(post("/inventory")
+                .requestAttr("userRole", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

@@ -170,14 +170,8 @@ public class CartSvc {
             try {
                 discount = promotionsClient.preview(cart.getCouponCode(), subtotal, bearerToken);
             } catch (RuntimeException e) {
-                // Coupon went invalid between being applied and now (expired,
-                // deactivated, exhausted by someone else) — drop it rather
-                // than block the cart from rendering. Clearing it on the
-                // entity (not just the response) means it's actually gone,
-                // not just hidden for this one render: the cart is already
-                // managed within this method's transaction, so this update
-                // is picked up by dirty checking with no extra save() call.
-                cart.setCouponCode(null);
+                // A read must not mutate persisted cart state because of a
+                // transient promotions-service timeout or 5xx response.
                 discount = BigDecimal.ZERO;
             }
         }

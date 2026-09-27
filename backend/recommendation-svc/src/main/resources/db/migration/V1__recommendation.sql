@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS recommendation_edges(id BIGSERIAL PRIMARY KEY,product_id BIGINT NOT NULL,related_product_id BIGINT NOT NULL,score BIGINT NOT NULL DEFAULT 0,CONSTRAINT uk_rec_edge UNIQUE(product_id,related_product_id)); CREATE INDEX IF NOT EXISTS idx_rec_product_score ON recommendation_edges(product_id,score DESC);

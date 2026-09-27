@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Optional;
+import com.catalogix.catalog.model.Product;
 
 @Service
 public class ProductCacheSvc {
@@ -34,6 +35,7 @@ public class ProductCacheSvc {
                         p.getCategory(),
                         p.getOwnerId(),
                         p.getImageUrl(),
+                        p.getModerationStatus(),
                         p.getCreatedAt()
                 ));
     }
@@ -46,6 +48,7 @@ public class ProductCacheSvc {
             String category,
             Long ownerId,
             String imageUrl,
+            Product.ModerationStatus moderationStatus,
             Instant createdAt
     ) {
     }

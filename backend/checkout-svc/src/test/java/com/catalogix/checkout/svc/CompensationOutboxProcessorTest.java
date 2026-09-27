@@ -56,7 +56,7 @@ class CompensationOutboxProcessorTest {
         processor.processPending();
 
         assertEquals(OutboxStatus.COMPLETED, entry.getStatus());
-        verify(promotionsClient).release("SAVE10", "Bearer system-token");
+        verify(promotionsClient).release("SAVE10", "Bearer system-token", null);
         verifyNoInteractions(inventoryClient);
     }
 

@@ -31,10 +31,18 @@ import static org.mockito.Mockito.*;
 
 class ReturnSvcTest {
 
-    @Mock private OrderRepository orderRepo;
-    @Mock private ReturnRequestRepository returnRepo;
-    @Mock private InventoryClient inventoryClient;
-    @Mock private RefundClient refundClient;
+    @Mock
+    private OrderRepository orderRepo;
+    @Mock
+    private ReturnRequestRepository returnRepo;
+    @Mock
+    private InventoryClient inventoryClient;
+    @Mock
+    private RefundClient refundClient;
+    @Mock
+    private CompensationOutboxWriter outboxWriter;
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private ReturnSvc svc;
 
@@ -43,7 +51,7 @@ class ReturnSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new ReturnSvc(orderRepo, returnRepo, inventoryClient, refundClient);
+        svc = new ReturnSvc(orderRepo, returnRepo, inventoryClient, refundClient, outboxWriter, eventPublisher);
     }
 
     private Order deliveredOrder(Instant deliveredAt) {
@@ -78,33 +86,31 @@ class ReturnSvcTest {
 
     @Test
     void requestReturnThrowsWhenOrderDoesNotExist() {
-        when(orderRepo.findById(5L)).thenReturn(Optional.empty());
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.empty());
 
         RequestReturnRequest request = requestFor(1L, 1);
 
-            assertThrows(
+        assertThrows(
                 OrderNotFoundException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     @Test
     void requestReturnRejectsNonOwnerNonAdmin() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         RequestReturnRequest request = requestFor(1L, 1);
 
         assertThrows(
                 ForbiddenException.class,
-                () -> svc.requestReturn(5L, 999L, "USER", request)
-        );
+                () -> svc.requestReturn(5L, 999L, "USER", request));
     }
 
     @Test
     void requestReturnAllowsAdminOnBehalfOfAnotherUser() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         when(returnRepo.findByOrderIdAndStatusIn(eq(5L), any())).thenReturn(List.of());
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -118,14 +124,13 @@ class ReturnSvcTest {
         order.setId(5L);
         order.setUserId(USER_ID);
         order.setStatus(OrderStatus.SHIPPED);
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         RequestReturnRequest request = requestFor(1L, 1);
 
         assertThrows(
                 InvalidReturnException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     // ---- requestReturn: return window ----
@@ -133,7 +138,7 @@ class ReturnSvcTest {
     @Test
     void requestReturnAllowsAReturnWellWithinTheWindow() {
         Order order = deliveredOrder(Instant.now().minus(2, ChronoUnit.DAYS));
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         when(returnRepo.findByOrderIdAndStatusIn(eq(5L), any())).thenReturn(List.of());
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -143,14 +148,13 @@ class ReturnSvcTest {
     @Test
     void requestReturnRejectsAfterTheWindowHasExpired() {
         Order order = deliveredOrder(Instant.now().minus(8, ChronoUnit.DAYS));
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         RequestReturnRequest request = requestFor(1L, 1);
 
         assertThrows(
                 InvalidReturnException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     // ---- requestReturn: quantity validation ----
@@ -158,21 +162,20 @@ class ReturnSvcTest {
     @Test
     void requestReturnRejectsAProductNotOnTheOrder() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         when(returnRepo.findByOrderIdAndStatusIn(eq(5L), any())).thenReturn(List.of());
 
         RequestReturnRequest request = requestFor(999L, 1);
 
         assertThrows(
                 InvalidReturnException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     @Test
     void requestReturnRejectsMoreThanWasOrdered() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         when(returnRepo.findByOrderIdAndStatusIn(eq(5L), any())).thenReturn(List.of());
 
         // Order has 2 of product 1L; requesting 3 should fail.
@@ -180,14 +183,13 @@ class ReturnSvcTest {
 
         assertThrows(
                 InvalidReturnException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     @Test
     void requestReturnAccountsForQuantityAlreadyReturned() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         // 1 of the 2 already returned via a prior REQUESTED return.
         ReturnRequest priorReturn = new ReturnRequest();
@@ -200,14 +202,13 @@ class ReturnSvcTest {
 
         assertThrows(
                 InvalidReturnException.class,
-                () -> svc.requestReturn(5L, USER_ID, "USER", request)
-        );
+                () -> svc.requestReturn(5L, USER_ID, "USER", request));
     }
 
     @Test
     void requestReturnComputesRefundAmountFromSnapshottedUnitPrice() {
         Order order = deliveredOrder(Instant.now());
-        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(orderRepo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
         when(returnRepo.findByOrderIdAndStatusIn(eq(5L), any())).thenReturn(List.of());
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -222,19 +223,28 @@ class ReturnSvcTest {
     private ReturnRequest requestedReturn(PaymentMethod method) {
         Order order = deliveredOrder(Instant.now());
         order.setPaymentMethod(method);
+
+        order.getItems().get(0).setSellerId(100L);
+        
         ReturnRequest rr = new ReturnRequest();
+        
         rr.setId(9L);
         rr.setOrder(order);
         rr.setUserId(USER_ID);
         rr.setStatus(ReturnStatus.REQUESTED);
         rr.setRefundAmount(new BigDecimal("200.00"));
-        rr.addItem(new ReturnItem(1L, "Phone", 2, new BigDecimal("100.00")));
+        rr.addItem(new ReturnItem(
+            1L, 
+            "Phone", 
+            2, 
+            new BigDecimal("100.00")
+        ));
         return rr;
     }
 
     @Test
     void approveThrowsWhenReturnDoesNotExist() {
-        when(returnRepo.findById(9L)).thenReturn(Optional.empty());
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.empty());
 
         assertThrows(ReturnRequestNotFoundException.class, () -> svc.approve(9L));
     }
@@ -243,7 +253,7 @@ class ReturnSvcTest {
     void approveThrowsWhenAlreadyDecided() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
         rr.setStatus(ReturnStatus.REFUNDED);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
 
         assertThrows(InvalidReturnException.class, () -> svc.approve(9L));
     }
@@ -251,8 +261,8 @@ class ReturnSvcTest {
     @Test
     void approveRefundsAndRestocksForACardOrder() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
-        when(refundClient.refund(5L, new BigDecimal("200.00")))
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
+        when(refundClient.refund(5L, new BigDecimal("200.00"), "return-refund-9"))
                 .thenReturn(new RefundClient.RefundOutcome("MOCK-REFUND-xyz"));
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -260,30 +270,32 @@ class ReturnSvcTest {
 
         assertEquals(ReturnStatus.REFUNDED, resp.getStatus());
         assertTrue(resp.getDecisionNote().contains("MOCK-REFUND-xyz"));
-        verify(inventoryClient).adjust(1L, 2);
+        verify(inventoryClient).adjust(1L, 2, "return-restock:9:0", null);
     }
 
     @Test
     void approveSkipsPaymentSvcEntirelyForCod() {
         ReturnRequest rr = requestedReturn(PaymentMethod.COD);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ReturnResponse resp = svc.approve(9L);
 
         assertEquals(ReturnStatus.REFUNDED, resp.getStatus());
         verifyNoInteractions(refundClient);
-        verify(inventoryClient).adjust(1L, 2);
+        verify(inventoryClient).adjust(1L, 2, "return-restock:9:0", null);
     }
 
     @Test
     void approveThrowsRefundFailedWhenPaymentSvcCallFails() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
-        when(refundClient.refund(anyLong(), any())).thenThrow(new RuntimeException("payment-svc unreachable"));
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
+        when(refundClient.refund(anyLong(), any(), anyString()))
+                .thenThrow(new RuntimeException("payment-svc unreachable"));
 
         assertThrows(RefundFailedException.class, () -> svc.approve(9L));
-        // Nothing should be restocked or persisted if the refund itself never went through.
+        // Nothing should be restocked or persisted if the refund itself never went
+        // through.
         verifyNoInteractions(inventoryClient);
         verify(returnRepo, never()).save(any());
     }
@@ -294,15 +306,23 @@ class ReturnSvcTest {
     @Test
     void approveStillMarksRefundedWhenRestockFailsAfterASuccessfulRefund() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
-        when(refundClient.refund(5L, new BigDecimal("200.00")))
+        
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
+        
+        when(refundClient.refund(5L, new BigDecimal("200.00"), "return-refund-9"))
                 .thenReturn(new RefundClient.RefundOutcome("MOCK-REFUND-xyz"));
-        doThrow(new RuntimeException("inventory-svc unreachable")).when(inventoryClient).adjust(1L, 2);
+        doThrow(new RuntimeException("inventory-svc unreachable")).when(inventoryClient).adjust(1L, 2,
+                "return-restock:9:0", null);
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ReturnResponse resp = svc.approve(9L);
 
         assertEquals(ReturnStatus.REFUNDED, resp.getStatus());
+        verify(outboxWriter).enqueueIndependent(
+                argThat(entry -> entry.getType() == com.catalogix.checkout.model.CompensationType.RELEASE_STOCK
+                        && entry.getProductId().equals(1L)
+                        && entry.getDelta().equals(2)
+                        && "return-restock:9:0".equals(entry.getOperationId())));
     }
 
     // ---- reject ----
@@ -310,7 +330,7 @@ class ReturnSvcTest {
     @Test
     void rejectSetsStatusAndDecisionNote() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
         when(returnRepo.save(any(ReturnRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         RejectReturnRequest req = new RejectReturnRequest();
@@ -327,7 +347,7 @@ class ReturnSvcTest {
     void rejectThrowsWhenAlreadyDecided() {
         ReturnRequest rr = requestedReturn(PaymentMethod.CARD);
         rr.setStatus(ReturnStatus.REJECTED);
-        when(returnRepo.findById(9L)).thenReturn(Optional.of(rr));
+        when(returnRepo.findByIdForUpdate(9L)).thenReturn(Optional.of(rr));
 
         RejectReturnRequest req = new RejectReturnRequest();
         req.setReason("Already handled");

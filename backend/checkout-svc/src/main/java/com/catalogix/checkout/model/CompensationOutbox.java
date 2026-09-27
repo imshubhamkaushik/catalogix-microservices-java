@@ -15,9 +15,9 @@ import java.time.Instant;
  * two kinds of compensating action that need to reach a downstream service
  * "eventually" even if it can't happen right now — releasing reserved stock
  * (inventory-svc) and releasing a redeemed coupon use (promotions-svc).
- * Written in the same DB transaction as the order-status change it
- * accompanies, so the intent to compensate is never lost even if the
- * downstream service is unreachable at that exact moment.
+ * Persisted transactionally with the local state change when the compensation
+ * belongs to an existing order transition, or independently when the local
+ * transaction must roll back after a remote side effect has already committed.
  */
 @Entity
 @Table(name = "compensation_outbox")
@@ -101,10 +101,15 @@ public class CompensationOutbox {
     }
 
     public static CompensationOutbox releaseCoupon(String couponCode, String reason) {
+        return releaseCoupon(couponCode, reason, null);
+    }
+
+    public static CompensationOutbox releaseCoupon(String couponCode, String reason, String operationId) {
         CompensationOutbox e = new CompensationOutbox();
         e.type = CompensationType.RELEASE_COUPON;
         e.couponCode = couponCode;
         e.reason = reason;
+        e.operationId = operationId;
         return e;
     }
 

@@ -2,6 +2,7 @@ package com.catalogix.catalog.dto;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import com.catalogix.catalog.model.Product.ModerationStatus;
 
 public class ProductResponse {
 
@@ -16,6 +17,7 @@ public class ProductResponse {
     private Instant createdAt;
     private BigDecimal averageRating;
     private long reviewCount;
+    private ModerationStatus moderationStatus;
 
     public ProductResponse() {
     }
@@ -109,6 +111,14 @@ public class ProductResponse {
 
     public void setAverageRating(BigDecimal averageRating) {
         this.averageRating = averageRating;
+    }
+
+    public ModerationStatus getModerationStatus() { 
+        return moderationStatus; 
+    }
+    
+    public void setModerationStatus(ModerationStatus moderationStatus) { 
+        this.moderationStatus = moderationStatus; 
     }
 
     public long getReviewCount() {

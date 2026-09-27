@@ -262,6 +262,20 @@ class PaymentSvcTest {
     }
 
     @Test
+    void refundRejectsReusingAnIdempotencyKeyWithADifferentAmount() {
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L))
+                .thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
+        Refund earlier = new Refund(42L, 1L, new BigDecimal("60.00"), "MOCK-REFUND-first");
+        earlier.setId(9L);
+        when(refundRepo.findByOrderIdAndIdempotencyKey(42L, "refund-key"))
+                .thenReturn(Optional.of(earlier));
+
+        assertThatThrownBy(() -> svc.refund(refundReq("50.00"), "refund-key"))
+                .isInstanceOf(com.catalogix.payment.exception.IdempotencyConflictException.class);
+        verify(refundRepo, never()).save(any(Refund.class));
+    }
+
+    @Test
     void refundWithAnIdempotencyKeyStoresTheKey() {
         when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(succeededPayment(new BigDecimal("100.00"))));
         when(refundRepo.findByOrderId(42L)).thenReturn(List.of());

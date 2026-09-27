@@ -153,6 +153,18 @@ class UserSvcTest {
     }
 
     @Test
+    void registerRejectsPasswordWithoutALetterOrNumber() {
+        CreateUserRequest req = new CreateUserRequest();
+        req.setName("Name");
+        req.setEmail("weak@example.com");
+        req.setPassword("123456");
+
+        assertThrows(IllegalArgumentException.class, () -> svc.register(req));
+        verify(repo, never()).findByEmail(anyString());
+        verify(encoder, never()).encode(anyString());
+    }
+
+    @Test
     void registerDuplicateEmailThrows() {
         CreateUserRequest req = new CreateUserRequest();
         req.setName("A"); req.setEmail("a@a.com"); req.setPassword(VALID_SECRET);
@@ -331,6 +343,13 @@ class UserSvcTest {
     }
 
     @Test
+    void resetPasswordRejectsWeakPasswordBeforeConsumingResetToken() {
+        assertThrows(IllegalArgumentException.class, () -> svc.resetPassword(RAW_TOKEN, "123456"));
+        verify(passwordResetRepo, never()).findByTokenHash(anyString());
+        verify(encoder, never()).encode(anyString());
+    }
+
+    @Test
     void resetPasswordRejectsExpiredToken() {
         PasswordResetToken token = new PasswordResetToken(1L, HASHED_TOKEN, Instant.now().minusSeconds(60));
         when(passwordResetRepo.findByTokenHash(HASHED_TOKEN)).thenReturn(Optional.of(token));
@@ -351,6 +370,15 @@ class UserSvcTest {
         UserResponse resp = svc.updateProfile(1L, req);
         assertEquals("New Name", resp.getName());
         verify(encoder, never()).matches(anyString(), anyString());
+    }
+
+    @Test
+    void updateProfileRejectsWeakNewPasswordBeforeLoadingUser() {
+        UpdateProfileRequest req = new UpdateProfileRequest();
+        req.setNewPassword("123456");
+
+        assertThrows(IllegalArgumentException.class, () -> svc.updateProfile(1L, req));
+        verify(repo, never()).findById(anyLong());
     }
 
     @Test
@@ -709,7 +737,7 @@ class UserSvcTest {
         User target = sampleUser(2L, "root@x.com", "h");
         target.setRole("ADMIN");
         when(repo.findById(2L)).thenReturn(Optional.of(target));
-        when(repo.countByRole("ADMIN")).thenReturn(1L);
+        when(repo.findAllByRoleForUpdate("ADMIN")).thenReturn(List.of(target));
 
         assertThrows(IllegalArgumentException.class, () -> svc.assignRole(2L, "USER", 1L));
         verify(repo, never()).save(any());
@@ -720,7 +748,9 @@ class UserSvcTest {
         User target = sampleUser(2L, "second@x.com", "h");
         target.setRole("ADMIN");
         when(repo.findById(2L)).thenReturn(Optional.of(target));
-        when(repo.countByRole("ADMIN")).thenReturn(2L);
+        User otherAdmin = sampleUser(3L, "root@x.com", "h");
+        otherAdmin.setRole("ADMIN");
+        when(repo.findAllByRoleForUpdate("ADMIN")).thenReturn(List.of(target, otherAdmin));
         when(repo.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
 
         assertEquals("USER", svc.assignRole(2L, "USER", 1L).getRole());

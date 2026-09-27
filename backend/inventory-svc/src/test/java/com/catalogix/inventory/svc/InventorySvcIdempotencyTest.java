@@ -3,6 +3,7 @@ package com.catalogix.inventory.svc;
 import com.catalogix.inventory.dto.InventoryResponse;
 import com.catalogix.inventory.model.InventoryItem;
 import com.catalogix.inventory.model.InventoryOperation;
+import com.catalogix.inventory.exception.IdempotencyConflictException;
 import com.catalogix.inventory.repository.InventoryItemRepository;
 import com.catalogix.inventory.repository.InventoryOperationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,11 +47,24 @@ class InventorySvcIdempotencyTest {
     @Test
     void aRepeatedOperationIdIsANoOp() {
         when(items.findByProductIdForUpdate(1L)).thenReturn(Optional.of(new InventoryItem(1L, 7)));
-        when(operations.existsById("op-1")).thenReturn(true);
+        when(operations.findById("op-1"))
+                .thenReturn(Optional.of(new InventoryOperation("op-1", 1L, -3)));
 
         InventoryResponse response = svc.adjust(1L, -3, "op-1", null);
 
         assertThat(response.getQuantity()).isEqualTo(7);
+        verify(items, never()).save(any());
+    }
+
+    @Test
+    void reusingAnOperationIdForDifferentDeltaIsRejected() {
+        when(items.findByProductIdForUpdate(1L)).thenReturn(Optional.of(new InventoryItem(1L, 7)));
+        when(operations.findById("op-1"))
+                .thenReturn(Optional.of(new InventoryOperation("op-1", 1L, -3)));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> svc.adjust(1L, -4, "op-1", null))
+                .isInstanceOf(IdempotencyConflictException.class);
         verify(items, never()).save(any());
     }
 

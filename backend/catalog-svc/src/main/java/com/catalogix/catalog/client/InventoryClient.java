@@ -16,8 +16,13 @@ import org.springframework.web.client.RestTemplate;
  * for this split. checkout-svc, notably, does NOT go through this service
  * or this client for stock reservation — it calls inventory-svc directly.
  *
- * fetchQuantity/init forward the caller's own bearer token (read/init are
- * low-risk). adjust() is different: mutating stock directly used to be
+ * fetchQuantity forwards the caller's own bearer token because it is read-only.
+ * init() and adjust() are mutations, so both mint their own short-lived
+ * SYSTEM token. ProductSvc performs the public owner/admin authorization
+ * before it invokes either mutation.
+ *
+ * adjust() is different from the old implementation because mutating stock
+ * directly used to be
  * reachable by ANY authenticated user via the caller's own forwarded token,
  * which was the mechanism behind a real authorization gap (any user could
  * drain or inflate any other user's stock). adjust() now mints its own
@@ -56,7 +61,7 @@ public class InventoryClient {
     }
 
     public void init(Long productId, int initialQuantity, String bearerToken) {
-        HttpHeaders headers = authHeaders(bearerToken);
+        HttpHeaders headers = authHeaders("Bearer " + jwtService.generateSystemToken());
         var body = new java.util.HashMap<String, Object>();
         body.put("productId", productId);
         body.put("quantity", initialQuantity);

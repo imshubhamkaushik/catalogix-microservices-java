@@ -1,0 +1,3 @@
+package com.catalogix.fulfillment.config;
+import org.springframework.amqp.core.*; import org.springframework.amqp.support.converter.JacksonJsonMessageConverter; import org.springframework.amqp.support.converter.MessageConverter; import org.springframework.context.annotation.*;
+@Configuration public class RabbitMQConfig { public static final String EVENTS_EXCHANGE="catalogix.events"; public static final String EX=EVENTS_EXCHANGE; @Bean TopicExchange eventsExchange(){return new TopicExchange(EX,true,false);} @Bean MessageConverter json(){return new JacksonJsonMessageConverter();} @Bean Queue q(){return QueueBuilder.durable("fulfillment.order-confirmed").quorum().build();} @Bean Binding b(){return BindingBuilder.bind(q()).to(eventsExchange()).with("order.confirmed");} }

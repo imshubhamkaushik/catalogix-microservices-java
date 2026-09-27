@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 // protects, instead of on a table that no longer has that column.
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
+    java.util.List<Product> findByOwnerId(Long ownerId);
+
     @Query("""
         SELECT p FROM Product p
         WHERE (:search = ''
@@ -22,8 +24,9 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
         AND (:category = '' OR LOWER(p.category) = LOWER(:category))
         AND (:minPrice IS NULL OR p.price >= :minPrice)
         AND (:maxPrice IS NULL OR p.price <= :maxPrice)
+        AND (:seeAll = true OR p.moderationStatus = 'PUBLISHED' OR p.ownerId = :ownerId)
         """)
     Page<Product> search(@Param("search") String search, @Param("category") String category,
                           @Param("minPrice") BigDecimal minPrice, @Param("maxPrice") BigDecimal maxPrice,
-                          Pageable pageable);
+                          @Param("seeAll") boolean seeAll, @Param("ownerId") Long ownerId, Pageable pageable);
 }

@@ -48,6 +48,10 @@ public class PaymentController {
             throw new ForbiddenException("Payments must be initiated by checkout-svc, not called directly");
         }
 
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required for payment requests");
+        }
+
         try {
             PaymentSvc.ProcessResult result =
                     svc.process(req, req.getRequestedByUserId(), idempotencyKey);
@@ -82,8 +86,8 @@ public class PaymentController {
             throw new ForbiddenException("Refunds must be initiated by checkout-svc, not called directly");
         }
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req));
+            throw new IllegalArgumentException("Idempotency-Key is required for refund requests");
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req, idempotencyKey));
+        return ResponseEntity.status(HttpStatus.CREATED).body(svc.refund(req, idempotencyKey.trim()));
     }
 }

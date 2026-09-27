@@ -35,7 +35,7 @@ class OrderEventPublisherTest {
     void onOrderConfirmedPublishesToTheEventsExchangeWithTheRightRoutingKey() {
         OrderConfirmedEvent event = new OrderConfirmedEvent(
                 5L, 1L, "buyer@example.com",
-                List.of(new OrderItemEventData("Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"))),
+                List.of(new OrderItemEventData(10L, 20L, "Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"))),
                 new BigDecimal("200.00"));
 
         publisher.onOrderConfirmed(event);

@@ -109,7 +109,7 @@ public class OrderController {
         }
         URI location = ServletUriComponentsBuilder
                 .fromCurrentRequest()
-                .replacePath("/orders/{id}")
+                .replacePath("/api/orders/{id}")
                 .buildAndExpand(result.order().getId())
                 .toUri();
         return ResponseEntity.created(location).body(result.order());
@@ -183,8 +183,11 @@ public class OrderController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PayOrderRequest req
     ) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            throw new IllegalArgumentException("Idempotency-Key is required for payment requests");
+        }
         CheckoutSvc.OrderPaymentResult result =
-                svc.payOrder(id, userId, role, req, bearerToken, userEmail, idempotencyKey);
+                svc.payOrder(id, userId, role, req, bearerToken, userEmail, idempotencyKey.trim());
         // Reconstructs the same {order, payment: {status: ...}} shape the
         // frontend already expects (Orders.jsx reads result.payment.status)
         // — this split changed where payment processing happens, not the

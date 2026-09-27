@@ -5,6 +5,7 @@ import com.catalogix.payment.dto.ProcessPaymentRequest;
 import com.catalogix.payment.dto.ProcessRefundRequest;
 import com.catalogix.payment.dto.RefundResponse;
 import com.catalogix.payment.exception.DeclinedException;
+import com.catalogix.payment.exception.IdempotencyConflictException;
 import com.catalogix.payment.exception.NoSuchPaymentException;
 import com.catalogix.payment.model.Payment;
 import com.catalogix.payment.model.PaymentMethod;
@@ -185,13 +186,19 @@ public class PaymentSvc {
         // Serialise concurrent refunds of this payment.
         original = repo.findByIdForUpdate(original.getId()).orElse(original);
 
-        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+        String normalizedIdempotencyKey = normalizeIdempotencyKey(idempotencyKey);
+        if (normalizedIdempotencyKey != null) {
             Optional<Refund> replay = refundRepo.findByOrderIdAndIdempotencyKey(
-                    req.getOrderId(), idempotencyKey
+                    req.getOrderId(), normalizedIdempotencyKey
             );
 
             if (replay.isPresent()) {
                 Refund existing = replay.get();
+                if (!existing.getOrderId().equals(req.getOrderId())
+                        || existing.getAmount().compareTo(req.getAmount()) != 0) {
+                    throw new IdempotencyConflictException(
+                            "Idempotency-Key was already used for a different refund request");
+                }
 
                 return new RefundResponse(
                         existing.getId(),
@@ -223,8 +230,8 @@ public class PaymentSvc {
                 "MOCK-REFUND-" + UUID.randomUUID()
         );
 
-        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
-            refund.setIdempotencyKey(idempotencyKey);
+        if (normalizedIdempotencyKey != null) {
+            refund.setIdempotencyKey(normalizedIdempotencyKey);
         }
 
         Refund saved = refundRepo.save(refund);

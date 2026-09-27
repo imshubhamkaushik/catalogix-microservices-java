@@ -1,6 +1,7 @@
 package com.catalogix.user.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -15,8 +16,8 @@ public class CreateUserRequest {
 
     @NotBlank(message = "Password is required")
     @Size(min = 6, message = "Password must be at least 6 characters long")
-    // @Pattern(regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).+$", message = "Password
-    // must contain uppercase, lowercase and a number")
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{6,}$",
+            message = "Password must be at least 6 characters and include a letter and a number")
     private String password;
 
     public CreateUserRequest() {

@@ -1,6 +1,7 @@
 package com.catalogix.checkout.client;
 
 import com.catalogix.checkout.exception.CouponInvalidException;
+import com.catalogix.security.JwtService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -17,10 +18,15 @@ public class PromotionsClient {
 
     private final RestTemplate restTemplate;
     private final String promotionsSvcUrl;
+    private final JwtService jwtService;
 
-    public PromotionsClient(RestTemplate restTemplate, @Value("${PROMOTIONS_SVC_URL}") String promotionsSvcUrl) {
+    public PromotionsClient(
+            RestTemplate restTemplate,
+            @Value("${PROMOTIONS_SVC_URL}") String promotionsSvcUrl,
+            JwtService jwtService) {
         this.restTemplate = restTemplate;
         this.promotionsSvcUrl = promotionsSvcUrl;
+        this.jwtService = jwtService;
     }
 
     public record DiscountDto(String code, BigDecimal discountAmount) {}
@@ -28,29 +34,29 @@ public class PromotionsClient {
     // The one moment a coupon actually gets redeemed — atomic on
     // promotions-svc's side (row-locked), see that service's CouponSvc.commit.
     public DiscountDto commit(String code, BigDecimal subtotal, String bearerToken) {
+        return commit(code, subtotal, bearerToken, null);
+    }
+
+    public DiscountDto commit(String code, BigDecimal subtotal, String bearerToken, String operationId) {
         try {
-            var resp = exchange("/promotions/" + code + "/commit", subtotal, bearerToken);
+            var resp = exchange("/promotions/" + code + "/commit", subtotal, systemHeaders(operationId));
             return new DiscountDto(resp.code, resp.discountAmount);
         } catch (HttpClientErrorException.Conflict | HttpClientErrorException.NotFound e) {
             throw new CouponInvalidException("Coupon is not valid: " + code);
         }
     }
 
-    // Compensation — called directly on the live path, or from the outbox
-    // on retry. Idempotent on promotions-svc's side would be a further
-    // improvement (currently a redelivered release could over-release);
-    // left as a follow-up, same caveat outbox-driven compensation has for
-    // inventory in the original design.
     public void release(String code, String bearerToken) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.AUTHORIZATION, bearerToken);
+        release(code, bearerToken, null);
+    }
+
+    public void release(String code, String bearerToken, String operationId) {
+        HttpHeaders headers = systemHeaders(operationId);
         restTemplate.exchange(promotionsSvcUrl + "/promotions/" + code + "/release",
                 HttpMethod.POST, new HttpEntity<>(headers), Void.class);
     }
 
-    private RawDiscount exchange(String path, BigDecimal subtotal, String bearerToken) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.AUTHORIZATION, bearerToken);
+    private RawDiscount exchange(String path, BigDecimal subtotal, HttpHeaders headers) {
         headers.setContentType(MediaType.APPLICATION_JSON);
         var body = new java.util.HashMap<String, Object>();
         body.put("subtotal", subtotal);
@@ -61,6 +67,15 @@ public class PromotionsClient {
             throw new IllegalStateException("promotions-svc returned an empty discount response");
         }
         return responseBody;
+    }
+
+    private HttpHeaders systemHeaders(String operationId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateSystemToken());
+        if (operationId != null && !operationId.isBlank()) {
+            headers.set("X-Operation-Id", operationId.trim());
+        }
+        return headers;
     }
 
     static class RawDiscount {

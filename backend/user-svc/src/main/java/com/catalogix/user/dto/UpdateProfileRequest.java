@@ -1,6 +1,7 @@
 package com.catalogix.user.dto;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Pattern;
 
 // All fields optional except currentPassword (required whenever email or
 // newPassword changes, as a lightweight re-auth check) — see UserSvc.updateProfile.
@@ -11,6 +12,8 @@ public class UpdateProfileRequest {
     @Email(message = "email must be valid")
     private String email;
 
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{6,}$",
+            message = "newPassword must be at least 6 characters and include a letter and a number")
     private String newPassword;
 
     private String currentPassword;

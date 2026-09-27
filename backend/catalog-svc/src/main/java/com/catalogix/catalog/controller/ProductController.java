@@ -5,6 +5,7 @@ import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
 import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.dto.StockAdjustmentRequest;
+import com.catalogix.catalog.model.Product.ModerationStatus;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.svc.ProductSvc;
 
@@ -42,7 +43,7 @@ public class ProductController {
             @PageableDefault(size = 20, sort = "id") Pageable pageable,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(svc.search(search, category, minPrice, maxPrice, sortBy, pageable, bearer(request)));
+        return ResponseEntity.ok(svc.search(search, category, minPrice, maxPrice, sortBy, pageable, bearer(request), (Long) request.getAttribute("userId"), (String) request.getAttribute("userRole")));
     }
 
     // Only sellers and admins may list products — a plain buyer account has
@@ -60,7 +61,7 @@ public class ProductController {
             throw new ForbiddenException("Only sellers and admins may list products");
         }
 
-        ProductResponse created = svc.create(req, userId, bearer(request));
+        ProductResponse created = svc.create(req, userId, role, bearer(request));
 
         URI location = ServletUriComponentsBuilder
             .fromCurrentRequest()
@@ -102,6 +103,19 @@ public class ProductController {
             HttpServletRequest request
     ) {
         return ResponseEntity.ok(svc.adjustStock(id, req.getDelta(), userId, role, bearer(request)));
+    }
+
+
+    @PatchMapping("/{id}/moderation")
+    public ResponseEntity<ProductResponse> moderate(
+            @PathVariable long id,
+            @RequestParam ModerationStatus status,
+            @RequestAttribute("userRole") String role
+    ) {
+        if (!"ADMIN".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Only admins may moderate products");
+        }
+        return ResponseEntity.ok(svc.moderate(id, status));
     }
 
     private String bearer(HttpServletRequest request) {

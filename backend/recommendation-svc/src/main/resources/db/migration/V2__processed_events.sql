@@ -1,0 +1,1 @@
+CREATE TABLE recommendation_processed_events (event_id VARCHAR(160) PRIMARY KEY, processed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP);

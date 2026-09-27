@@ -15,7 +15,7 @@ import static org.mockito.Mockito.verify;
 
 /**
  * security-common had no tests at all before this file — a real gap for the
- * one module every one of the 9 backend services depends on for auth. This
+ * one module every one of the 15 backend services depends on for auth. This
  * class both covers the filter's existing behavior and is a direct
  * regression test for a bug found while reviewing it: shouldNotFilter never
  * exempted user-svc's own pre-auth endpoints (/users/login, /users/register,

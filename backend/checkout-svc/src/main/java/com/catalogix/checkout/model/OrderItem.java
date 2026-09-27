@@ -33,6 +33,9 @@ public class OrderItem {
     @Column(name = "product_name", nullable = false)
     private String productName;
 
+    @Column(name = "seller_id")
+    private Long sellerId;
+
     @Column(nullable = false)
     private Integer quantity;
 
@@ -80,6 +83,9 @@ public class OrderItem {
     public void setProductName(String productName) {
         this.productName = productName;
     }
+
+    public Long getSellerId() { return sellerId; }
+    public void setSellerId(Long sellerId) { this.sellerId = sellerId; }
 
     public Integer getQuantity() {
         return quantity;

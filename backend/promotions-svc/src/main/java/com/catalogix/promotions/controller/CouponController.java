@@ -29,14 +29,29 @@ public class CouponController {
     // Called by checkout-svc, and only by checkout-svc, at the moment an
     // order is actually being placed.
     @PostMapping("/promotions/{code}/commit")
-    public DiscountResponse commit(@PathVariable String code, @Valid @RequestBody ApplyCouponRequest req) {
-        return svc.commit(code, req.getSubtotal());
+    public DiscountResponse commit(
+            @PathVariable String code,
+            @Valid @RequestBody ApplyCouponRequest req,
+            @RequestAttribute("userRole") String role,
+            @RequestHeader(value = "X-Operation-Id", required = false) String operationId) {
+        requireSystem(role);
+        return operationId == null || operationId.isBlank()
+                ? svc.commit(code, req.getSubtotal())
+                : svc.commit(code, req.getSubtotal(), operationId.trim());
     }
 
     // Compensation — called by checkout-svc's outbox processor.
     @PostMapping("/promotions/{code}/release")
-    public ResponseEntity<Void> release(@PathVariable String code) {
-        svc.release(code);
+    public ResponseEntity<Void> release(
+            @PathVariable String code,
+            @RequestAttribute("userRole") String role,
+            @RequestHeader(value = "X-Operation-Id", required = false) String operationId) {
+        requireSystem(role);
+        if (operationId == null || operationId.isBlank()) {
+            svc.release(code);
+        } else {
+            svc.release(code, operationId.trim());
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -65,6 +80,12 @@ public class CouponController {
     ) {
         requireAdmin(role);
         return ResponseEntity.ok(svc.deactivate(id));
+    }
+
+    private void requireSystem(String role) {
+        if (!"SYSTEM".equalsIgnoreCase(role)) {
+            throw new ForbiddenException("Coupon commit/release operations are internal-only");
+        }
     }
 
     private void requireAdmin(String role) {

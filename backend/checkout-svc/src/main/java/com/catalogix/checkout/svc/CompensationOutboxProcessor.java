@@ -74,7 +74,8 @@ public class CompensationOutboxProcessor {
                 } else if (entry.getType() == CompensationType.RELEASE_COUPON) {
                     promotionsClient.release(
                             entry.getCouponCode(),
-                            bearerToken
+                            bearerToken,
+                            entry.getOperationId()
                     );
                 }
                 entry.setStatus(OutboxStatus.COMPLETED);

@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 public class OrderItemResponse {
     private Long productId;
     private String productName;
+    private Long sellerId;
     private Integer quantity;
     private BigDecimal unitPrice;
     private BigDecimal subtotal;
@@ -38,6 +39,9 @@ public class OrderItemResponse {
     public void setProductName(String productName) {
         this.productName = productName;
     }
+
+    public Long getSellerId() { return sellerId; }
+    public void setSellerId(Long sellerId) { this.sellerId = sellerId; }
 
     public Integer getQuantity() {
         return quantity;

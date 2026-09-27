@@ -242,7 +242,7 @@ class CartSvcTest {
     }
 
     @Test
-    void renderingDropsACouponThatWentInvalidSinceItWasApplied() {
+    void renderingKeepsACouponWhenPromotionServiceIsTemporarilyUnavailable() {
         Cart cart = new Cart(42L);
         cart.addItem(new CartItem(1L, 2));
         cart.setCouponCode("SAVE10");
@@ -254,8 +254,8 @@ class CartSvcTest {
 
         CartResponse resp = svc.getOrCreateCart(42L, TOKEN);
 
-        assertNull(resp.getCouponCode());
-        assertNull(cart.getCouponCode());
+        assertEquals("SAVE10", resp.getCouponCode());
+        assertEquals("SAVE10", cart.getCouponCode());
         assertEquals(BigDecimal.ZERO, resp.getDiscountAmount());
     }
 

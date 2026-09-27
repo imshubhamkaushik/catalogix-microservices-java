@@ -3,6 +3,7 @@ package com.catalogix.catalog.controller;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
+import com.catalogix.catalog.dto.ProductSortOption;
 import com.catalogix.catalog.dto.StockAdjustmentRequest;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.exception.ProductNotFoundException;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -80,7 +83,16 @@ class ProductControllerTest {
     @Test
     void listReturnsPagedProducts() throws Exception {
         PagedResponse<ProductResponse> page = new PagedResponse<>(List.of(sampleResponse()), 0, 20, 1, 1);
-        when(svc.search(isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class), isNull()))
+        when(svc.search(
+                isNull(), 
+                isNull(), 
+                isNull(), 
+                isNull(), 
+                isNull(), 
+                any(Pageable.class), 
+                isNull(),
+                isNull(),
+                isNull()))
                 .thenReturn(page);
 
         mvc.perform(get("/products"))
@@ -95,8 +107,15 @@ class ProductControllerTest {
     void listPassesSearchFilterAndSortParamsThrough() throws Exception {
         PagedResponse<ProductResponse> page = new PagedResponse<>(List.of(sampleResponse()), 0, 20, 1, 1);
         when(svc.search(
-                eq("phone"), eq("ELECTRONICS"), eq(new BigDecimal("50")), eq(new BigDecimal("500")),
-                eq(com.catalogix.catalog.dto.ProductSortOption.PRICE_LOW_TO_HIGH), any(Pageable.class), isNull()))
+                eq("phone"), 
+                eq("ELECTRONICS"), 
+                eq(new BigDecimal("50")), 
+                eq(new BigDecimal("500")),
+                eq(ProductSortOption.PRICE_LOW_TO_HIGH), 
+                any(Pageable.class), 
+                isNull(),
+                isNull(),
+                isNull()))
                 .thenReturn(page);
 
         mvc.perform(get("/products")
@@ -118,7 +137,11 @@ class ProductControllerTest {
     @Test
     @SuppressWarnings("null")
     void createReturnsCreatedWithLocationHeader() throws Exception {
-        when(svc.create(any(CreateProductRequest.class), eq(42L), eq("Bearer token")))
+        when(svc.create(
+                any(CreateProductRequest.class), 
+                eq(42L),
+                eq("SELLER"), 
+                eq("Bearer token")))
                 .thenReturn(sampleResponse());
 
         mvc.perform(post("/products")
@@ -170,13 +193,22 @@ class ProductControllerTest {
                 .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isForbidden());
 
-        verify(svc, never()).create(any(), any(), any());
+        verify(svc, never()).create(
+                any(CreateProductRequest.class),
+                anyLong(), 
+                anyString(), 
+                anyString()
+        );
     }
 
     @Test
     @SuppressWarnings("null")
     void createAllowsAnAdminAccountToo() throws Exception {
-        when(svc.create(any(CreateProductRequest.class), eq(42L), eq("Bearer token")))
+        when(svc.create(
+                any(CreateProductRequest.class), 
+                eq(42L),
+                eq("ADMIN"), 
+                eq("Bearer token")))
                 .thenReturn(sampleResponse());
 
         mvc.perform(post("/products")

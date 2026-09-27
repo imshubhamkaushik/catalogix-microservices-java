@@ -24,7 +24,7 @@ public class CatalogClient {
         this.catalogSvcUrl = catalogSvcUrl;
     }
 
-    public record ProductDto(Long id, String name, BigDecimal price) {}
+    public record ProductDto(Long id, String name, BigDecimal price, Long ownerId) {}
 
     @CircuitBreaker(name = "catalogSvc", fallbackMethod = "fallback")
     public ProductDto fetch(Long productId, String bearerToken) {
@@ -37,7 +37,7 @@ public class CatalogClient {
             if (body == null) {
                 throw new IllegalStateException("catalog-svc returned an empty product response");
             }
-            return new ProductDto(body.id, body.name, body.price);
+            return new ProductDto(body.id, body.name, body.price, body.ownerId);
         } catch (HttpClientErrorException.NotFound e) {
             throw new ProductUnavailableException("Product not found: " + productId);
         }
@@ -53,5 +53,6 @@ public class CatalogClient {
         public Long id;
         public String name;
         public BigDecimal price;
+        public Long ownerId;
     }
 }

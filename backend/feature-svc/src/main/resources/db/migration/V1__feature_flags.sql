@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS feature_flags(id BIGSERIAL PRIMARY KEY,name VARCHAR(120) NOT NULL UNIQUE,enabled BOOLEAN NOT NULL DEFAULT false,updated_at TIMESTAMPTZ NOT NULL DEFAULT now()); INSERT INTO feature_flags(name,enabled) VALUES ('seller_dashboard',true),('product_search',true),('recommendations',true),('audit_log',true) ON CONFLICT (name) DO NOTHING;

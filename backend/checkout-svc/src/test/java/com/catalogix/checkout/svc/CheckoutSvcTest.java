@@ -25,7 +25,6 @@ import com.catalogix.checkout.model.OrderItem;
 import com.catalogix.checkout.model.OrderStatus;
 import com.catalogix.checkout.model.OrderStatusEvent;
 import com.catalogix.checkout.model.PaymentMethod;
-import com.catalogix.checkout.repository.CompensationOutboxRepository;
 import com.catalogix.checkout.repository.OrderRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +53,7 @@ import static org.mockito.Mockito.*;
 class CheckoutSvcTest {
 
     @Mock private OrderRepository repo;
-    @Mock private CompensationOutboxRepository outboxRepo;
+    @Mock private CompensationOutboxWriter outboxWriter;
     @Mock private CatalogClient catalogClient;
     @Mock private InventoryClient inventoryClient;
     @Mock private PromotionsClient promotionsClient;
@@ -75,7 +74,7 @@ class CheckoutSvcTest {
         CheckoutClients clients = new CheckoutClients(
                 addressClient, cartClient, catalogClient, inventoryClient,
                 paymentClient, promotionsClient, refundClient);
-        svc = new CheckoutSvc(repo, outboxRepo, clients, eventPublisher);
+        svc = new CheckoutSvc(repo, outboxWriter, clients, eventPublisher);
         when(repo.save(any(Order.class))).thenAnswer(inv -> {
             Order o = inv.getArgument(0);
             if (o.getId() == null) o.setId(1L);
@@ -83,8 +82,8 @@ class CheckoutSvcTest {
         });
     }
 
-    private CatalogClient.ProductDto product(Long id, String name, String price) {
-        return new CatalogClient.ProductDto(id, name, new BigDecimal(price));
+    private CatalogClient.ProductDto product(Long id, String name, String price, Long ownerId) {
+        return new CatalogClient.ProductDto(id, name, new BigDecimal(price), ownerId);
     }
 
     // The most recently appended tracking-timeline entry — tests assert
@@ -185,7 +184,7 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderSucceedsEntersPendingPaymentAndSendsNoEmailYet() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
 
         CheckoutSvc.OrderCreationResult result = svc.createOrder(42L, requestFor(1L, 2), TOKEN, null);
 
@@ -205,8 +204,8 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderAppliesValidCouponDiscount() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        when(promotionsClient.commit("SAVE10", new BigDecimal("200.00"), TOKEN))
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
+        when(promotionsClient.commit(eq("SAVE10"), eq(new BigDecimal("200.00")), eq(TOKEN), anyString()))
                 .thenReturn(new PromotionsClient.DiscountDto("SAVE10", new BigDecimal("20.00")));
 
         CreateOrderRequest req = requestFor(1L, 2);
@@ -223,7 +222,7 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderSnapshotsTheAddressWhenAddressIdIsGiven() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
         when(addressClient.fetch(7L, TOKEN)).thenReturn(new AddressClient.AddressDto(
                 "Home", "221B Baker Street", null, "Chandigarh", "Punjab", "160001", "+919812345678"));
 
@@ -238,7 +237,7 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderSkipsAddressLookupWhenNoAddressIdIsGiven() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
 
         CheckoutSvc.OrderCreationResult result = svc.createOrder(42L, requestFor(1L, 2), TOKEN, null);
 
@@ -248,7 +247,7 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderCompensatesReservedStockWhenTheAddressLookupFails() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
         when(addressClient.fetch(99L, TOKEN))
                 .thenThrow(new com.catalogix.checkout.exception.AddressUnavailableException("not found"));
 
@@ -264,8 +263,8 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderCompensatesReservedStockWhenCouponIsInvalid() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        when(promotionsClient.commit(eq("BADCODE"), any(), eq(TOKEN)))
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
+        when(promotionsClient.commit(eq("BADCODE"), any(), eq(TOKEN), anyString()))
                 .thenThrow(new CouponInvalidException("Coupon is not valid: BADCODE"));
 
         CreateOrderRequest req = requestFor(1L, 2);
@@ -281,7 +280,7 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderThrowsAndDoesNotSaveWhenStockInsufficient() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
         doThrow(new ProductUnavailableException("Insufficient stock for product 1"))
                 .when(inventoryClient).adjust(eq(1L), eq(-5), any(), any());
 
@@ -297,7 +296,7 @@ class CheckoutSvcTest {
         // A timeout: checkout cannot know whether inventory-svc applied the reservation.
         // It must still be released — and the release names the reservation (undoOf) so
         // inventory-svc adds stock back only if it really was applied.
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
         doThrow(new RuntimeException("read timed out"))
                 .when(inventoryClient).adjust(eq(1L), eq(-2), any(), isNull());
 
@@ -359,11 +358,38 @@ class CheckoutSvcTest {
     // ---- checkoutFromCart ----
 
     @Test
+    void createOrderNormalizesIdempotencyKeyBeforeLookup() {
+        Order existing = new Order();
+        existing.setId(9L); existing.setUserId(42L); existing.setStatus(OrderStatus.CONFIRMED);
+        existing.setTotalAmount(new BigDecimal("50.00"));
+        when(repo.findByUserIdAndIdempotencyKey(42L, "key-123")).thenReturn(Optional.of(existing));
+
+        CheckoutSvc.OrderCreationResult result =
+                svc.createOrder(42L, requestFor(1L, 2), TOKEN, "  key-123  ");
+
+        assertFalse(result.wasNew());
+        assertEquals(9L, result.order().getId());
+        verify(repo).findByUserIdAndIdempotencyKey(42L, "key-123");
+    }
+
+    @Test
+    void createOrderRejectsAnIdempotencyKeyLongerThanTheDatabaseContract() {
+        String key = "x".repeat(65);
+
+        CreateOrderRequest request = requestFor(1L, 2);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.createOrder(42L, request, TOKEN, key));
+
+        verifyNoInteractions(catalogClient, inventoryClient, promotionsClient);
+    }
+
+    @Test
     void checkoutFromCartPlacesOrderFromHandoffAndClearsCartWhenNew() {
         CartClient.Handoff handoff = new CartClient.Handoff(
                 List.of(new CartClient.ItemLine(1L, 2)), null);
         when(cartClient.handoff(TOKEN)).thenReturn(handoff);
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
 
         CheckoutSvc.OrderCreationResult result = svc.checkoutFromCart(42L, null, TOKEN, null);
 
@@ -395,7 +421,7 @@ class CheckoutSvcTest {
         CartClient.Handoff handoff = new CartClient.Handoff(
                 List.of(new CartClient.ItemLine(1L, 2)), null);
         when(cartClient.handoff(TOKEN)).thenReturn(handoff);
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
         doThrow(new RuntimeException("cart-svc unreachable")).when(cartClient).clear(TOKEN);
 
         // Clearing the cart is best-effort: the order is already committed by
@@ -669,7 +695,7 @@ class CheckoutSvcTest {
         var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
-        verify(outboxRepo).save(argThat((CompensationOutbox entry) ->
+        verify(outboxWriter).enqueue(argThat((CompensationOutbox entry) ->
                 entry.getProductId().equals(1L) && entry.getDelta() == 2));
     }
 }

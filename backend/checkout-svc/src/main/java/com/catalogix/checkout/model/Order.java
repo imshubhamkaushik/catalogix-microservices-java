@@ -48,6 +48,12 @@ public class Order {
     @Column(name = "applied_coupon_code", length = 50)
     private String appliedCouponCode;
 
+    // Stable promotions-svc redemption operation id. Persisting it with the
+    // order lets later cancellation/payment-decline/expiry compensation release
+    // the exact redemption rather than guessing from the coupon code.
+    @Column(name = "coupon_operation_id", length = 160)
+    private String couponOperationId;
+
     @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
@@ -170,6 +176,9 @@ public class Order {
     public void setAppliedCouponCode(String appliedCouponCode) {
         this.appliedCouponCode = appliedCouponCode;
     }
+
+    public String getCouponOperationId() { return couponOperationId; }
+    public void setCouponOperationId(String couponOperationId) { this.couponOperationId = couponOperationId; }
 
     public BigDecimal getDiscountAmount() {
         return discountAmount;

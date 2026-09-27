@@ -31,6 +31,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -94,6 +95,7 @@ class OrderControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(sampleRequest())))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "http://localhost/api/orders/1"))
                 .andExpect(jsonPath("$.id").value(1L))
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
                 .andExpect(jsonPath("$.items", hasSize(1)));
@@ -206,6 +208,24 @@ class OrderControllerTest {
                 .header("Idempotency-Key", "key-abc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1L));
+    }
+
+    @Test
+    void payRejectsMissingIdempotencyKey() throws Exception {
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.CARD);
+        req.setCardLast4("4242");
+
+        mvc.perform(post("/orders/1/pay")
+                .requestAttr("userId", 42L)
+                .requestAttr("userRole", "USER")
+                .requestAttr("bearerToken", TOKEN)
+                .requestAttr("userEmail", EMAIL)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(svc);
     }
 
     // ---- GET /orders, GET /orders/{id} ----
@@ -340,7 +360,7 @@ class OrderControllerTest {
         req.setCardLast4("4242");
 
         OrderResponse confirmed = sampleResponse(OrderStatus.CONFIRMED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-success")))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(confirmed, true));
 
         mvc.perform(post("/orders/1/pay")
@@ -348,6 +368,7 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
+                .header("Idempotency-Key", "pay-key-success")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -386,7 +407,7 @@ class OrderControllerTest {
         req.setCardLast4("0000");
 
         OrderResponse cancelled = sampleResponse(OrderStatus.CANCELLED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-decline")))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(cancelled, false));
 
         // A decline is a legitimate business outcome, not an HTTP error — the
@@ -398,6 +419,7 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
+                .header("Idempotency-Key", "pay-key-decline")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -411,7 +433,7 @@ class OrderControllerTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
 
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), isNull()))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-conflict")))
                 .thenThrow(new InvalidOrderStateException("Order 1 is not awaiting payment"));
 
         mvc.perform(post("/orders/1/pay")
@@ -419,6 +441,7 @@ class OrderControllerTest {
                 .requestAttr("userRole", "USER")
                 .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
+                .header("Idempotency-Key", "pay-key-conflict")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isConflict());

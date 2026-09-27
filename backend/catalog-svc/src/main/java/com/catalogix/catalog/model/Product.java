@@ -13,6 +13,8 @@ import java.time.Instant;
 @Entity
 @Table(name = "products")
 public class Product {
+
+    public enum ModerationStatus { PUBLISHED, PENDING_REVIEW, REJECTED, SUSPENDED }
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -38,6 +40,10 @@ public class Product {
     // reasoning on why this is a URL field and not a file upload.
     @Column(name = "image_url", length = 500)
     private String imageUrl;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "moderation_status", nullable = false, length = 30)
+    private ModerationStatus moderationStatus = ModerationStatus.PUBLISHED;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -72,6 +78,8 @@ public class Product {
     public void setOwnerId(Long ownerId) { this.ownerId = ownerId; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public ModerationStatus getModerationStatus() { return moderationStatus; }
+    public void setModerationStatus(ModerationStatus moderationStatus) { this.moderationStatus = moderationStatus; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

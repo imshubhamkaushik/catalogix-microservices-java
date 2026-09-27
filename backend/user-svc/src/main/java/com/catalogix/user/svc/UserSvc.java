@@ -48,7 +48,7 @@ import java.util.Set;
 public class UserSvc {
 
     private static final long EMAIL_VERIFICATION_TTL_MS = 24L * 60 * 60 * 1000; // 24h
-    private static final long PASSWORD_RESET_TTL_MS = 60L * 60 * 1000;          // 1h
+    private static final long PASSWORD_RESET_TTL_MS = 60L * 60 * 1000; // 1h
     private static final String ROLE_USER = "USER";
     private static final String ROLE_SELLER = "SELLER";
     private static final String ROLE_ADMIN = "ADMIN";
@@ -63,11 +63,11 @@ public class UserSvc {
     private final TokenHasher tokenHasher;
     private final ApplicationEventPublisher eventPublisher;
     private final String frontendBaseUrl;
-    // A real hash of a random value, computed once on first use — only ever compared
+    // A real hash of a random value, computed once on first use — only ever
+    // compared
     // against, to equalise login timing for unknown emails (see loginInternal).
     private volatile String dummyPasswordHash;
-    private static final Set<String> ASSIGNABLE_ROLES =
-        Set.of(ROLE_USER, ROLE_SELLER, ROLE_ADMIN);
+    private static final Set<String> ASSIGNABLE_ROLES = Set.of(ROLE_USER, ROLE_SELLER, ROLE_ADMIN);
     private static final String ACCOUNT_NO_LONGER_EXISTS = "Account no longer exists";
 
     public UserSvc(
@@ -80,8 +80,7 @@ public class UserSvc {
             PasswordResetTokenRepository passwordResetRepo,
             TokenHasher tokenHasher,
             ApplicationEventPublisher eventPublisher,
-            @Value("${FRONTEND_BASE_URL:http://localhost:11000}") String frontendBaseUrl
-    ) {
+            @Value("${FRONTEND_BASE_URL:http://localhost:11000}") String frontendBaseUrl) {
         this.repo = repo;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -95,7 +94,8 @@ public class UserSvc {
     }
 
     // Register a new user. Throws IllegalArgumentException if email already exists.
-    // @Transactional ensures the findByEmail check and save() are in the same DB transaction,
+    // @Transactional ensures the findByEmail check and save() are in the same DB
+    // transaction,
     // preventing a race where two concurrent requests register the same email.
     @Transactional
     public AuthResponse register(CreateUserRequest req) {
@@ -108,6 +108,7 @@ public class UserSvc {
     }
 
     private AuthResponse registerInternal(CreateUserRequest req, String userAgent) {
+        validatePassword(req.getPassword());
         if (repo.findByEmail(req.getEmail()).isPresent()) {
             throw new IllegalArgumentException("Email already registered");
         }
@@ -118,7 +119,8 @@ public class UserSvc {
         user.setPassword(passwordEncoder.encode(req.getPassword())); // Hash password before saving
         // Everyone who registers is a customer. There is deliberately NO way to become
         // a seller or admin by registering (an email allow-list used to grant ADMIN to
-        // whoever registered a matching address first — with no email verification, that
+        // whoever registered a matching address first — with no email verification,
+        // that
         // was an open door). Higher roles are assigned by an admin; see assignRole().
         user.setRole("USER");
 
@@ -174,7 +176,8 @@ public class UserSvc {
         return issueAuthResponse(user, userAgent);
     }
 
-    // Exchange a valid refresh token for a new access token (and a rotated refresh token).
+    // Exchange a valid refresh token for a new access token (and a rotated refresh
+    // token).
     @Transactional
     public TokenPairResponse refresh(String refreshToken) {
         RefreshTokenService.RotationResult rotation = refreshTokenService.rotate(refreshToken);
@@ -252,6 +255,7 @@ public class UserSvc {
 
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
+        validatePassword(newPassword);
         PasswordResetToken token = passwordResetRepo.findByTokenHash(tokenHasher.hash(rawToken))
                 .orElseThrow(() -> new UnauthorizedException("Invalid or expired reset link"));
         if (!token.isValid(Instant.now())) {
@@ -276,8 +280,7 @@ public class UserSvc {
     @Transactional
     public UserResponse updateProfile(
             Long userId,
-            UpdateProfileRequest req
-    ) {
+            UpdateProfileRequest req) {
         return updateProfileInternal(userId, req, null);
     }
 
@@ -285,44 +288,43 @@ public class UserSvc {
     public UserResponse updateProfile(
             Long userId,
             UpdateProfileRequest req,
-            String currentRefreshToken
-    ) {
+            String currentRefreshToken) {
         return updateProfileInternal(
                 userId,
                 req,
-                currentRefreshToken
-        );
+                currentRefreshToken);
     }
 
     private UserResponse updateProfileInternal(
             Long userId,
             UpdateProfileRequest req,
-            String currentRefreshToken
-    ) {
+            String currentRefreshToken) {
+        // Validate password policy before touching the database. This keeps
+        // updateProfile consistent with register/resetPassword and ensures an
+        // invalid password is rejected before a user lookup or any other
+        // profile mutation can occur.
+        boolean changingPassword = StringUtils.hasText(req.getNewPassword());
+
+        if (changingPassword) {
+            validatePassword(req.getNewPassword());
+        }
+
         User user = repo.findById(userId)
-                .orElseThrow(() ->
-                        new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
+                .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
 
-        boolean changingEmail =
-                StringUtils.hasText(req.getEmail())
-                        && !req.getEmail().equalsIgnoreCase(user.getEmail());
-
-        boolean changingPassword =
-                StringUtils.hasText(req.getNewPassword());
+        boolean changingEmail = StringUtils.hasText(req.getEmail())
+                && !req.getEmail().equalsIgnoreCase(user.getEmail());
 
         if (changingEmail || changingPassword) {
-            boolean currentPasswordOk =
-                    StringUtils.hasText(req.getCurrentPassword())
-                            && passwordEncoder.matches(
-                                    req.getCurrentPassword(),
-                                    user.getPassword()
-                            );
+            boolean currentPasswordOk = StringUtils.hasText(req.getCurrentPassword())
+                    && passwordEncoder.matches(
+                            req.getCurrentPassword(),
+                            user.getPassword());
 
             if (!currentPasswordOk) {
                 throw new UnauthorizedException(
                         "currentPassword is required and must be correct "
-                                + "to change email or password"
-                );
+                                + "to change email or password");
             }
         }
 
@@ -333,8 +335,7 @@ public class UserSvc {
         if (changingEmail) {
             if (repo.findByEmail(req.getEmail()).isPresent()) {
                 throw new IllegalArgumentException(
-                        "Email already registered"
-                );
+                        "Email already registered");
             }
 
             user.setEmail(req.getEmail());
@@ -343,13 +344,11 @@ public class UserSvc {
 
         if (changingPassword) {
             user.setPassword(
-                    passwordEncoder.encode(req.getNewPassword())
-            );
+                    passwordEncoder.encode(req.getNewPassword()));
 
             refreshTokenService.revokeAllForUserExcept(
                     userId,
-                    currentRefreshToken
-            );
+                    currentRefreshToken);
         }
 
         User saved = repo.save(user);
@@ -361,7 +360,15 @@ public class UserSvc {
         return toResponse(saved);
     }
 
-    // List all users as DTOs (no passwords). Admin-only — enforced by the controller.
+    private void validatePassword(String password) {
+        if (password == null || !password.matches("^(?=.*[A-Za-z])(?=.*\\d).{6,}$")) {
+            throw new IllegalArgumentException(
+                    "Password must be at least 6 characters and include a letter and a number");
+        }
+    }
+
+    // List all users as DTOs (no passwords). Admin-only — enforced by the
+    // controller.
     @Transactional(readOnly = true)
     public List<UserResponse> listAll() {
         return repo.findAll()
@@ -378,7 +385,8 @@ public class UserSvc {
     }
 
     // Delete user by id. Only the user themselves or an ADMIN may do this.
-    // @Transactional ensures the check and delete are in the same DB transaction, preventing a race
+    // @Transactional ensures the check and delete are in the same DB transaction,
+    // preventing a race
     // where the user is deleted between the existsById check and deleteById call.
     @Transactional
     public boolean deleteById(Long id, Long requesterId, String requesterRole) {
@@ -446,10 +454,13 @@ public class UserSvc {
         refreshTokenService.revokeById(sessionId, userId);
     }
 
-    // A customer ASKS to become a seller. Nothing is granted here: this only records
-    // a pending request that an admin reviews (assignRole approves it, rejectRoleRequest
+    // A customer ASKS to become a seller. Nothing is granted here: this only
+    // records
+    // a pending request that an admin reviews (assignRole approves it,
+    // rejectRoleRequest
     // declines it). Idempotent — asking again keeps the original request time. An
-    // existing SELLER or ADMIN has nothing to request, so it is a no-op for them (an
+    // existing SELLER or ADMIN has nothing to request, so it is a no-op for them
+    // (an
     // ADMIN in particular must never be "downgraded" by a stray request).
     @Transactional
     public UserResponse becomeSeller(Long userId) {
@@ -463,14 +474,12 @@ public class UserSvc {
         return toResponse(user);
     }
 
-    // Admin action: assign a role (USER, SELLER or ADMIN) to a user. This is also how a
-    // pending seller request is approved. Any pending request is cleared, whatever role
-    // is assigned — assigning USER to a requester is a rejection.
+    // Admin action: assign a role (USER, SELLER or ADMIN) to a user. This is also how a pending seller request is approved. 
+    // Any pending request is cleared, whatever role is assigned — assigning USER to a requester is a rejection.
     //
     // Guard rails:
-    //  * an admin cannot change their own role (avoids accidentally locking yourself out);
-    //  * the last remaining admin cannot be demoted, so the deployment can never end up
-    //    with nobody able to manage roles.
+    // * an admin cannot change their own role (avoids accidentally locking yourself out);
+    // * the last remaining admin cannot be demoted, so the deployment can never end up with nobody able to manage roles.
     // A demotion also revokes the user's refresh tokens so they cannot mint fresh
     // tokens carrying the old, higher role (an already-issued access token still
     // lives until it expires, at most JWT_EXPIRATION_MS).
@@ -487,14 +496,17 @@ public class UserSvc {
                 .orElseThrow(() -> new UserNotFoundException(targetUserId));
 
         String previous = user.getRole();
+        
         boolean demotingAdmin = ROLE_ADMIN.equalsIgnoreCase(previous) && !ROLE_ADMIN.equals(role);
-        if (demotingAdmin && repo.countByRole(ROLE_ADMIN) <= 1) {
+        
+        if (demotingAdmin && repo.findAllByRoleForUpdate(ROLE_ADMIN).size() <= 1) {
             throw new IllegalArgumentException("Cannot remove the last admin");
         }
 
         user.setRole(role);
         user.setRequestedRole(null);
         user.setRoleRequestedAt(null);
+        
         User saved = repo.save(user);
 
         if (isDemotion(previous, role)) {
@@ -503,7 +515,8 @@ public class UserSvc {
         return toResponse(saved);
     }
 
-    // Admin action: decline a pending role request without changing the user's role.
+    // Admin action: decline a pending role request without changing the user's
+    // role.
     @Transactional
     public UserResponse rejectRoleRequest(Long targetUserId) {
         User user = repo.findById(targetUserId)

@@ -108,10 +108,12 @@ class CouponControllerTest {
     void commitReturnsDiscount() throws Exception {
         ApplyCouponRequest req = new ApplyCouponRequest();
         req.setSubtotal(new BigDecimal("200.00"));
-        when(svc.commit(eq("SAVE10"), any(BigDecimal.class)))
+        when(svc.commit(eq("SAVE10"), any(BigDecimal.class), eq("coupon-op-1")))
                 .thenReturn(new DiscountResponse("SAVE10", new BigDecimal("20.00")));
 
         mvc.perform(post("/promotions/SAVE10/commit")
+                .requestAttr("userRole", "SYSTEM")
+                .header("X-Operation-Id", "coupon-op-1")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -119,11 +121,24 @@ class CouponControllerTest {
     }
 
     @Test
+    void commitRejectsNonSystemCaller() throws Exception {
+        ApplyCouponRequest req = new ApplyCouponRequest();
+        req.setSubtotal(new BigDecimal("200.00"));
+        mvc.perform(post("/promotions/SAVE10/commit")
+                .requestAttr("userRole", "USER")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(req)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void releaseReturnsNoContent() throws Exception {
-        mvc.perform(post("/promotions/SAVE10/release"))
+        mvc.perform(post("/promotions/SAVE10/release")
+                .requestAttr("userRole", "SYSTEM")
+                .header("X-Operation-Id", "coupon-op-1"))
                 .andExpect(status().isNoContent());
 
-        verify(svc).release("SAVE10");
+        verify(svc).release("SAVE10", "coupon-op-1");
     }
 
     // ---- admin coupon management ----
