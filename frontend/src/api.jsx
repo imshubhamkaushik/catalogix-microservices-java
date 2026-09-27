@@ -162,6 +162,8 @@ export const updateNotificationPreferences = async (preferences) => {
   return res.data;
 };
 
+// Asks for seller access. This only records a PENDING request (the returned user has
+// requestedRole "SELLER" and an unchanged role) — an admin approves or rejects it.
 export const becomeSeller = async () => {
   const res = await http.post(`${USER_API_BASE}/me/become-seller`);
   return res.data;
@@ -176,6 +178,19 @@ export const getUsers = async () => {
 
 export const deleteUser = async (id) => {
   const res = await http.delete(`${USER_API_BASE}/${id}`);
+  return res.data;
+};
+
+// Admin only: assign USER / SELLER / ADMIN. This is also how a pending seller request
+// is approved (role SELLER) or declined (leave the role alone and use rejectRoleRequest).
+export const assignUserRole = async (id, role) => {
+  const res = await http.put(`${USER_API_BASE}/${id}/role`, { role });
+  return res.data;
+};
+
+// Admin only: decline a pending role request without changing the user's role.
+export const rejectRoleRequest = async (id) => {
+  const res = await http.delete(`${USER_API_BASE}/${id}/role-request`);
   return res.data;
 };
 

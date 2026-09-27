@@ -2,7 +2,10 @@
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# BuildKit cache mount: npm's download cache survives between builds (build-time only,
+# never part of the image).
+RUN --mount=type=cache,id=catalogix-npm-frontend,target=/root/.npm \
+    npm ci
 COPY . .
 RUN npm run build
 

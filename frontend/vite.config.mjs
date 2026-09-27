@@ -26,5 +26,14 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/setupTests.js",
+    // `npm run test:coverage` (used by CI) writes coverage/lcov.info, which the
+    // SonarQube scan reads via sonar.javascript.lcov.reportPaths.
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "lcov"],
+      reportsDirectory: "coverage",
+      include: ["src/**/*.{js,jsx}"],
+      exclude: ["src/**/*.test.{js,jsx}", "src/setupTests.js", "src/main.jsx"],
+    },
   },
 });

@@ -210,15 +210,16 @@ describe("Account page", () => {
     expect(api.deleteUser).not.toHaveBeenCalled();
   });
 
-  it("lets a buyer become a seller", async () => {
+  it("lets a buyer REQUEST seller access (an admin still has to approve it)", async () => {
     api.becomeSeller.mockResolvedValue({
-      id: 1, name: "Alice", email: "alice@example.com", role: "SELLER", verified: false,
+      id: 1, name: "Alice", email: "alice@example.com", role: "USER", requestedRole: "SELLER", verified: false,
     });
     renderAccount();
 
-    await userEvent.click(await screen.findByRole("button", { name: /become a seller/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /request seller access/i }));
 
     await waitFor(() => expect(api.becomeSeller).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/you're now a seller/i)).toBeInTheDocument();
+    // Shown both as the confirmation toast and in the (now pending) seller panel.
+    expect((await screen.findAllByText(/an admin will review it/i)).length).toBeGreaterThan(0);
   });
 });

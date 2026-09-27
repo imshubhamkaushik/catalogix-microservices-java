@@ -53,9 +53,9 @@ export default function Account() {
     try {
       const updated = await becomeSeller();
       updateUser(updated);
-      setToast("You're now a seller — find \"My Products\" in the account menu.");
+      setToast("Request sent — an admin will review it. You'll be able to list products once it is approved.");
     } catch {
-      setError("Failed to become a seller. Please try again.");
+      setError("Failed to send the request. Please try again.");
     } finally {
       setBecomingSeller(false);
     }
@@ -325,18 +325,28 @@ export default function Account() {
         {user?.role === "USER" && (
           <div className="form-panel">
             <p className="form-panel-label">Sell on Catalogix</p>
-            <p className="auth-help-text">
-              Become a seller to list your own products and manage their stock.
-              No approval needed — you can start right away.
-            </p>
-            <button
-              className="btn-small"
-              onClick={handleBecomeSeller}
-              disabled={becomingSeller}
-              type="button"
-            >
-              {becomingSeller ? "Upgrading…" : "Become a seller"}
-            </button>
+            {user?.requestedRole === "SELLER" ? (
+              <p className="auth-help-text">
+                Your seller request is pending — an admin will review it. Once it is
+                approved, sign in again (or wait for your session to refresh) and
+                "My Products" appears in the account menu.
+              </p>
+            ) : (
+              <>
+                <p className="auth-help-text">
+                  Want to list your own products and manage their stock? Request seller
+                  access — an admin reviews every request before it is granted.
+                </p>
+                <button
+                  className="btn-small"
+                  onClick={handleBecomeSeller}
+                  disabled={becomingSeller}
+                  type="button"
+                >
+                  {becomingSeller ? "Sending…" : "Request seller access"}
+                </button>
+              </>
+            )}
           </div>
         )}
 

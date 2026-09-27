@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import PropTypes from "prop-types";
-import { getUsers, deleteUser } from "../api";
+import { getUsers, deleteUser, assignUserRole, rejectRoleRequest } from "../api";
 import { useAuth } from "../context/AuthContext";
 
 // Generate initials from a name string
@@ -76,6 +76,31 @@ export default function Users() {
     }
   };
 
+  // Approving a request is simply assigning the requested role.
+  const handleAssignRole = async (user, role) => {
+    if (role === user.role) return;
+    if (role === "ADMIN" && !globalThis.confirm(`Make ${user.name} an admin? Admins can manage every user and role.`)) return;
+    try {
+      await assignUserRole(user.id, role);
+      await fetchUsers();
+      setToast(`${user.name} is now ${role}.`);
+    } catch (e) {
+      setError(e?.response?.data?.message || "Failed to change the role.");
+    }
+  };
+
+  const handleRejectRequest = async (user) => {
+    try {
+      await rejectRoleRequest(user.id);
+      await fetchUsers();
+      setToast(`Request from ${user.name} declined.`);
+    } catch {
+      setError("Failed to decline the request.");
+    }
+  };
+
+  const pendingCount = users.filter((u) => u.requestedRole).length;
+
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -100,7 +125,9 @@ export default function Users() {
           <div className="section-header-left">
             <span className="section-title">All users</span>
             {!loading && (
-              <span className="section-count">{users.length} registered</span>
+              <span className="section-count">
+                {users.length} registered{pendingCount > 0 ? ` · ${pendingCount} pending request${pendingCount === 1 ? "" : "s"}` : ""}
+              </span>
             )}
           </div>
           <div className="search-box">
@@ -166,9 +193,41 @@ export default function Users() {
                     <div className="item-sub">{user.email}</div>
                   </div>
                   <div className="item-actions">
-                    <span className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}>
-                      {user.role}
-                    </span>
+                    {user.requestedRole && !isSelf && (
+                      <>
+                        <span className="badge badge-category">Requests {user.requestedRole}</span>
+                        <button
+                          className="btn-small"
+                          type="button"
+                          onClick={() => handleAssignRole(user, user.requestedRole)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          className="btn-small"
+                          type="button"
+                          onClick={() => handleRejectRequest(user)}
+                        >
+                          Decline
+                        </button>
+                      </>
+                    )}
+                    {isSelf ? (
+                      <span className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}>
+                        {user.role}
+                      </span>
+                    ) : (
+                      <select
+                        className={`badge ${isUserAdmin ? "badge-admin" : "badge-user"}`}
+                        aria-label={`Role of ${user.name}`}
+                        value={user.role}
+                        onChange={(e) => handleAssignRole(user, e.target.value)}
+                      >
+                        <option value="USER">USER</option>
+                        <option value="SELLER">SELLER</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
+                    )}
                     <button
                       className="icon-btn"
                       type="button"
