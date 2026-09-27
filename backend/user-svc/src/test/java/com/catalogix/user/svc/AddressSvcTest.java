@@ -96,16 +96,25 @@ class AddressSvcTest {
 
     @Test
     void updateThrowsForAnAddressBelongingToAnotherUser() {
-        when(repo.findByIdAndUserId(1L, USER_ID)).thenReturn(Optional.empty());
+        when(repo.findByIdAndUserId(1L, USER_ID))
+                .thenReturn(Optional.empty());
 
-        assertThrows(AddressNotFoundException.class, () -> svc.update(USER_ID, 1L, request(false)));
+        AddressRequest updateRequest = request(false);
+
+        assertThrows(
+                AddressNotFoundException.class,
+                () -> svc.update(USER_ID, 1L, updateRequest));
     }
 
     @Test
     void deleteThrowsForAnAddressBelongingToAnotherUser() {
-        when(repo.findByIdAndUserId(1L, USER_ID)).thenReturn(Optional.empty());
+        when(repo.findByIdAndUserId(1L, USER_ID))
+                .thenReturn(Optional.empty());
 
-        assertThrows(AddressNotFoundException.class, () -> svc.delete(USER_ID, 1L));
+        assertThrows(
+                AddressNotFoundException.class,
+                () -> svc.delete(USER_ID, 1L));
+
         verify(repo, never()).delete(any());
     }
 

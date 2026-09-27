@@ -13,7 +13,6 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
 
 /**
  * Verifies HS256 JWTs issued by user-svc (real user sessions) or minted as
@@ -126,8 +125,8 @@ public class JwtService {
                 .subject(SYSTEM_SUBJECT)
                 .claim("email", SYSTEM_EMAIL)
                 .claim("role", SYSTEM_ROLE)
-                .issuedAt(Date.from(now))
-                .expiration(Date.from(expiry))
+                .claim(Claims.ISSUED_AT, now.getEpochSecond())
+                .claim(Claims.EXPIRATION, expiry.getEpochSecond())
                 .signWith(key)
                 .compact();
     }

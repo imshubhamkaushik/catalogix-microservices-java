@@ -5,7 +5,6 @@ import com.catalogix.recommendation.repository.*;
 import org.junit.jupiter.api.*;
 import org.mockito.*;
 import java.util.*;
-import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RecommendationSvcTest {

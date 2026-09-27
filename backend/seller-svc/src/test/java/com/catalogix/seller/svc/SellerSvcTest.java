@@ -52,11 +52,24 @@ class SellerSvcTest {
         p.setUserId(42L);
         p.setDisplayName("Seller");
         p.setStatus(SellerStatus.APPROVED);
-        when(profiles.findByUserIdForUpdate(42L)).thenReturn(Optional.of(p));
-        when(ledger.balance(42L)).thenReturn(new BigDecimal("20.00"));
-        when(payouts.findByIdempotencyKey("payout-key-2")).thenReturn(Optional.empty());
-        assertThrows(IllegalArgumentException.class,
-                () -> svc.requestPayout(42L, new BigDecimal("21.00"), "payout-key-2"));
+
+        when(profiles.findByUserIdForUpdate(42L))
+                .thenReturn(Optional.of(p));
+        when(ledger.balance(42L))
+                .thenReturn(new BigDecimal("20.00"));
+        when(payouts.findByIdempotencyKey("payout-key-2"))
+                .thenReturn(Optional.empty());
+
+        BigDecimal payoutAmount = new BigDecimal("21.00");
+        String idempotencyKey = "payout-key-2";
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> svc.requestPayout(
+                        42L,
+                        payoutAmount,
+                        idempotencyKey));
+
         verify(payouts, never()).save(any());
     }
 }

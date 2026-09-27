@@ -36,7 +36,15 @@ class JwtServiceRotationTest {
         String tokenFromOldKey = new JwtService(OLD_SECRET).generateSystemToken();
         JwtService afterRotation = new JwtService(NEW_SECRET, "");
 
-        assertThatThrownBy(() -> afterRotation.parseClaims(tokenFromOldKey)).isInstanceOf(JwtException.class);
+        Throwable thrown = null;
+
+        try {
+            afterRotation.parseClaims(tokenFromOldKey);
+        } catch (JwtException ex) {
+            thrown = ex;
+        }
+
+        assertThat(thrown).isInstanceOf(JwtException.class);
     }
 
     @Test
@@ -44,15 +52,27 @@ class JwtServiceRotationTest {
         String foreignToken = new JwtService(OTHER_SECRET).generateSystemToken();
         JwtService rotated = new JwtService(NEW_SECRET, OLD_SECRET);
 
-        assertThatThrownBy(() -> rotated.parseClaims(foreignToken)).isInstanceOf(JwtException.class);
+        Throwable thrown = null;
+
+        try {
+            rotated.parseClaims(foreignToken);
+        } catch (JwtException ex) {
+            thrown = ex;
+        }
+
+        assertThat(thrown).isInstanceOf(JwtException.class);
     }
 
     @Test
     void newTokensAreNeverSignedWithThePreviousSecret() {
-        String token = new JwtService(NEW_SECRET, OLD_SECRET).generateSystemToken();
+        JwtService rotated = new JwtService(NEW_SECRET, OLD_SECRET);
+        String token = rotated.generateSystemToken();
 
         // A service that only knows the OLD secret must not be able to verify it.
-        assertThatThrownBy(() -> new JwtService(OLD_SECRET).parseClaims(token)).isInstanceOf(JwtException.class);
+        JwtService oldKeyOnly = new JwtService(OLD_SECRET);
+
+        assertThatThrownBy(() -> oldKeyOnly.parseClaims(token))
+                .isInstanceOf(JwtException.class);
     }
 
     @Test

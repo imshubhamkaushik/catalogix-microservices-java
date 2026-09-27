@@ -12,7 +12,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 class AdminSeederTest {
@@ -102,8 +104,9 @@ class AdminSeederTest {
         when(repo.countByRole("ADMIN")).thenReturn(0L);
         when(repo.findByEmail(EMAIL)).thenReturn(Optional.empty());
         when(passwordEncoder.encode(any())).thenReturn("h");
-        when(repo.save(any(User.class))).thenThrow(new DataIntegrityViolationException("duplicate email"));
+        when(repo.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate email"));
 
-        seeder("a-strong-password").run(); // must not throw
+        assertDoesNotThrow(() -> seeder("a-strong-password").run());
     }
 }

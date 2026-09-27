@@ -13,6 +13,8 @@ import java.util.List;
 @RequestMapping("/sellers")
 public class SellerController {
 
+    private static final String ADMIN_ROLE = "ADMIN";
+
     private final SellerSvc svc;
 
     public SellerController(SellerSvc s) {
@@ -35,7 +37,7 @@ public class SellerController {
     @GetMapping("/{userId}")
     public ResponseEntity<SellerSummary> byUser(@PathVariable Long userId, @RequestAttribute("userId") Long requesterId,
             @RequestAttribute String userRole) {
-        if (!"ADMIN".equalsIgnoreCase(userRole) && !userId.equals(requesterId)) {
+        if (!ADMIN_ROLE.equalsIgnoreCase(userRole) && !userId.equals(requesterId)) {
             throw new ForbiddenException("Seller profile access denied");
 
         }
@@ -65,14 +67,14 @@ public class SellerController {
     }
 
     private static void ensureSeller(String role) {
-        if (!"SELLER".equalsIgnoreCase(role) && !"ADMIN".equalsIgnoreCase(role)) {
+        if (!"SELLER".equalsIgnoreCase(role) && !ADMIN_ROLE.equalsIgnoreCase(role)) {
             throw new ForbiddenException("Seller role required");
 
         }
     }
 
     private static void ensureAdmin(String role) {
-        if (!"ADMIN".equalsIgnoreCase(role)) {
+        if (!ADMIN_ROLE.equalsIgnoreCase(role)) {
             throw new ForbiddenException("Admin role required");
 
         }

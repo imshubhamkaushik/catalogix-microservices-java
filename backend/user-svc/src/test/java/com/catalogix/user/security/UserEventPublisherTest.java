@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
@@ -51,8 +52,16 @@ class UserEventPublisherTest {
     @Test
     void aBrokerFailureDuringPublishIsSwallowedNotThrown() {
         doThrow(new RuntimeException("broker unreachable"))
-                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class));
+                .when(rabbitTemplate)
+                .convertAndSend(anyString(), anyString(), any(Object.class));
 
-        publisher.onEmailVerificationRequested(new EmailVerificationRequestedEvent("x@x.com", "Name", "link"));
+        EmailVerificationRequestedEvent event =
+                new EmailVerificationRequestedEvent(
+                        "x@x.com",
+                        "Name",
+                        "link");
+
+        assertDoesNotThrow(() ->
+                publisher.onEmailVerificationRequested(event));
     }
 }

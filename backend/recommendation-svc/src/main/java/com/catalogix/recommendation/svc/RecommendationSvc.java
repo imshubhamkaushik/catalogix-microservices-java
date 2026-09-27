@@ -33,9 +33,19 @@ public class RecommendationSvc {
                 }
     }
 
+    private int clampLimit(int limit) {
+        return Math.clamp(limit, 1, 20);
+    }
+
     @Transactional(readOnly = true)
     public List<Long> recommend(Long id, int limit) {
-        return repo.top(id, PageRequest.of(0, Math.min(Math.max(limit, 1), 20))).stream()
-                .map(RecommendationEdge::getRelatedProductId).toList();
+        return repo.top(
+            id, 
+            PageRequest.of(
+                0, 
+                clampLimit(limit)))
+                .stream()
+                .map(RecommendationEdge::getRelatedProductId)
+                .toList();
     }
 }

@@ -15,6 +15,9 @@ import java.util.*;
 
 @Service
 public class SellerSvc {
+    private static final String SALE_SUFFIX = ":sale";
+    private static final String COMMISSION_SUFFIX = ":commission";
+
     private final SellerProfileRepository profiles;
     private final SellerLedgerRepository ledger;
     private final PayoutRepository payouts;
@@ -116,13 +119,13 @@ public class SellerSvc {
             BigDecimal commission = item.subtotal().multiply(p.getCommissionRate()).divide(new BigDecimal("100"), 2,
                     java.math.RoundingMode.HALF_UP);
             String base = ev.orderId() + ":" + item.productId();
-            if (ledger.findBySourceKey(base + ":sale").isEmpty())
+            if (ledger.findBySourceKey(base + SALE_SUFFIX).isEmpty())
                 ledger.save(
-                        new SellerLedgerEntry(item.sellerId(), LedgerType.SALE_CREDIT, item.subtotal(), base + ":sale",
+                        new SellerLedgerEntry(item.sellerId(), LedgerType.SALE_CREDIT, item.subtotal(), base + SALE_SUFFIX,
                                 "Order " + ev.orderId() + " sale"));
-            if (ledger.findBySourceKey(base + ":commission").isEmpty())
+            if (ledger.findBySourceKey(base + COMMISSION_SUFFIX).isEmpty())
                 ledger.save(new SellerLedgerEntry(item.sellerId(), LedgerType.COMMISSION_DEBIT, commission,
-                        base + ":commission", "Marketplace commission"));
+                        base + COMMISSION_SUFFIX, "Marketplace commission"));
         }
     }
 
@@ -144,8 +147,8 @@ public class SellerSvc {
         for (var item : items) {
             if (item.sellerId() == null || item.productId() == null)
                 continue;
-            String saleKey = orderId + ":" + item.productId() + ":sale",
-                    commissionKey = orderId + ":" + item.productId() + ":commission";
+            String saleKey = orderId + ":" + item.productId() + SALE_SUFFIX;
+            String commissionKey = orderId + ":" + item.productId() + COMMISSION_SUFFIX;
             var sale = ledger.findBySourceKey(saleKey);
             var commission = ledger.findBySourceKey(commissionKey);
             if (sale.isPresent() && ledger.findBySourceKey(saleKey + ":reverse:" + reason).isEmpty())
