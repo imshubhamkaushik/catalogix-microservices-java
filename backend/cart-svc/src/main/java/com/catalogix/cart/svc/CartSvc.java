@@ -10,6 +10,8 @@ import com.catalogix.cart.model.Cart;
 import com.catalogix.cart.model.CartItem;
 import com.catalogix.cart.repository.CartRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,8 @@ import java.util.List;
 
 @Service
 public class CartSvc {
+
+    private static final Logger log = LoggerFactory.getLogger(CartSvc.class);
 
     private final CartRepository repo;
     private final CatalogClient catalogClient;
@@ -172,6 +176,7 @@ public class CartSvc {
             } catch (RuntimeException e) {
                 // A read must not mutate persisted cart state because of a
                 // transient promotions-service timeout or 5xx response.
+                log.debug("Coupon preview unavailable for cart {}: {}", cart.getId(), e.getMessage());
                 discount = BigDecimal.ZERO;
             }
         }

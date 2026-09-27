@@ -1,3 +1,26 @@
 package com.catalogix.search.controller;
-import com.catalogix.search.dto.SearchResponse; import com.catalogix.search.service.SearchService; import org.springframework.data.domain.*; import org.springframework.web.bind.annotation.*; import java.math.BigDecimal;
-@RestController @RequestMapping("/search") public class SearchController { private final SearchService svc; public SearchController(SearchService svc){this.svc=svc;} @GetMapping("/products") public Page<SearchResponse> products(@RequestParam(defaultValue="") String q,@RequestParam(required=false) String category,@RequestParam(required=false) BigDecimal minPrice,@RequestParam(required=false) BigDecimal maxPrice,@PageableDefault(size=20,sort="id",direction=Sort.Direction.DESC) Pageable pageable){return svc.search(q,category,minPrice,maxPrice,pageable);} }
+
+import com.catalogix.search.dto.SearchResponse;
+import com.catalogix.search.svc.SearchSvc;
+import org.springframework.data.domain.*;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.web.bind.annotation.*;
+import java.math.BigDecimal;
+
+@RestController
+@RequestMapping("/search")
+public class SearchController {
+  private final SearchSvc svc;
+
+  public SearchController(SearchSvc svc) {
+    this.svc = svc;
+  }
+
+  @GetMapping("/products")
+  public Page<SearchResponse> products(@RequestParam(defaultValue = "") String q,
+      @RequestParam(required = false) String category, @RequestParam(required = false) BigDecimal minPrice,
+      @RequestParam(required = false) BigDecimal maxPrice,
+      @PageableDefault(size = 20, sort = "id", direction = Sort.Direction.DESC) Pageable pageable) {
+    return svc.search(q, category, minPrice, maxPrice, pageable);
+  }
+}

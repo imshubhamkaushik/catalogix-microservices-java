@@ -22,7 +22,7 @@ public class PromotionsClient {
     private final String promotionsSvcUrl;
 
     public PromotionsClient(RestTemplate restTemplate,
-                             @Value("${PROMOTIONS_SVC_URL}") String promotionsSvcUrl) {
+            @Value("${PROMOTIONS_SVC_URL}") String promotionsSvcUrl) {
         this.restTemplate = restTemplate;
         this.promotionsSvcUrl = promotionsSvcUrl;
     }
@@ -37,7 +37,12 @@ public class PromotionsClient {
             var resp = restTemplate.exchange(
                     promotionsSvcUrl + "/promotions/" + code + "/preview",
                     HttpMethod.POST, new HttpEntity<>(body, headers), DiscountDto.class);
-            return resp.getBody() != null ? resp.getBody().discountAmount : BigDecimal.ZERO;
+            
+            DiscountDto discount = resp.getBody();
+            
+            return discount != null && discount.discountAmount !=null
+                    ? discount.discountAmount 
+                    : BigDecimal.ZERO;
         } catch (HttpClientErrorException.Conflict | HttpClientErrorException.NotFound e) {
             throw new ProductUnavailableException("Coupon is not valid: " + code);
         }

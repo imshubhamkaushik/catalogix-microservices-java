@@ -183,14 +183,12 @@ public class ProductSvc {
         @Transactional
         public ProductResponse create(
                         CreateProductRequest req,
-                        Long ownerId,
-                        String bearerToken) {
+                        Long ownerId) {
 
                 return doCreate(
                                 req,
                                 ownerId,
-                                ADMIN_ROLE,
-                                bearerToken);
+                                ADMIN_ROLE);
         }
 
         /**
@@ -200,14 +198,12 @@ public class ProductSvc {
         public ProductResponse create(
                         CreateProductRequest req,
                         Long ownerId,
-                        String requesterRole,
-                        String bearerToken) {
+                        String requesterRole) {
 
                 return doCreate(
                                 req,
                                 ownerId,
-                                requesterRole,
-                                bearerToken);
+                                requesterRole);
         }
 
         /**
@@ -219,8 +215,7 @@ public class ProductSvc {
         private ProductResponse doCreate(
                         CreateProductRequest req,
                         Long ownerId,
-                        String requesterRole,
-                        String bearerToken) {
+                        String requesterRole) {
 
                 Product product = new Product();
 
@@ -249,8 +244,7 @@ public class ProductSvc {
 
                 inventoryClient.init(
                                 saved.getId(),
-                                initialStock,
-                                bearerToken);
+                                initialStock);
 
                 publish(
                                 new ProductDomainEvent(

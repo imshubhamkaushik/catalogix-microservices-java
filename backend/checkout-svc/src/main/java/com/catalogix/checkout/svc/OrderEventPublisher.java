@@ -66,7 +66,7 @@ public class OrderEventPublisher {
     private void publish(String routingKey, Object event, Long orderId) {
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfig.EVENTS_EXCHANGE, routingKey, event);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.warn("Failed to publish {} for order {}: {}", routingKey, orderId, e.getMessage());
         }
     }

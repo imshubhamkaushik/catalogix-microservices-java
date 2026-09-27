@@ -2,7 +2,7 @@ package com.catalogix.fulfillment.controller;
 
 import com.catalogix.fulfillment.dto.ShipmentResponse;
 import com.catalogix.fulfillment.dto.StatusRequest;
-import com.catalogix.fulfillment.service.FulfillmentService;
+import com.catalogix.fulfillment.svc.FulfillmentSvc;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -12,10 +12,10 @@ import java.util.List;
 @RestController
 @RequestMapping("/fulfillments")
 public class FulfillmentController {
-    private final FulfillmentService service;
+    private final FulfillmentSvc service;
 
-    public FulfillmentController(FulfillmentService service) {
-        this.service = service;
+    public FulfillmentController(FulfillmentSvc svc) {
+        this.service = svc;
     }
 
     @GetMapping("/mine")

@@ -89,7 +89,7 @@ public class ProductSeeder implements CommandLineRunner {
                 created++;
             }
             log.info("Seeded {} sample products", created);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.warn("Product seeding failed partway through (often just inventory-svc still "
                     + "starting up) — catalog-svc is starting normally regardless: {}", e.getMessage());
         }
@@ -98,13 +98,15 @@ public class ProductSeeder implements CommandLineRunner {
     private record SeedProduct(String name, String description, BigDecimal price,
                                 String category, int stock, String imageUrl) {}
 
+    private static final String ELECTRONICS = "Electronics";
+
     private static final List<SeedProduct> SAMPLE_PRODUCTS = List.of(
             new SeedProduct("Wireless Headphones", "Over-ear, active noise cancellation, 30hr battery",
-                    new BigDecimal("2499.00"), "Electronics", 40, null),
+                    new BigDecimal("2499.00"), ELECTRONICS, 40, null),
             new SeedProduct("Smart Watch", "Heart-rate and sleep tracking, 7-day battery",
-                    new BigDecimal("5999.00"), "Electronics", 25, null),
+                    new BigDecimal("5999.00"), ELECTRONICS, 25, null),
             new SeedProduct("Mechanical Keyboard", "Hot-swappable switches, per-key RGB",
-                    new BigDecimal("3499.00"), "Electronics", 15, null),
+                    new BigDecimal("3499.00"), ELECTRONICS, 15, null),
             new SeedProduct("Steel Water Bottle", "1 litre, vacuum insulated, keeps cold 24hr",
                     new BigDecimal("799.00"), "Home", 100, null),
             new SeedProduct("Ceramic Coffee Mug Set", "Set of 4, microwave and dishwasher safe",

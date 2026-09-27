@@ -1,1 +1,11 @@
-package com.catalogix.feature; import org.springframework.boot.SpringApplication; import org.springframework.boot.autoconfigure.SpringBootApplication; @SpringBootApplication(scanBasePackages={"com.catalogix.feature","com.catalogix.security"}) public class FeatureSvcApplication{public static void main(String[]a){SpringApplication.run(FeatureSvcApplication.class,a);}}
+package com.catalogix.feature;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication(scanBasePackages = { "com.catalogix.feature", "com.catalogix.security" })
+public class FeatureSvcApplication {
+  public static void main(String[] a) {
+    SpringApplication.run(FeatureSvcApplication.class, a);
+  }
+}

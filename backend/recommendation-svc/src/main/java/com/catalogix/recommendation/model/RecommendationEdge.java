@@ -1,1 +1,46 @@
-package com.catalogix.recommendation.model; import jakarta.persistence.*; @Entity @Table(name="recommendation_edges",uniqueConstraints=@UniqueConstraint(name="uk_rec_edge",columnNames={"product_id","related_product_id"})) public class RecommendationEdge{ @Id @GeneratedValue(strategy=GenerationType.IDENTITY) Long id; @Column(name="product_id",nullable=false) Long productId; @Column(name="related_product_id",nullable=false) Long relatedProductId; @Column(nullable=false) Long score=0L; public RecommendationEdge(){} public RecommendationEdge(Long a,Long b){productId=a;relatedProductId=b;} public Long getId(){return id;} public Long getProductId(){return productId;} public Long getRelatedProductId(){return relatedProductId;} public Long getScore(){return score;} public void bump(){score++;}}
+package com.catalogix.recommendation.model;
+
+import jakarta.persistence.*;
+
+@Entity
+@Table(name = "recommendation_edges", uniqueConstraints = @UniqueConstraint(name = "uk_rec_edge", columnNames = {
+    "product_id", "related_product_id" }))
+public class RecommendationEdge {
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
+  Long id;
+  @Column(name = "product_id", nullable = false)
+  Long productId;
+  @Column(name = "related_product_id", nullable = false)
+  Long relatedProductId;
+  @Column(nullable = false)
+  Long score = 0L;
+
+  public RecommendationEdge() {
+  }
+
+  public RecommendationEdge(Long a, Long b) {
+    productId = a;
+    relatedProductId = b;
+  }
+
+  public Long getId() {
+    return id;
+  }
+
+  public Long getProductId() {
+    return productId;
+  }
+
+  public Long getRelatedProductId() {
+    return relatedProductId;
+  }
+
+  public Long getScore() {
+    return score;
+  }
+
+  public void bump() {
+    score++;
+  }
+}

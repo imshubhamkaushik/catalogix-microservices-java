@@ -39,8 +39,8 @@ public class InventoryClient {
     private final JwtService jwtService;
 
     public InventoryClient(RestTemplate restTemplate,
-                            @Value("${INVENTORY_SVC_URL}") String inventorySvcUrl,
-                            JwtService jwtService) {
+            @Value("${INVENTORY_SVC_URL}") String inventorySvcUrl,
+            JwtService jwtService) {
         this.restTemplate = restTemplate;
         this.inventorySvcUrl = inventorySvcUrl;
         this.jwtService = jwtService;
@@ -60,7 +60,7 @@ public class InventoryClient {
         return null; // stock shown as "unknown" rather than failing the whole product read
     }
 
-    public void init(Long productId, int initialQuantity, String bearerToken) {
+    public void init(Long productId, int initialQuantity) {
         HttpHeaders headers = authHeaders("Bearer " + jwtService.generateSystemToken());
         var body = new java.util.HashMap<String, Object>();
         body.put("productId", productId);

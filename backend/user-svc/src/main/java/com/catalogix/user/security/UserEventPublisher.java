@@ -45,7 +45,7 @@ public class UserEventPublisher {
     private void publish(String routingKey, Object event, String userEmail) {
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfig.EVENTS_EXCHANGE, routingKey, event);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             log.warn("Failed to publish {} for {}: {}", routingKey, userEmail, e.getMessage());
         }
     }

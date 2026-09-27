@@ -1,4 +1,4 @@
-package com.catalogix.fulfillment.service;
+package com.catalogix.fulfillment.svc;
 
 import com.catalogix.fulfillment.dto.ShipmentResponse;
 import com.catalogix.fulfillment.event.OrderConfirmedEvent;
@@ -16,10 +16,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Service
-public class FulfillmentService {
+public class FulfillmentSvc {
     private final ShipmentRepository repo;
 
-    public FulfillmentService(ShipmentRepository repo) {
+    public FulfillmentSvc(ShipmentRepository repo) {
         this.repo = repo;
     }
 

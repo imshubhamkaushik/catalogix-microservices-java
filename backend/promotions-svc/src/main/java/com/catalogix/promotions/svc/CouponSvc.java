@@ -52,25 +52,31 @@ public class CouponSvc {
      */
     @Transactional
     public DiscountResponse commit(String code, BigDecimal subtotal) {
-        Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
-                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
-        if (!coupon.isCurrentlyRedeemable(Instant.now())) {
-            throw new CouponInvalidException("Coupon is no longer valid: " + code);
-        }
-        coupon.setUsedCount(coupon.getUsedCount() + 1);
-        repo.save(coupon);
-        return new DiscountResponse(coupon.getCode(), calculateDiscount(coupon, subtotal));
+        return commitInternal(code, subtotal, null);
     }
 
     /** Idempotent redemption path used by checkout-svc. */
     @Transactional
     public DiscountResponse commit(String code, BigDecimal subtotal, String operationId) {
-        if (operationId == null || operationId.isBlank()) {
-            return commit(code, subtotal);
-        }
+        return commitInternal(code, subtotal, operationId);
+    }
 
+    private DiscountResponse commitInternal(
+            String code,
+            BigDecimal subtotal,
+            String operationId) {
         Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
                 .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
+
+        if (operationId == null || operationId.isBlank()) {
+            if (!coupon.isCurrentlyRedeemable(Instant.now())) {
+                throw new CouponInvalidException("Coupon is no longer valid: " + code);
+            }
+            coupon.setUsedCount(coupon.getUsedCount() + 1);
+            repo.save(coupon);
+            return new DiscountResponse(coupon.getCode(), calculateDiscount(coupon, subtotal));
+        }
+
         String normalizedOperationId = operationId.trim();
         var existing = redemptionRepo.findById(normalizedOperationId);
         if (existing.isPresent()) {
@@ -108,17 +114,21 @@ public class CouponSvc {
      */
     @Transactional
     public void release(String code) {
-        repo.findByCodeIgnoreCaseForUpdate(code).ifPresent(c -> {
-            c.setUsedCount(Math.max(0, c.getUsedCount() - 1));
-            repo.save(c);
-        });
+        releaseInternal(code, null);
     }
 
     /** Idempotent compensation path used by checkout-svc/outbox. */
     @Transactional
     public void release(String code, String operationId) {
+        releaseInternal(code, operationId);
+    }
+
+    private void releaseInternal(String code, String operationId) {
         if (operationId == null || operationId.isBlank()) {
-            release(code);
+            repo.findByCodeIgnoreCaseForUpdate(code).ifPresent(c -> {
+                c.setUsedCount(Math.max(0, c.getUsedCount() - 1));
+                repo.save(c);
+            });
             return;
         }
 

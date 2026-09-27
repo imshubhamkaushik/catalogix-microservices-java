@@ -197,7 +197,7 @@ public class CheckoutSvc {
             BigDecimal discount = BigDecimal.ZERO;
             if (couponCode != null && !couponCode.isBlank()) {
                 couponOperationId = "coupon:commit:" + reservationId;
-                PromotionsClient.DiscountDto d = clients.promotions().commit(couponCode, subtotal, bearerToken,
+                PromotionsClient.DiscountDto d = clients.promotions().commit(couponCode, subtotal,
                         couponOperationId);
                 discount = d.discountAmount();
                 committedCouponCode = d.code();
@@ -553,7 +553,7 @@ public class CheckoutSvc {
                 if (couponOperationId == null || couponOperationId.isBlank()) {
                     clients.promotions().release(couponCode, bearerToken);
                 } else {
-                    clients.promotions().release(couponCode, bearerToken, couponOperationId);
+                    clients.promotions().release(couponCode, couponOperationId);
                 }
             } catch (RuntimeException compensationError) {
                 log.warn("Live coupon-release failed for {} ({}), queuing to outbox: {}", couponCode, reason,

@@ -135,8 +135,7 @@ class ProductControllerTest {
                 when(svc.create(
                                 any(CreateProductRequest.class),
                                 eq(42L),
-                                eq("SELLER"),
-                                eq("Bearer token")))
+                                eq("SELLER")))
                                 .thenReturn(sampleResponse());
 
                 mvc.perform(post("/products")
@@ -192,7 +191,6 @@ class ProductControllerTest {
                 verify(svc, never()).create(
                                 any(CreateProductRequest.class),
                                 anyLong(),
-                                anyString(),
                                 anyString());
         }
 
@@ -202,8 +200,7 @@ class ProductControllerTest {
                 when(svc.create(
                                 any(CreateProductRequest.class),
                                 eq(42L),
-                                eq("ADMIN"),
-                                eq("Bearer token")))
+                                eq("ADMIN")))
                                 .thenReturn(sampleResponse());
 
                 mvc.perform(post("/products")

@@ -147,7 +147,7 @@ class ProductSvcTest {
         assertEquals(1L, resp.getId());
         assertEquals(10, resp.getStockQuantity());
         assertEquals(42L, resp.getOwnerId());
-        verify(inventoryClient).init(1L, 10, TOKEN);
+        verify(inventoryClient).init(1L, 10);
     }
 
     @Test
@@ -180,7 +180,7 @@ class ProductSvcTest {
         ProductResponse resp = svc.create(req, 42L, TOKEN);
 
         assertEquals(0, resp.getStockQuantity());
-        verify(inventoryClient).init(1L, 0, TOKEN);
+        verify(inventoryClient).init(1L, 0);
     }
 
     // ---- findById ----

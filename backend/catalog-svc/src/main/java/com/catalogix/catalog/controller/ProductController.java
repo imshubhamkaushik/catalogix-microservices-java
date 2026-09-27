@@ -77,7 +77,7 @@ public class ProductController {
             throw new ForbiddenException("Only sellers and admins may list products");
         }
 
-        ProductResponse created = svc.create(req, userId, role, bearer(request));
+        ProductResponse created = svc.create(req, userId, role);
 
         URI location = ServletUriComponentsBuilder
             .fromCurrentRequest()

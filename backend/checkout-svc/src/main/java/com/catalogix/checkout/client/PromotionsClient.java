@@ -29,52 +29,88 @@ public class PromotionsClient {
         this.jwtService = jwtService;
     }
 
-    public record DiscountDto(String code, BigDecimal discountAmount) {}
+    public record DiscountDto(String code, BigDecimal discountAmount) {
+    }
 
     // The one moment a coupon actually gets redeemed — atomic on
     // promotions-svc's side (row-locked), see that service's CouponSvc.commit.
-    public DiscountDto commit(String code, BigDecimal subtotal, String bearerToken) {
-        return commit(code, subtotal, bearerToken, null);
+    public DiscountDto commit(String code, BigDecimal subtotal) {
+        return commit(code, subtotal, null);
     }
 
-    public DiscountDto commit(String code, BigDecimal subtotal, String bearerToken, String operationId) {
+    public DiscountDto commit(
+            String code,
+            BigDecimal subtotal,
+            String operationId) {
+
         try {
-            var resp = exchange("/promotions/" + code + "/commit", subtotal, systemHeaders(operationId));
+            var resp = exchange(
+                    "/promotions/" + code + "/commit",
+                    subtotal,
+                    systemHeaders(operationId));
+
             return new DiscountDto(resp.code, resp.discountAmount);
-        } catch (HttpClientErrorException.Conflict | HttpClientErrorException.NotFound e) {
-            throw new CouponInvalidException("Coupon is not valid: " + code);
+        } catch (HttpClientErrorException.Conflict
+                | HttpClientErrorException.NotFound e) {
+            throw new CouponInvalidException(
+                    "Coupon is not valid: " + code);
         }
     }
 
-    public void release(String code, String bearerToken) {
-        release(code, bearerToken, null);
+    public void release(String code) {
+        release(code, null);
     }
 
-    public void release(String code, String bearerToken, String operationId) {
+    public void release(
+            String code,
+            String operationId) {
+
         HttpHeaders headers = systemHeaders(operationId);
-        restTemplate.exchange(promotionsSvcUrl + "/promotions/" + code + "/release",
-                HttpMethod.POST, new HttpEntity<>(headers), Void.class);
+
+        restTemplate.exchange(
+                promotionsSvcUrl + "/promotions/" + code + "/release",
+                HttpMethod.POST,
+                new HttpEntity<>(headers),
+                Void.class);
     }
 
-    private RawDiscount exchange(String path, BigDecimal subtotal, HttpHeaders headers) {
+    private RawDiscount exchange(
+            String path,
+            BigDecimal subtotal,
+            HttpHeaders headers) {
+
         headers.setContentType(MediaType.APPLICATION_JSON);
+
         var body = new java.util.HashMap<String, Object>();
         body.put("subtotal", subtotal);
-        var resp = restTemplate.exchange(promotionsSvcUrl + path, HttpMethod.POST,
-                new HttpEntity<>(body, headers), RawDiscount.class);
+
+        var resp = restTemplate.exchange(
+                promotionsSvcUrl + path,
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                RawDiscount.class);
+
         RawDiscount responseBody = resp.getBody();
+
         if (responseBody == null) {
-            throw new IllegalStateException("promotions-svc returned an empty discount response");
+            throw new IllegalStateException(
+                    "promotions-svc returned an empty discount response");
         }
+
         return responseBody;
     }
 
     private HttpHeaders systemHeaders(String operationId) {
         HttpHeaders headers = new HttpHeaders();
-        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.generateSystemToken());
+
+        headers.set(
+                HttpHeaders.AUTHORIZATION,
+                "Bearer " + jwtService.generateSystemToken());
+
         if (operationId != null && !operationId.isBlank()) {
             headers.set("X-Operation-Id", operationId.trim());
         }
+
         return headers;
     }
 
