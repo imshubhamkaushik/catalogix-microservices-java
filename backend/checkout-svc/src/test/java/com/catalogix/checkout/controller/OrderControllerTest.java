@@ -219,7 +219,6 @@ class OrderControllerTest {
         mvc.perform(post("/orders/1/pay")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
@@ -360,13 +359,12 @@ class OrderControllerTest {
         req.setCardLast4("4242");
 
         OrderResponse confirmed = sampleResponse(OrderStatus.CONFIRMED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-success")))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(EMAIL), eq("pay-key-success")))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(confirmed, true));
 
         mvc.perform(post("/orders/1/pay")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "pay-key-success")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -383,14 +381,13 @@ class OrderControllerTest {
         req.setMethod(PaymentMethod.CARD);
         req.setCardLast4("4242");
 
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-123")))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(EMAIL), eq("pay-key-123")))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(
                         sampleResponse(OrderStatus.CONFIRMED), true));
 
         mvc.perform(post("/orders/1/pay")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "pay-key-123")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -407,7 +404,7 @@ class OrderControllerTest {
         req.setCardLast4("0000");
 
         OrderResponse cancelled = sampleResponse(OrderStatus.CANCELLED);
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-decline")))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(EMAIL), eq("pay-key-decline")))
                 .thenReturn(new CheckoutSvc.OrderPaymentResult(cancelled, false));
 
         // A decline is a legitimate business outcome, not an HTTP error — the
@@ -417,7 +414,6 @@ class OrderControllerTest {
         mvc.perform(post("/orders/1/pay")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "pay-key-decline")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -433,13 +429,12 @@ class OrderControllerTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
 
-        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(TOKEN), eq(EMAIL), eq("pay-key-conflict")))
+        when(svc.payOrder(eq(1L), eq(42L), eq("USER"), any(PayOrderRequest.class), eq(EMAIL), eq("pay-key-conflict")))
                 .thenThrow(new InvalidOrderStateException("Order 1 is not awaiting payment"));
 
         mvc.perform(post("/orders/1/pay")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL)
                 .header("Idempotency-Key", "pay-key-conflict")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -482,12 +477,11 @@ class OrderControllerTest {
     @Test
     @SuppressWarnings("null")
     void cancelReturnsOk() throws Exception {
-        when(svc.cancelOrder(1L, 42L, "USER", TOKEN, EMAIL)).thenReturn(sampleResponse(OrderStatus.CANCELLED));
+        when(svc.cancelOrder(1L, 42L, "USER", EMAIL)).thenReturn(sampleResponse(OrderStatus.CANCELLED));
 
         mvc.perform(patch("/orders/1/cancel")
                 .requestAttr("userId", 42L)
                 .requestAttr("userRole", "USER")
-                .requestAttr("bearerToken", TOKEN)
                 .requestAttr("userEmail", EMAIL))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));

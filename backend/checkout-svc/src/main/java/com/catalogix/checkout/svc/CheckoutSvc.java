@@ -253,7 +253,7 @@ public class CheckoutSvc {
                 compensationCouponCode = couponCode;
                 compensationCouponOperationId = couponOperationId;
             }
-            compensate(reserved, compensationCouponCode, compensationCouponOperationId, bearerToken,
+            compensate(reserved, compensationCouponCode, compensationCouponOperationId,
                     "attempt-" + reservationId);
             throw failure;
         }
@@ -265,19 +265,19 @@ public class CheckoutSvc {
      * the response can be replayed safely.
      */
     @Transactional
-    public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req, String bearerToken,
+    public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req,
             String userEmail) {
-        return payOrderInternal(orderId, userId, role, req, bearerToken, userEmail, null);
+        return payOrderInternal(orderId, userId, role, req, userEmail, null);
     }
 
     @Transactional
-    public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req, String bearerToken,
+    public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req,
             String userEmail, String idempotencyKey) {
-        return payOrderInternal(orderId, userId, role, req, bearerToken, userEmail, idempotencyKey);
+        return payOrderInternal(orderId, userId, role, req, userEmail, idempotencyKey);
     }
 
     private OrderPaymentResult payOrderInternal(Long orderId, Long userId, String role, PayOrderRequest req,
-            String bearerToken, String userEmail, String idempotencyKey) {
+            String userEmail, String idempotencyKey) {
         // Row-locked read: serialises concurrent pay/cancel attempts on the same order
         // (see OrderRepository.findByIdForUpdate) so a double submit cannot charge
         // twice.
@@ -323,7 +323,7 @@ public class CheckoutSvc {
             repo.save(order);
             repo.flush();
 
-            releaseOrderSideEffects(order, bearerToken, "payment-failed-order-" + orderId);
+            releaseOrderSideEffects(order, "payment-failed-order-" + orderId);
         }
 
         Order saved = repo.save(order);
@@ -448,7 +448,7 @@ public class CheckoutSvc {
     }
 
     @Transactional
-    public OrderResponse cancelOrder(Long id, Long userId, String role, String bearerToken, String userEmail) {
+    public OrderResponse cancelOrder(Long id, Long userId, String role, String userEmail) {
         // Row-locked read — see payOrder: a cancel racing a payment (or a second
         // cancel)
         // must wait for the other to finish rather than act on stale status.
@@ -482,7 +482,7 @@ public class CheckoutSvc {
         // remote release first and then losing the local cancellation update.
         repo.save(order);
         repo.flush();
-        releaseOrderSideEffects(order, bearerToken, "cancel-order-" + id);
+        releaseOrderSideEffects(order, "cancel-order-" + id);
 
         Order saved = repo.save(order);
         eventPublisher.publishEvent(
@@ -502,7 +502,7 @@ public class CheckoutSvc {
      * @return true if the order was expired by this call
      */
     @Transactional
-    public boolean expireUnpaidOrder(Long orderId, String systemBearerToken) {
+    public boolean expireUnpaidOrder(Long orderId) {
         Order order = repo.findByIdForUpdate(orderId).orElse(null);
         if (order == null || order.getStatus() != OrderStatus.PENDING_PAYMENT) {
             return false;
@@ -511,20 +511,19 @@ public class CheckoutSvc {
         order.addStatusEvent(OrderStatus.CANCELLED, "Cancelled automatically: payment was not received in time");
         repo.save(order);
         repo.flush();
-        releaseOrderSideEffects(order, systemBearerToken, "expire-unpaid-order-" + orderId);
+        releaseOrderSideEffects(order, "expire-unpaid-order-" + orderId);
         return true;
     }
 
-    private void releaseOrderSideEffects(Order order, String bearerToken, String outboxReason) {
+    private void releaseOrderSideEffects(Order order, String outboxReason) {
         List<ReservedItem> asReserved = order.getItems().stream().map(i -> new ReservedItem(i.getProductId(),
                 i.getSellerId(), i.getProductName(), i.getUnitPrice(), i.getQuantity(), null)).toList();
-        compensateWithReason(asReserved, order.getAppliedCouponCode(), order.getCouponOperationId(), bearerToken,
+        compensateWithReason(asReserved, order.getAppliedCouponCode(), order.getCouponOperationId(),
                 outboxReason, "order-" + order.getId(), false);
     }
 
-    private void compensate(List<ReservedItem> reserved, String couponCode, String couponOperationId,
-            String bearerToken, String scope) {
-        compensateWithReason(reserved, couponCode, couponOperationId, bearerToken, "compensate-failed-order-creation",
+    private void compensate(List<ReservedItem> reserved, String couponCode, String couponOperationId, String scope) {
+        compensateWithReason(reserved, couponCode, couponOperationId, "compensate-failed-order-creation",
                 scope, true);
     }
 
@@ -534,7 +533,7 @@ public class CheckoutSvc {
     // it — live, or
     // later from the outbox after a crash — releases each line at most once.
     private void compensateWithReason(List<ReservedItem> reserved, String couponCode, String couponOperationId,
-            String bearerToken, String reason, String scope, boolean independentOutbox) {
+            String reason, String scope, boolean independentOutbox) {
         int lineIndex = 0;
         for (ReservedItem r : reserved) {
             String releaseOp = "release:" + scope + ":" + lineIndex++;
@@ -551,7 +550,7 @@ public class CheckoutSvc {
         if (couponCode != null) {
             try {
                 if (couponOperationId == null || couponOperationId.isBlank()) {
-                    clients.promotions().release(couponCode, bearerToken);
+                    clients.promotions().release(couponCode);
                 } else {
                     clients.promotions().release(couponCode, couponOperationId);
                 }

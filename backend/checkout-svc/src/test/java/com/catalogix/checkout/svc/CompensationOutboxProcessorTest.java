@@ -5,7 +5,6 @@ import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.OutboxStatus;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
-import com.catalogix.security.JwtService;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,15 +22,13 @@ class CompensationOutboxProcessorTest {
     @Mock private CompensationOutboxRepository outboxRepo;
     @Mock private InventoryClient inventoryClient;
     @Mock private PromotionsClient promotionsClient;
-    @Mock private JwtService jwtService;
 
     private CompensationOutboxProcessor processor;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        processor = new CompensationOutboxProcessor(outboxRepo, inventoryClient, promotionsClient, jwtService);
-        when(jwtService.generateSystemToken()).thenReturn("system-token");
+        processor = new CompensationOutboxProcessor(outboxRepo, inventoryClient, promotionsClient);
         when(outboxRepo.save(any(CompensationOutbox.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -56,20 +53,10 @@ class CompensationOutboxProcessorTest {
         processor.processPending();
 
         assertEquals(OutboxStatus.COMPLETED, entry.getStatus());
-        verify(promotionsClient).release("SAVE10", "Bearer system-token", null);
+        verify(promotionsClient).release("SAVE10", null);
         verifyNoInteractions(inventoryClient);
     }
 
-    @Test
-    void mintsAFreshTokenPerEntryRatherThanOnePerBatch() {
-        CompensationOutbox stock = CompensationOutbox.releaseStock(1L, 2, "cancel-order-5");
-        CompensationOutbox coupon = CompensationOutbox.releaseCoupon("SAVE10", "cancel-order-6");
-        when(outboxRepo.claimPendingBatch()).thenReturn(List.of(stock, coupon));
-
-        processor.processPending();
-
-        verify(jwtService, times(2)).generateSystemToken();
-    }
 
     @Test
     void recordsTheFailureAndIncrementsAttemptsWithoutDeadLettering() {
@@ -122,7 +109,7 @@ class CompensationOutboxProcessorTest {
 
         processor.processPending();
 
-        verifyNoInteractions(inventoryClient, promotionsClient, jwtService);
+        verifyNoInteractions(inventoryClient, promotionsClient);
         verify(outboxRepo, never()).save(any());
     }
 

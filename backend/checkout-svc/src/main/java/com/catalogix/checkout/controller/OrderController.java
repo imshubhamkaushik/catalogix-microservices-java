@@ -34,9 +34,9 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 // Caller identity (userId/userRole) and the raw bearer token come from
-// JwtAuthFilter's request attributes. The token is forwarded to every
-// downstream service CheckoutSvc calls, so the whole chain is authorized
-// as the same original user.
+// JwtAuthFilter's request attributes. User-scoped reads still forward the
+// caller token; privileged service-to-service mutations use short-lived
+// SYSTEM tokens minted by their dedicated clients.
 
 @RestController
 @RequestMapping("/orders")
@@ -178,7 +178,6 @@ public class OrderController {
             @PathVariable Long id,
             @RequestAttribute("userId") Long userId,
             @RequestAttribute("userRole") String role,
-            @RequestAttribute("bearerToken") String bearerToken,
             @RequestAttribute("userEmail") String userEmail,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody PayOrderRequest req
@@ -187,7 +186,7 @@ public class OrderController {
             throw new IllegalArgumentException("Idempotency-Key is required for payment requests");
         }
         CheckoutSvc.OrderPaymentResult result =
-                svc.payOrder(id, userId, role, req, bearerToken, userEmail, idempotencyKey.trim());
+                svc.payOrder(id, userId, role, req, userEmail, idempotencyKey.trim());
         // Reconstructs the same {order, payment: {status: ...}} shape the
         // frontend already expects (Orders.jsx reads result.payment.status)
         // — this split changed where payment processing happens, not the
@@ -213,9 +212,8 @@ public class OrderController {
             @PathVariable Long id,
             @RequestAttribute("userId") Long userId,
             @RequestAttribute("userRole") String role,
-            @RequestAttribute("bearerToken") String bearerToken,
             @RequestAttribute("userEmail") String userEmail
     ) {
-        return ResponseEntity.ok(svc.cancelOrder(id, userId, role, bearerToken, userEmail));
+        return ResponseEntity.ok(svc.cancelOrder(id, userId, role, userEmail));
     }
 }

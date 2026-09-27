@@ -2,7 +2,6 @@ package com.catalogix.checkout.svc;
 
 import com.catalogix.checkout.model.OrderStatus;
 import com.catalogix.checkout.repository.OrderRepository;
-import com.catalogix.security.JwtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,19 +29,16 @@ public class PendingOrderExpiryJob {
 
     private final OrderRepository orders;
     private final CheckoutSvc checkoutSvc;
-    private final JwtService jwtService;
     private final Duration paymentWindow;
     private final int batchSize;
 
     public PendingOrderExpiryJob(
             OrderRepository orders,
             CheckoutSvc checkoutSvc,
-            JwtService jwtService,
             @Value("${ORDER_PAYMENT_TIMEOUT_MINUTES:30}") long timeoutMinutes,
             @Value("${PENDING_ORDER_SWEEP_BATCH:50}") int batchSize) {
         this.orders = orders;
         this.checkoutSvc = checkoutSvc;
-        this.jwtService = jwtService;
         this.paymentWindow = Duration.ofMinutes(timeoutMinutes);
         this.batchSize = batchSize;
     }
@@ -54,7 +50,7 @@ public class PendingOrderExpiryJob {
                 OrderStatus.PENDING_PAYMENT, cutoff, PageRequest.of(0, batchSize));
         for (Long id : stale) {
             try {
-                if (checkoutSvc.expireUnpaidOrder(id, "Bearer " + jwtService.generateSystemToken())) {
+                if (checkoutSvc.expireUnpaidOrder(id)) {
                     log.info("Expired unpaid order {} (no payment within {})", id, paymentWindow);
                 }
             } catch (RuntimeException e) {

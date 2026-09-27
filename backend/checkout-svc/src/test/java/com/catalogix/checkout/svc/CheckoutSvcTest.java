@@ -205,7 +205,7 @@ class CheckoutSvcTest {
     @Test
     void createOrderAppliesValidCouponDiscount() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
-        when(promotionsClient.commit(eq("SAVE10"), eq(new BigDecimal("200.00")), eq(TOKEN), anyString()))
+        when(promotionsClient.commit(eq("SAVE10"), eq(new BigDecimal("200.00")), anyString()))
                 .thenReturn(new PromotionsClient.DiscountDto("SAVE10", new BigDecimal("20.00")));
 
         CreateOrderRequest req = requestFor(1L, 2);
@@ -264,7 +264,7 @@ class CheckoutSvcTest {
     @Test
     void createOrderCompensatesReservedStockWhenCouponIsInvalid() {
         when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
-        when(promotionsClient.commit(eq("BADCODE"), any(), eq(TOKEN), anyString()))
+        when(promotionsClient.commit(eq("BADCODE"), any(), anyString()))
                 .thenThrow(new CouponInvalidException("Coupon is not valid: BADCODE"));
 
         CreateOrderRequest req = requestFor(1L, 2);
@@ -318,7 +318,7 @@ class CheckoutSvcTest {
         order.addItem(new OrderItem(1L, "Phone", 2, new BigDecimal("100.00")));
         when(repo.findByIdForUpdate(9L)).thenReturn(Optional.of(order));
 
-        assertTrue(svc.expireUnpaidOrder(9L, "Bearer system"));
+        assertTrue(svc.expireUnpaidOrder(9L));
 
         assertEquals(OrderStatus.CANCELLED, order.getStatus());
         // Keyed by the order, so a retry of this release can never add the stock back twice.
@@ -333,7 +333,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CONFIRMED);
         when(repo.findByIdForUpdate(9L)).thenReturn(Optional.of(order));
 
-        assertFalse(svc.expireUnpaidOrder(9L, "Bearer system"));
+        assertFalse(svc.expireUnpaidOrder(9L));
 
         verifyNoInteractions(inventoryClient);
         verify(repo, never()).save(any());
@@ -468,7 +468,7 @@ class CheckoutSvcTest {
         when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF", "SUCCEEDED"));
 
-        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
+        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, EMAIL);
 
         assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
         assertTrue(result.paymentSucceeded());
@@ -490,7 +490,7 @@ class CheckoutSvcTest {
         when(paymentClient.process(eq(5L), any(), eq(new BigDecimal("200.00")), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(true, null, "COD_PENDING"));
 
-        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
+        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, EMAIL);
 
         assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
         assertTrue(result.paymentSucceeded());
@@ -511,7 +511,7 @@ class CheckoutSvcTest {
                 .thenReturn(new PaymentClient.PaymentOutcome(true, "MOCK-REF", "SUCCEEDED"));
 
         CheckoutSvc.OrderPaymentResult result =
-                svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL, "pay-key-123");
+                svc.payOrder(5L, 42L, "USER", req, EMAIL, "pay-key-123");
 
         assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
         assertTrue(result.paymentSucceeded());
@@ -529,7 +529,7 @@ class CheckoutSvcTest {
         when(paymentClient.process(eq(5L), any(), any(), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(false, null, null));
 
-        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
+        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, result.order().getStatus());
         assertFalse(result.paymentSucceeded());
@@ -550,9 +550,9 @@ class CheckoutSvcTest {
         when(paymentClient.process(eq(5L), any(), any(), eq(req)))
                 .thenReturn(new PaymentClient.PaymentOutcome(false, null, null));
 
-        svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL);
+        svc.payOrder(5L, 42L, "USER", req, EMAIL);
 
-        verify(promotionsClient).release("SAVE10", TOKEN);
+        verify(promotionsClient).release("SAVE10");
     }
 
     @Test
@@ -563,7 +563,7 @@ class CheckoutSvcTest {
         PayOrderRequest req = new PayOrderRequest();
         req.setMethod(PaymentMethod.CARD);
 
-        assertThrows(InvalidOrderStateException.class, () -> svc.payOrder(5L, 42L, "USER", req, TOKEN, EMAIL));
+        assertThrows(InvalidOrderStateException.class, () -> svc.payOrder(5L, 42L, "USER", req, EMAIL));
         verifyNoInteractions(paymentClient);
     }
 
@@ -609,11 +609,11 @@ class CheckoutSvcTest {
         order.setAppliedCouponCode("SAVE10");
         when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
-        var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
+        var resp = svc.cancelOrder(5L, 42L, "USER", EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
         verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
-        verify(promotionsClient).release("SAVE10", TOKEN);
+        verify(promotionsClient).release("SAVE10");
         verify(eventPublisher).publishEvent(any(OrderCancelledEvent.class));
         assertEquals("Cancelled by customer", lastEvent(order).getNote());
     }
@@ -628,7 +628,7 @@ class CheckoutSvcTest {
         when(refundClient.refund(eq(5L), eq(new BigDecimal("200.00")), anyString()))
                 .thenReturn(new RefundClient.RefundOutcome("REFUND-REF"));
 
-        svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
+        svc.cancelOrder(5L, 42L, "USER", EMAIL);
 
         verify(refundClient).refund(5L, new BigDecimal("200.00"), "cancel-order-5");
         verify(inventoryClient).adjust(eq(1L), eq(2), any(), any());
@@ -645,7 +645,7 @@ class CheckoutSvcTest {
                 .thenThrow(new RuntimeException("payment-svc unavailable"));
 
         assertThrows(RefundFailedException.class,
-                () -> svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL));
+                () -> svc.cancelOrder(5L, 42L, "USER", EMAIL));
         verifyNoInteractions(inventoryClient);
     }
 
@@ -656,7 +656,7 @@ class CheckoutSvcTest {
         when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
         // Admin (userId 999) cancelling someone else's order (userId 42).
-        svc.cancelOrder(5L, 999L, "ADMIN", TOKEN, EMAIL);
+        svc.cancelOrder(5L, 999L, "ADMIN", EMAIL);
 
         assertEquals("Cancelled by admin", lastEvent(order).getNote());
     }
@@ -667,7 +667,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.SHIPPED);
         when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
-        assertThrows(InvalidOrderStateException.class, () -> svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL));
+        assertThrows(InvalidOrderStateException.class, () -> svc.cancelOrder(5L, 42L, "USER", EMAIL));
         verifyNoInteractions(inventoryClient);
     }
 
@@ -677,7 +677,7 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.CANCELLED);
         when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
-        var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
+        var resp = svc.cancelOrder(5L, 42L, "USER", EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
         verifyNoInteractions(inventoryClient);
@@ -692,7 +692,7 @@ class CheckoutSvcTest {
         doThrow(new ProductUnavailableException("unreachable"))
                 .when(inventoryClient).adjust(eq(1L), eq(2), any(), any());
 
-        var resp = svc.cancelOrder(5L, 42L, "USER", TOKEN, EMAIL);
+        var resp = svc.cancelOrder(5L, 42L, "USER", EMAIL);
 
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
         verify(outboxWriter).enqueue(argThat((CompensationOutbox entry) ->

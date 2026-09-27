@@ -6,7 +6,6 @@ import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.CompensationType;
 import com.catalogix.checkout.model.OutboxStatus;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
-import com.catalogix.security.JwtService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +30,14 @@ public class CompensationOutboxProcessor {
     private final CompensationOutboxRepository outboxRepo;
     private final InventoryClient inventoryClient;
     private final PromotionsClient promotionsClient;
-    private final JwtService jwtService;
 
-    public CompensationOutboxProcessor(CompensationOutboxRepository outboxRepo, InventoryClient inventoryClient,
-                                        PromotionsClient promotionsClient, JwtService jwtService) {
+    public CompensationOutboxProcessor(
+            CompensationOutboxRepository outboxRepo,
+            InventoryClient inventoryClient,
+            PromotionsClient promotionsClient) {
         this.outboxRepo = outboxRepo;
         this.inventoryClient = inventoryClient;
         this.promotionsClient = promotionsClient;
-        this.jwtService = jwtService;
     }
 
     @Scheduled(fixedDelayString = "${OUTBOX_POLL_INTERVAL_MS:5000}")
@@ -50,12 +49,6 @@ public class CompensationOutboxProcessor {
         List<CompensationOutbox> batch = outboxRepo.claimPendingBatch();
 
         for (CompensationOutbox entry : batch) {
-            // Minted fresh per entry rather than once for the whole batch:
-            // cheap (local signing, no network call) and closes the edge
-            // case where a slow batch outlives a single token's TTL.
-            // Still needed for the promotions-svc call below; inventoryClient
-            // now mints its own system token internally (see InventoryClient).
-            String bearerToken = "Bearer " + jwtService.generateSystemToken();
             try {
                 if (entry.getType() == CompensationType.RELEASE_STOCK) {
                     if (entry.getOperationId() == null && entry.getUndoOf() == null) {
@@ -74,7 +67,6 @@ public class CompensationOutboxProcessor {
                 } else if (entry.getType() == CompensationType.RELEASE_COUPON) {
                     promotionsClient.release(
                             entry.getCouponCode(),
-                            bearerToken,
                             entry.getOperationId()
                     );
                 }
