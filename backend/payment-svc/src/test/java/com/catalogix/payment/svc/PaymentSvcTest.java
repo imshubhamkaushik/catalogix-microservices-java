@@ -93,13 +93,17 @@ class PaymentSvcTest {
 
     @Test
     void cardLast4OfZerosIsDeclined() {
-        assertThatThrownBy(() -> svc.process(cardReq("0000"), 7L))
+        ProcessPaymentRequest req = cardReq("0000");
+
+        assertThatThrownBy(() -> svc.process(req, 7L))
                 .isInstanceOf(DeclinedException.class);
     }
 
     @Test
     void declinedCardAttemptIsStillPersistedForAudit() {
-        assertThatThrownBy(() -> svc.process(cardReq("0000"), 7L))
+        ProcessPaymentRequest req = cardReq("0000");
+
+        assertThatThrownBy(() -> svc.process(req, 7L))
                 .isInstanceOf(DeclinedException.class);
 
         ArgumentCaptor<Payment> captor = ArgumentCaptor.forClass(Payment.class);
@@ -129,13 +133,17 @@ class PaymentSvcTest {
 
     @Test
     void upiIdStartingWithFailIsDeclined() {
-        assertThatThrownBy(() -> svc.process(upiReq("fail@upi"), 7L))
+        ProcessPaymentRequest req = upiReq("fail@upi");
+
+        assertThatThrownBy(() -> svc.process(req, 7L))
                 .isInstanceOf(DeclinedException.class);
     }
 
     @Test
     void upiDeclineCheckIsCaseInsensitive() {
-        assertThatThrownBy(() -> svc.process(upiReq("FAIL@UPI"), 7L))
+        ProcessPaymentRequest req = upiReq("FAIL@UPI");
+
+        assertThatThrownBy(() -> svc.process(req, 7L))
                 .isInstanceOf(DeclinedException.class);
     }
 
@@ -288,19 +296,31 @@ class PaymentSvcTest {
 
     @Test
     void refundThrowsWhenThereIsNoSuccessfulPaymentForTheOrder() {
-        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of());
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L))
+                .thenReturn(List.of());
 
-        assertThatThrownBy(() -> svc.refund(refundReq("100.00")))
+        ProcessRefundRequest req = refundReq("100.00");
+
+        assertThatThrownBy(() -> svc.refund(req))
                 .isInstanceOf(NoSuchPaymentException.class);
     }
 
     @Test
     void refundIgnoresFailedPaymentAttemptsWhenFindingTheOriginal() {
-        Payment declined = new Payment(42L, 7L, new BigDecimal("100.00"), PaymentMethod.CARD,
-                PaymentStatus.FAILED, null);
-        when(repo.findByOrderIdOrderByCreatedAtDesc(42L)).thenReturn(List.of(declined));
+        Payment declined = new Payment(
+                42L,
+                7L,
+                new BigDecimal("100.00"),
+                PaymentMethod.CARD,
+                PaymentStatus.FAILED,
+                null);
 
-        assertThatThrownBy(() -> svc.refund(refundReq("100.00")))
+        when(repo.findByOrderIdOrderByCreatedAtDesc(42L))
+                .thenReturn(List.of(declined));
+
+        ProcessRefundRequest req = refundReq("100.00");
+
+        assertThatThrownBy(() -> svc.refund(req))
                 .isInstanceOf(NoSuchPaymentException.class);
     }
 

@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 class CouponSvcTest {
@@ -130,13 +131,23 @@ class CouponSvcTest {
     @Test
     void idempotentCommitRejectsReusingOperationIdWithADifferentSubtotal() {
         Coupon c = coupon(DiscountType.PERCENTAGE, "10", 5, 1, null, true);
-        when(repo.findByCodeIgnoreCaseForUpdate("TEST10")).thenReturn(Optional.of(c));
+
+        when(repo.findByCodeIgnoreCaseForUpdate("TEST10"))
+                .thenReturn(Optional.of(c));
+
         when(redemptionRepo.findById("op-1b"))
                 .thenReturn(Optional.of(new CouponRedemption(
-                        "op-1b", "TEST10", new BigDecimal("200.00"), new BigDecimal("20.00"))));
+                        "op-1b",
+                        "TEST10",
+                        new BigDecimal("200.00"),
+                        new BigDecimal("20.00"))));
 
-        assertThrows(IllegalArgumentException.class,
-                () -> svc.commit("TEST10", new BigDecimal("300.00"), "op-1b"));
+        BigDecimal differentSubtotal = new BigDecimal("300.00");
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> svc.commit("TEST10", differentSubtotal, "op-1b"));
+
         assertEquals(1, c.getUsedCount());
         verify(repo, never()).save(any());
     }
@@ -174,13 +185,27 @@ class CouponSvcTest {
     @Test
     void commitRejectsAnOperationThatWasAlreadyReleased() {
         Coupon c = coupon(DiscountType.PERCENTAGE, "10", 5, 1, null, true);
-        CouponRedemption tombstone = new CouponRedemption("op-released", "TEST10", BigDecimal.ZERO, BigDecimal.ZERO);
-        tombstone.setReleasedAt(Instant.now());
-        when(repo.findByCodeIgnoreCaseForUpdate("TEST10")).thenReturn(Optional.of(c));
-        when(redemptionRepo.findById("op-released")).thenReturn(Optional.of(tombstone));
 
-        assertThrows(CouponInvalidException.class,
-                () -> svc.commit("TEST10", new BigDecimal("200.00"), "op-released"));
+        CouponRedemption tombstone = new CouponRedemption(
+                "op-released",
+                "TEST10",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO);
+
+        tombstone.setReleasedAt(Instant.now());
+
+        when(repo.findByCodeIgnoreCaseForUpdate("TEST10"))
+                .thenReturn(Optional.of(c));
+
+        when(redemptionRepo.findById("op-released"))
+                .thenReturn(Optional.of(tombstone));
+
+        BigDecimal subtotal = new BigDecimal("200.00");
+
+        assertThrows(
+                CouponInvalidException.class,
+                () -> svc.commit("TEST10", subtotal, "op-released"));
+
         assertEquals(1, c.getUsedCount());
         verify(repo, never()).save(any());
     }

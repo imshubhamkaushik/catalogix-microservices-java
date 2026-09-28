@@ -18,6 +18,8 @@ import java.util.List;
 @Service
 public class CouponSvc {
 
+    private static final String COUPON_CODE_NOT_FOUND = "Coupon code not found: ";
+
     private final CouponRepository repo;
     private final CouponRedemptionRepository redemptionRepo;
 
@@ -36,7 +38,7 @@ public class CouponSvc {
     @Transactional(readOnly = true)
     public DiscountResponse preview(String code, BigDecimal subtotal) {
         Coupon coupon = repo.findByCodeIgnoreCase(code)
-                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
+            .orElseThrow(() -> new CouponInvalidException(COUPON_CODE_NOT_FOUND + code));
         if (!coupon.isCurrentlyRedeemable(Instant.now())) {
             throw new CouponInvalidException("Coupon is no longer valid: " + code);
         }
@@ -66,7 +68,7 @@ public class CouponSvc {
             BigDecimal subtotal,
             String operationId) {
         Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
-                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
+            .orElseThrow(() -> new CouponInvalidException(COUPON_CODE_NOT_FOUND + code));
 
         if (operationId == null || operationId.isBlank()) {
             if (!coupon.isCurrentlyRedeemable(Instant.now())) {
@@ -137,9 +139,9 @@ public class CouponSvc {
         // A replay after a successful release is already complete. Check the
         // operation ledger first so a retry remains successful even if the
         // coupon record is later cleaned up/deactivated.
-        CouponRedemption record = redemptionRepo.findById(normalizedOperationId).orElse(null);
-        if (record != null && record.getReleasedAt() != null) {
-            if (!record.getCouponCode().equalsIgnoreCase(code)) {
+        CouponRedemption redemption = redemptionRepo.findById(normalizedOperationId).orElse(null);
+        if (redemption != null && redemption.getReleasedAt() != null) {
+            if (!redemption.getCouponCode().equalsIgnoreCase(code)) {
                 throw new IllegalArgumentException("Coupon operation id belongs to another coupon");
             }
             return;
@@ -151,20 +153,20 @@ public class CouponSvc {
         // commit may have become visible between the first lookup and the
         // lock acquisition.
         Coupon coupon = repo.findByCodeIgnoreCaseForUpdate(code)
-                .orElseThrow(() -> new CouponInvalidException("Coupon code not found: " + code));
-        record = redemptionRepo.findById(normalizedOperationId).orElse(null);
-        if (record != null) {
-            if (!record.getCouponCode().equalsIgnoreCase(coupon.getCode())) {
+            .orElseThrow(() -> new CouponInvalidException(COUPON_CODE_NOT_FOUND + code));
+        redemption = redemptionRepo.findById(normalizedOperationId).orElse(null);
+        if (redemption != null) {
+            if (!redemption.getCouponCode().equalsIgnoreCase(coupon.getCode())) {
                 throw new IllegalArgumentException("Coupon operation id belongs to another coupon");
             }
-            if (record.getReleasedAt() != null) {
+            if (redemption.getReleasedAt() != null) {
                 return;
             }
 
             coupon.setUsedCount(Math.max(0, coupon.getUsedCount() - 1));
             repo.save(coupon);
-            record.setReleasedAt(Instant.now());
-            redemptionRepo.save(record);
+            redemption.setReleasedAt(Instant.now());
+            redemptionRepo.save(redemption);
             return;
         }
 
