@@ -22,12 +22,6 @@
         <module>backend/checkout-svc</module>
         <module>backend/notification-svc</module>
         <module>backend/review-svc</module>
-        <module>backend/seller-svc</module>
-        <module>backend/fulfillment-svc</module>
-        <module>backend/search-svc</module>
-        <module>backend/recommendation-svc</module>
-        <module>backend/audit-svc</module>
-        <module>backend/feature-svc</module>
     </modules>
 
     <!-- Global Properties -->

@@ -27,18 +27,6 @@ public class RabbitMQEventConfig {
     return new ProductEventRelay(rabbitTemplate);
   }
 
-  @Bean
-  org.springframework.amqp.core.Queue sellerStatusQueue() {
-    return org.springframework.amqp.core.QueueBuilder.durable("catalog.seller-status").quorum().build();
-  }
-
-  @Bean
-  org.springframework.amqp.core.Binding sellerStatusBinding(org.springframework.amqp.core.Queue sellerStatusQueue,
-      TopicExchange productEventsExchange) {
-    return org.springframework.amqp.core.BindingBuilder.bind(sellerStatusQueue).to(productEventsExchange)
-        .with("seller.status-changed");
-  }
-
   public static class ProductEventRelay {
     private final RabbitTemplate rabbitTemplate;
 

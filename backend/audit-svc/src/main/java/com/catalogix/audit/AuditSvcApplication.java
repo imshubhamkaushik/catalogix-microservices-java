@@ -1,1 +1,0 @@
-package com.catalogix.audit; import org.springframework.boot.SpringApplication; import org.springframework.boot.autoconfigure.SpringBootApplication; @SpringBootApplication(scanBasePackages={"com.catalogix.audit","com.catalogix.security"}) public class AuditSvcApplication{public static void main(String[]a){SpringApplication.run(AuditSvcApplication.class,a);}}

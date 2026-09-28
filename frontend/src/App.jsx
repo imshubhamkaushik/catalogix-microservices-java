@@ -9,7 +9,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { getCart, getFeatures } from "./api";
+import { getCart } from "./api";
 import HomePage from "./components/HomePage";
 import Users from "./components/Users";
 import Products from "./components/Products";
@@ -26,13 +26,6 @@ import VerifyEmail from "./components/VerifyEmail";
 import Account from "./components/Account";
 import OutboxAdmin from "./components/OutboxAdmin";
 import NotificationLog from "./components/NotificationLog";
-import SellerDashboard from "./components/SellerDashboard";
-import SellerAdmin from "./components/SellerAdmin";
-import Shipments from "./components/Shipments";
-import SearchPage from "./components/SearchPage";
-import Recommendations from "./components/Recommendations";
-import AuditLog from "./components/AuditLog";
-import FeatureFlags from "./components/FeatureFlags";
 import Moderation from "./components/Moderation";
 import "./styles.css";
 
@@ -124,7 +117,6 @@ function UserMenu({
   isSeller,
   isEmailVerified,
   onLogout,
-  features,
 }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
@@ -183,18 +175,6 @@ function UserMenu({
             <AccountIcon /> Account
           </NavLink>
 
-          {isSeller && features.seller_dashboard !== false && (
-            <NavLink
-              to="/seller"
-              className={({ isActive }) =>
-                `user-menu-item${isActive ? " active" : ""}`
-              }
-              onClick={() => setOpen(false)}
-            >
-              <ProductsIcon /> Seller Dashboard
-            </NavLink>
-          )}
-
           {(isSeller || isAdmin) && (
             <NavLink
               to="/my-products"
@@ -204,28 +184,6 @@ function UserMenu({
               onClick={() => setOpen(false)}
             >
               <ProductsIcon /> My Products
-            </NavLink>
-          )}
-
-          <NavLink
-            to="/shipments"
-            className={({ isActive }) =>
-              `user-menu-item${isActive ? " active" : ""}`
-            }
-            onClick={() => setOpen(false)}
-          >
-            <OrdersIcon /> Shipments
-          </NavLink>
-
-          {features.recommendations !== false && (
-            <NavLink
-              to="/recommendations"
-              className={({ isActive }) =>
-                `user-menu-item${isActive ? " active" : ""}`
-              }
-              onClick={() => setOpen(false)}
-            >
-              <WishlistIcon /> Recommendations
             </NavLink>
           )}
 
@@ -250,15 +208,6 @@ function UserMenu({
                 <CouponsIcon /> Coupons
               </NavLink>
               <NavLink
-                to="/admin/sellers"
-                className={({ isActive }) =>
-                  `user-menu-item${isActive ? " active" : ""}`
-                }
-                onClick={() => setOpen(false)}
-              >
-                <UsersIcon /> Sellers
-              </NavLink>
-              <NavLink
                 to="/admin/moderation"
                 className={({ isActive }) =>
                   `user-menu-item${isActive ? " active" : ""}`
@@ -266,26 +215,6 @@ function UserMenu({
                 onClick={() => setOpen(false)}
               >
                 <ProductsIcon /> Moderation
-              </NavLink>
-              {features.audit_log !== false && (
-                <NavLink
-                  to="/admin/audit"
-                  className={({ isActive }) =>
-                    `user-menu-item${isActive ? " active" : ""}`
-                  }
-                  onClick={() => setOpen(false)}
-                >
-                  <OutboxIcon /> Audit Log
-                </NavLink>
-              )}
-              <NavLink
-                to="/admin/features"
-                className={({ isActive }) =>
-                  `user-menu-item${isActive ? " active" : ""}`
-                }
-                onClick={() => setOpen(false)}
-              >
-                <OutboxIcon /> Feature Flags
               </NavLink>
               <NavLink
                 to="/admin/outbox"
@@ -328,7 +257,6 @@ function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [cartCount, setCartCount] = useState(0);
-  const [features, setFeatures] = useState({});
 
   const handleLogout = () => {
     logout();
@@ -336,18 +264,6 @@ function Layout() {
   };
 
   const isEmailVerified = user?.verified !== false;
-
-  useEffect(() => {
-    let cancelled = false;
-    getFeatures()
-      .then((data) => {
-        if (!cancelled) setFeatures(data || {});
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -393,16 +309,6 @@ function Layout() {
           >
             <ProductsIcon /> <span className="nav-label">Products</span>
           </NavLink>
-          {features.product_search !== false && (
-            <NavLink
-              to="/search"
-              className={({ isActive }) =>
-                `nav-item${isActive ? " active" : ""}`
-              }
-            >
-              <ProductsIcon /> <span className="nav-label">Search</span>
-            </NavLink>
-          )}
           <NavLink
             to="/wishlist"
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
@@ -445,7 +351,6 @@ function Layout() {
             isSeller={isSeller}
             isEmailVerified={isEmailVerified}
             onLogout={handleLogout}
-            features={features}
           />
         </div>
       </header>
@@ -458,32 +363,15 @@ function Layout() {
           <Route path="wishlist" element={<Wishlist />} />
           <Route path="cart" element={<Cart />} />
           <Route path="orders" element={<Orders />} />
-          {features.product_search !== false && (
-            <Route path="search" element={<SearchPage />} />
-          )}
-          {features.recommendations !== false && (
-            <Route path="recommendations" element={<Recommendations />} />
-          )}
-          <Route path="shipments" element={<Shipments />} />
           {(isSeller || isAdmin) && (
             <Route path="my-products" element={<MyProducts />} />
-          )}
-          {features.seller_dashboard !== false && isSeller && (
-            <Route path="seller" element={<SellerDashboard />} />
           )}
           <Route path="returns" element={<Returns />} />
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}
           {isAdmin && <Route path="coupons" element={<Coupons />} />}
-          {isAdmin && <Route path="admin/sellers" element={<SellerAdmin />} />}
           {isAdmin && (
             <Route path="admin/moderation" element={<Moderation />} />
-          )}
-          {isAdmin && features.audit_log !== false && (
-            <Route path="admin/audit" element={<AuditLog />} />
-          )}
-          {isAdmin && (
-            <Route path="admin/features" element={<FeatureFlags />} />
           )}
           {isAdmin && <Route path="admin/outbox" element={<OutboxAdmin />} />}
           {isAdmin && (

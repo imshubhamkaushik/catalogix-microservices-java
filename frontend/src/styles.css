@@ -1889,41 +1889,7 @@ body {
   }
 }
 
-/* ─── Marketplace additions ─────────────────────────────────── */
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.metric-card {
-  background: #fff;
-  border: 0.5px solid var(--gray-200);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.metric-card span {
-  color: var(--gray-600);
-  font-size: 12px;
-}
-
-.metric-card strong {
-  font-size: 21px;
-  letter-spacing: -0.4px;
-}
-
-.split-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
+/* ─── Shared panel / table styles (used by Moderation) ──────── */
 .panel {
   background: #fff;
   border: 0.5px solid var(--gray-200);
@@ -1931,45 +1897,9 @@ body {
   padding: 18px;
 }
 
-.stack-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.stack-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--gray-600);
-  font-size: 12px;
-}
-
-.stack-form input,
-.stack-form textarea,
-.compact-select,
-.search-toolbar input {
-  border: 0.5px solid var(--gray-200);
-  border-radius: var(--radius-md);
-  background: #fff;
-  color: var(--gray-900);
-  padding: 9px 10px;
-  font: inherit;
-}
-
-.stack-form textarea {
-  resize: vertical;
-  min-height: 92px;
-}
-
 .subtle-note {
   color: var(--gray-600);
   font-size: 12px;
-}
-
-.table-like {
-  display: flex;
-  flex-direction: column;
 }
 
 .table-row {
@@ -2001,64 +1931,14 @@ body {
   letter-spacing: 0.2px;
 }
 
-.inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.seller-row {
-  grid-template-columns: minmax(180px, 1.6fr) repeat(
-      2,
-      minmax(110px, 0.8fr)
-    ) minmax(130px, 1fr) minmax(220px, 1.6fr);
-}
-.shipment-row {
-  grid-template-columns: minmax(210px, 1.6fr) minmax(120px, 0.8fr) minmax(
-      160px,
-      1fr
-    ) minmax(150px, 0.9fr);
-}
-
-.search-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.search-toolbar input {
-  flex: 1;
-  min-width: 0;
-}
-
-.compact-empty {
-  padding: 20px 0;
-}
-
 @media (max-width: 900px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .split-grid {
-    grid-template-columns: 1fr;
-  }
-  .table-row,
-  .seller-row,
-  .shipment-row {
+  .table-row {
     grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (max-width: 560px) {
-  .metric-grid {
+  .table-row {
     grid-template-columns: 1fr;
-  }
-  .table-row,
-  .seller-row,
-  .shipment-row {
-    grid-template-columns: 1fr;
-  }
-  .search-toolbar {
-    flex-direction: column;
   }
 }
