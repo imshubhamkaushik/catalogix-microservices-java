@@ -173,7 +173,7 @@ pipeline {
                 set -e
                 docker run --rm -v \$(pwd):/iac ${TRIVY_IMAGE} config \\
                     --severity HIGH,CRITICAL --exit-code 1 \\
-                    --ignorefile /iac/.trivyignore.yaml \\
+                    --ignorefile /iac/.trivyignore \\
                     /iac/terraform/platform-infra/
                 """
             }
