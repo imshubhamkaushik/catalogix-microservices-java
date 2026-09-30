@@ -33,8 +33,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -697,5 +702,255 @@ class CheckoutSvcTest {
         assertEquals(OrderStatus.CANCELLED, resp.getStatus());
         verify(outboxWriter).enqueue(argThat((CompensationOutbox entry) ->
                 entry.getProductId().equals(1L) && entry.getDelta() == 2));
+    }
+
+    // ---- Transaction boundaries & the PAYMENT_PROCESSING claim ----
+    //
+    // These use a TransactionOperations that records whether a "transaction" is open, so they can
+    // prove — without a database — that no transaction (hence no pooled connection or row lock) is
+    // held while a remote service is being called. Real-Postgres behaviour is covered by
+    // CheckoutPaymentIntegrationTest.
+
+    private static final class RecordingTx implements TransactionOperations {
+        volatile boolean active;
+        int completed;
+
+        @Override
+        public <T> T execute(TransactionCallback<T> action) {
+            active = true;
+            try {
+                T result = action.doInTransaction(new SimpleTransactionStatus());
+                completed++;
+                return result;
+            } finally {
+                active = false;
+            }
+        }
+    }
+
+    private CheckoutSvc svcWith(RecordingTx tx) {
+        CheckoutClients clients = new CheckoutClients(
+                addressClient, cartClient, catalogClient, inventoryClient,
+                paymentClient, promotionsClient, refundClient);
+        return new CheckoutSvc(repo, outboxWriter, clients, eventPublisher, tx);
+    }
+
+    private PayOrderRequest cardRequest() {
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.CARD);
+        req.setCardLast4("4242");
+        return req;
+    }
+
+    @Test
+    void payOrderCallsPaymentServiceWithNoTransactionOpenAndTheOrderClaimed() {
+        Order order = pendingPaymentOrder();
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        RecordingTx tx = new RecordingTx();
+        PayOrderRequest req = cardRequest();
+        boolean[] txOpenDuringCall = {true};
+        OrderStatus[] statusDuringCall = new OrderStatus[1];
+        Instant[] claimedAtDuringCall = new Instant[1];
+        when(paymentClient.process(eq(5L), any(), any(), eq(req))).thenAnswer(inv -> {
+            txOpenDuringCall[0] = tx.active;
+            statusDuringCall[0] = order.getStatus();
+            claimedAtDuringCall[0] = order.getPaymentStartedAt();
+            return new PaymentClient.PaymentOutcome(true, "REF", "SUCCEEDED");
+        });
+
+        svcWith(tx).payOrder(5L, 42L, "USER", req, EMAIL);
+
+        assertFalse(txOpenDuringCall[0], "payment-svc must not be called inside a transaction");
+        assertEquals(OrderStatus.PAYMENT_PROCESSING, statusDuringCall[0]);
+        assertNotNull(claimedAtDuringCall[0]);
+        assertEquals(2, tx.completed, "one short transaction to claim, one to settle");
+        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
+    }
+
+    @Test
+    void payOrderRejectsASecondPaymentWhileOneIsInProgress() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.PAYMENT_PROCESSING);
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+
+        InvalidOrderStateException e = assertThrows(InvalidOrderStateException.class,
+                () -> svc.payOrder(5L, 42L, "USER", cardRequest(), EMAIL));
+
+        assertTrue(e.getMessage().contains("PAYMENT_PROCESSING"));
+        verifyNoInteractions(paymentClient);
+    }
+
+    @Test
+    void payOrderReleasesTheClaimWhenPaymentServiceFailsWithUnknownOutcome() {
+        Order order = pendingPaymentOrder();
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        PayOrderRequest req = cardRequest();
+        when(paymentClient.process(eq(5L), any(), any(), eq(req), eq("pay-key")))
+                .thenThrow(new IllegalStateException("payment-svc timed out"));
+
+        assertThrows(IllegalStateException.class,
+                () -> svc.payOrder(5L, 42L, "USER", req, EMAIL, "pay-key"));
+
+        // Back to PENDING_PAYMENT so the customer can retry with the same Idempotency-Key.
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+        verify(eventPublisher, never()).publishEvent(any(OrderConfirmedEvent.class));
+        verifyNoInteractions(inventoryClient); // unknown outcome must NOT release stock
+    }
+
+    @Test
+    void payOrderStillConfirmsWhenTheClaimWasSweptBackToPendingDuringTheCall() {
+        Order order = pendingPaymentOrder();
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        PayOrderRequest req = cardRequest();
+        when(paymentClient.process(eq(5L), any(), any(), eq(req))).thenAnswer(inv -> {
+            order.setStatus(OrderStatus.PENDING_PAYMENT); // PendingOrderExpiryJob released the stale claim
+            return new PaymentClient.PaymentOutcome(true, "REF", "SUCCEEDED");
+        });
+
+        CheckoutSvc.OrderPaymentResult result = svc.payOrder(5L, 42L, "USER", req, EMAIL);
+
+        assertEquals(OrderStatus.CONFIRMED, result.order().getStatus());
+        assertTrue(result.paymentSucceeded());
+    }
+
+    @Test
+    void payOrderRefundsALatePaymentWhenTheOrderWasCancelledInTheMeantime() {
+        Order order = pendingPaymentOrder();
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        PayOrderRequest req = cardRequest();
+        when(paymentClient.process(eq(5L), any(), any(), eq(req))).thenAnswer(inv -> {
+            order.setStatus(OrderStatus.CANCELLED); // e.g. released, expired, then cancelled
+            return new PaymentClient.PaymentOutcome(true, "REF", "SUCCEEDED");
+        });
+
+        InvalidOrderStateException e = assertThrows(InvalidOrderStateException.class,
+                () -> svc.payOrder(5L, 42L, "USER", req, EMAIL));
+
+        verify(refundClient).refund(5L, new BigDecimal("200.00"), "late-payment-5");
+        assertTrue(e.getMessage().contains("refunded"));
+        assertEquals(OrderStatus.CANCELLED, order.getStatus()); // must not be resurrected to CONFIRMED
+        verify(eventPublisher, never()).publishEvent(any(OrderConfirmedEvent.class));
+    }
+
+    @Test
+    void payOrderDoesNotRefundALateCodSelection() {
+        Order order = pendingPaymentOrder();
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+        PayOrderRequest req = new PayOrderRequest();
+        req.setMethod(PaymentMethod.COD);
+        when(paymentClient.process(eq(5L), any(), any(), eq(req))).thenAnswer(inv -> {
+            order.setStatus(OrderStatus.CANCELLED);
+            return new PaymentClient.PaymentOutcome(true, null, "COD_PENDING");
+        });
+
+        assertThrows(InvalidOrderStateException.class, () -> svc.payOrder(5L, 42L, "USER", req, EMAIL));
+
+        verifyNoInteractions(refundClient); // COD captured no money
+    }
+
+    @Test
+    void createOrderCallsOtherServicesWithNoTransactionOpen() {
+        RecordingTx tx = new RecordingTx();
+        boolean[] savedInsideTx = {false};
+        when(catalogClient.fetch(1L, TOKEN)).thenAnswer(inv -> {
+            assertFalse(tx.active, "catalog-svc called inside a transaction");
+            return product(1L, "Phone", "100.00", 42L);
+        });
+        doAnswer(inv -> {
+            assertFalse(tx.active, "inventory-svc called inside a transaction");
+            return null;
+        }).when(inventoryClient).adjust(any(), anyInt(), any(), any());
+        when(repo.save(any(Order.class))).thenAnswer(inv -> {
+            savedInsideTx[0] = tx.active;
+            Order o = inv.getArgument(0);
+            if (o.getId() == null) o.setId(1L);
+            return o;
+        });
+
+        CheckoutSvc.OrderCreationResult result = svcWith(tx).createOrder(42L, requestFor(1L, 2), TOKEN, null);
+
+        assertTrue(result.wasNew());
+        assertTrue(savedInsideTx[0], "the order INSERT still runs in a (short) transaction");
+    }
+
+    @Test
+    void cancelOrderExplainsThatAPaymentIsInFlight() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.PAYMENT_PROCESSING);
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+
+        InvalidOrderStateException e = assertThrows(InvalidOrderStateException.class,
+                () -> svc.cancelOrder(5L, 42L, "USER", EMAIL));
+
+        assertTrue(e.getMessage().contains("being processed"));
+        verifyNoInteractions(inventoryClient);
+    }
+
+    @Test
+    void releaseStalePaymentClaimReturnsAnOldClaimToPendingPayment() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.PAYMENT_PROCESSING);
+        order.setPaymentStartedAt(Instant.now().minusSeconds(900));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+
+        assertTrue(svc.releaseStalePaymentClaim(5L, Instant.now().minusSeconds(300)));
+
+        assertEquals(OrderStatus.PENDING_PAYMENT, order.getStatus());
+    }
+
+    @Test
+    void releaseStalePaymentClaimLeavesAFreshClaimAlone() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.PAYMENT_PROCESSING);
+        order.setPaymentStartedAt(Instant.now().minusSeconds(5));
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+
+        assertFalse(svc.releaseStalePaymentClaim(5L, Instant.now().minusSeconds(300)));
+
+        assertEquals(OrderStatus.PAYMENT_PROCESSING, order.getStatus());
+    }
+
+    @Test
+    void releaseStalePaymentClaimIgnoresOrdersThatAreNoLongerProcessing() {
+        Order order = pendingPaymentOrder();
+        order.setStatus(OrderStatus.CONFIRMED);
+        when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
+
+        assertFalse(svc.releaseStalePaymentClaim(5L, Instant.now()));
+
+        assertEquals(OrderStatus.CONFIRMED, order.getStatus());
+    }
+
+    // ---- Same-Idempotency-Key race ----
+
+    @Test
+    void createOrderDoesNotReleaseTheSharedReservationWhenAConcurrentRequestWithTheSameKeyWon() {
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
+        when(repo.save(any(Order.class))).thenThrow(new DataIntegrityViolationException("uq_orders_user_idempotency"));
+        Order winner = new Order();
+        winner.setId(9L); winner.setUserId(42L); winner.setStatus(OrderStatus.PENDING_PAYMENT);
+        when(repo.findByUserIdAndIdempotencyKey(42L, "dbl-click"))
+                .thenReturn(Optional.empty())      // pre-check: nothing yet
+                .thenReturn(Optional.of(winner));  // after the failed insert: the winner exists
+
+        assertThrows(DataIntegrityViolationException.class,
+                () -> svc.createOrder(42L, requestFor(1L, 2), TOKEN, "dbl-click"));
+
+        // Only the reserve (-2). A release (+2) would return stock the winner's order relies on.
+        verify(inventoryClient).adjust(eq(1L), eq(-2), any(), any());
+        verify(inventoryClient, never()).adjust(eq(1L), eq(2), any(), any());
+        verifyNoInteractions(outboxWriter);
+    }
+
+    @Test
+    void createOrderStillCompensatesWhenTheInsertFailsForSomeOtherReason() {
+        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
+        when(repo.save(any(Order.class))).thenThrow(new DataIntegrityViolationException("some other constraint"));
+        when(repo.findByUserIdAndIdempotencyKey(42L, "k-1")).thenReturn(Optional.empty()); // nobody else owns it
+
+        assertThrows(DataIntegrityViolationException.class,
+                () -> svc.createOrder(42L, requestFor(1L, 2), TOKEN, "k-1"));
+
+        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any()); // stock released
     }
 }

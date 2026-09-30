@@ -34,13 +34,17 @@ import com.catalogix.checkout.repository.OrderRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +75,18 @@ import java.util.Set;
  * Compensation itself is attempted live first; if the live call also fails,
  * it's queued to compensation_outbox instead of just being logged and dropped —
  * see CompensationOutboxProcessor for the retry loop.
+ *
+ * TRANSACTION BOUNDARIES. The order-placement and payment methods below are
+ * deliberately NOT @Transactional as a whole. They make several HTTP calls (each
+ * up to ~11s: 3s connect + 8s read), and a method-wide transaction would hold a
+ * pooled JDBC connection — 5 per instance in this service — and, for payment, a
+ * row lock, across all of them: five slow checkouts exhaust the pool and every
+ * other request fails after Hikari's 3s connection timeout. Instead each DB
+ * step runs in its own short transaction (see the TransactionOperations field)
+ * and remote calls happen between them with no connection held.
+ * cancelOrder / expireUnpaidOrder / ReturnSvc still call other services inside a
+ * transaction: their compensation intent must commit atomically with the state
+ * change (transactional outbox), which needs a larger redesign than this one.
  */
 @Service
 public class CheckoutSvc {
@@ -85,13 +101,26 @@ public class CheckoutSvc {
     private final CompensationOutboxWriter outboxWriter;
     private final CheckoutClients clients;
     private final ApplicationEventPublisher eventPublisher;
+    // Runs a DB step in its own short transaction (in production a TransactionTemplate).
+    private final TransactionOperations tx;
 
+    /**
+     * Convenience constructor for unit tests: every "transaction" is just a direct call, so
+     * mock-based tests exercise the same code path without a database.
+     */
     public CheckoutSvc(OrderRepository repo, CompensationOutboxWriter outboxWriter, CheckoutClients clients,
             ApplicationEventPublisher eventPublisher) {
+        this(repo, outboxWriter, clients, eventPublisher, TransactionOperations.withoutTransaction());
+    }
+
+    @Autowired
+    public CheckoutSvc(OrderRepository repo, CompensationOutboxWriter outboxWriter, CheckoutClients clients,
+            ApplicationEventPublisher eventPublisher, TransactionOperations tx) {
         this.repo = repo;
         this.outboxWriter = outboxWriter;
         this.clients = clients;
         this.eventPublisher = eventPublisher;
+        this.tx = tx;
     }
 
     // reserveOperationId: the idempotency id sent to inventory-svc when this line
@@ -110,7 +139,7 @@ public class CheckoutSvc {
     }
 
     // ---- Direct API: caller supplies items explicitly, no cart involved ----
-    @Transactional
+    // Not @Transactional: see "TRANSACTION BOUNDARIES" in the class comment.
     public OrderCreationResult createOrder(Long userId, CreateOrderRequest req, String bearerToken,
             String idempotencyKey) {
         idempotencyKey = normalizeIdempotencyKey(idempotencyKey);
@@ -127,7 +156,7 @@ public class CheckoutSvc {
 
     // ---- Cart-driven checkout: pulls the cart's contents from cart-svc,
     // places the order the same way, then clears the cart. ----
-    @Transactional
+    // Not @Transactional: see "TRANSACTION BOUNDARIES" in the class comment.
     public OrderCreationResult checkoutFromCart(Long userId, Long addressId, String bearerToken,
             String idempotencyKey) {
         idempotencyKey = normalizeIdempotencyKey(idempotencyKey);
@@ -159,8 +188,10 @@ public class CheckoutSvc {
         if (idempotencyKey == null) {
             return Optional.empty();
         }
-        return repo.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
-                .map(order -> new OrderCreationResult(toResponse(order), false));
+        final String key = idempotencyKey;
+        // Short read-only step; mapped to a DTO inside it so nothing lazy escapes the transaction.
+        return tx.execute(status -> repo.findByUserIdAndIdempotencyKey(userId, key)
+                .map(order -> new OrderCreationResult(toResponse(order), false)));
     }
 
     private OrderCreationResult placeOrder(Long userId, List<CartClient.ItemLine> items, String couponCode,
@@ -231,10 +262,25 @@ public class CheckoutSvc {
             }
             order.addStatusEvent(OrderStatus.PENDING_PAYMENT, "Order placed");
 
-            Order saved = repo.save(order);
-            return new OrderCreationResult(toResponse(saved), true);
+            // The only DB write of order placement, in its own short transaction. If it fails
+            // (e.g. the concurrent idempotency-key race the controller recovers from) the
+            // catch below compensates the stock/coupon already committed remotely.
+            return tx.execute(status -> new OrderCreationResult(toResponse(repo.save(order)), true));
 
         } catch (RuntimeException failure) {
+            // Lost a race against a concurrent request carrying the SAME Idempotency-Key (a
+            // double-click). Both requests derived the same reservation ids (see sagaId), so
+            // inventory-svc de-duplicated our reserve against the winner's — the stock and
+            // coupon we think we hold ARE the winner's. Compensating would "undo" that shared
+            // reservation and hand back stock the winner's order depends on (overselling, and a
+            // double restock if that order is later cancelled). The controller answers this
+            // request with the winner's order, so just propagate.
+            if (idempotencyKey != null && failure instanceof DataIntegrityViolationException
+                    && repo.findByUserIdAndIdempotencyKey(userId, idempotencyKey).isPresent()) {
+                log.info("Concurrent request with the same Idempotency-Key already created the order; "
+                        + "not releasing the shared reservation");
+                throw failure;
+            }
             // Unwinds EVERYTHING committed above this point — reserved
             // stock AND a committed coupon redemption, whichever of them
             // actually happened before the failure. This is the fix for the
@@ -264,76 +310,188 @@ public class CheckoutSvc {
      * use the idempotency-key overload so a payment that succeeds but times out on
      * the response can be replayed safely.
      */
-    @Transactional
     public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req,
             String userEmail) {
         return payOrderInternal(orderId, userId, role, req, userEmail, null);
     }
 
-    @Transactional
     public OrderPaymentResult payOrder(Long orderId, Long userId, String role, PayOrderRequest req,
             String userEmail, String idempotencyKey) {
         return payOrderInternal(orderId, userId, role, req, userEmail, idempotencyKey);
     }
 
+    /**
+     * Pays for an order in three steps, so that no DB connection or row lock is held while
+     * payment-svc is being called (up to ~11s):
+     *
+     * 1. claim   (short tx, row-locked): PENDING_PAYMENT -> PAYMENT_PROCESSING. This is the
+     *            mutual exclusion that used to be the row lock — payment-svc only dedupes by
+     *            Idempotency-Key, so two requests with different keys MUST NOT both reach it.
+     *            The second request finds PAYMENT_PROCESSING and is rejected immediately.
+     * 2. charge  (no tx): call payment-svc. If the call throws, the outcome is unknown; the
+     *            claim is released back to PENDING_PAYMENT so the customer can retry, and the
+     *            browser's stable Idempotency-Key makes payment-svc replay the first result
+     *            instead of charging again.
+     * 3. settle  (short tx, row-locked): CONFIRMED on success, CANCELLED (+ stock/coupon
+     *            release) on decline.
+     *
+     * A pod that dies between 1 and 3 strands the order in PAYMENT_PROCESSING;
+     * PendingOrderExpiryJob returns such orders to PENDING_PAYMENT.
+     */
     private OrderPaymentResult payOrderInternal(Long orderId, Long userId, String role, PayOrderRequest req,
             String userEmail, String idempotencyKey) {
-        // Row-locked read: serialises concurrent pay/cancel attempts on the same order
-        // (see OrderRepository.findByIdForUpdate) so a double submit cannot charge
-        // twice.
-        Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+        BigDecimal amount = claimForPayment(orderId, userId, role);
 
-        assertCanAccess(order, userId, role);
-
-        if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-            throw new InvalidOrderStateException(
-                    "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
+        PaymentClient.PaymentOutcome payment;
+        try {
+            payment = (idempotencyKey == null || idempotencyKey.isBlank())
+                    ? clients.payment().process(orderId, userId, amount, req)
+                    : clients.payment().process(orderId, userId, amount, req, idempotencyKey);
+        } catch (RuntimeException unknownOutcome) {
+            releasePaymentClaimQuietly(orderId);
+            throw unknownOutcome;
         }
 
-        PaymentClient.PaymentOutcome payment = (idempotencyKey == null || idempotencyKey.isBlank())
-                ? clients.payment().process(orderId, userId, order.getTotalAmount(), req)
-                : clients.payment().process(orderId, userId, order.getTotalAmount(), req, idempotencyKey);
+        return settlePayment(orderId, amount, req, userEmail, payment);
+    }
 
-        if (payment.succeeded()) {
-            order.setStatus(OrderStatus.CONFIRMED);
-            order.setPaymentMethod(req.getMethod());
-            order.setPaymentReference(payment.reference());
-            order.setCustomerEmail(userEmail);
+    /** Step 1: atomically PENDING_PAYMENT -> PAYMENT_PROCESSING; returns the amount to charge. */
+    private BigDecimal claimForPayment(Long orderId, Long userId, String role) {
+        return tx.execute(status -> {
+            Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
 
-            // COD never actually captured anything — the note should say
-            // so, not claim a payment happened that didn't (see
-            // PaymentSvc#processCod on the payment-svc side for why
-            // COD_PENDING still counts as payment.succeeded() here: the
-            // order IS confirmed the moment COD is chosen, even though no
-            // money has moved yet).
-            boolean isCod = "COD_PENDING".equals(payment.status());
+            assertCanAccess(order, userId, role);
 
-            order.addStatusEvent(OrderStatus.CONFIRMED,
-                    isCod ? "Order confirmed — pay on delivery" : "Payment confirmed");
-        } else {
-            // Persist the terminal local state before touching remote inventory/coupon
-            // state.
-            // A remote release is deliberately best-effort + outboxed; flushing the order
-            // first
-            // avoids a database validation/constraint failure after a successful release
-            // leaving
-            // the order PENDING_PAYMENT while its stock/coupon has already been returned.
-            order.setStatus(OrderStatus.CANCELLED);
-            order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
+            if (order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                throw new InvalidOrderStateException(
+                        "Order " + orderId + " is not awaiting payment (current status: " + order.getStatus() + ")");
+            }
+
+            order.setStatus(OrderStatus.PAYMENT_PROCESSING);
+            order.setPaymentStartedAt(Instant.now());
             repo.save(order);
-            repo.flush();
+            return order.getTotalAmount();
+        });
+    }
 
-            releaseOrderSideEffects(order, "payment-failed-order-" + orderId);
+    /** Result of step 3. {@code order} is null when the claim was lost (see settlePayment). */
+    private record Settled(OrderResponse order, OrderStatus statusFound) {
+    }
+
+    /** Step 3: record the payment outcome. */
+    private OrderPaymentResult settlePayment(Long orderId, BigDecimal amount, PayOrderRequest req, String userEmail,
+            PaymentClient.PaymentOutcome payment) {
+        Settled settled = tx.execute(status -> {
+            Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
+
+            // PENDING_PAYMENT is tolerated: the stale-claim sweep may have returned this order to
+            // PENDING_PAYMENT while we were still waiting on payment-svc. Anything else means the
+            // order moved on without us (e.g. expired, then cancelled) — handled below.
+            if (order.getStatus() != OrderStatus.PAYMENT_PROCESSING
+                    && order.getStatus() != OrderStatus.PENDING_PAYMENT) {
+                return new Settled(null, order.getStatus());
+            }
+
+            if (payment.succeeded()) {
+                order.setStatus(OrderStatus.CONFIRMED);
+                order.setPaymentMethod(req.getMethod());
+                order.setPaymentReference(payment.reference());
+                order.setCustomerEmail(userEmail);
+
+                // COD never actually captured anything — the note should say
+                // so, not claim a payment happened that didn't (see
+                // PaymentSvc#processCod on the payment-svc side for why
+                // COD_PENDING still counts as payment.succeeded() here: the
+                // order IS confirmed the moment COD is chosen, even though no
+                // money has moved yet).
+                boolean isCod = "COD_PENDING".equals(payment.status());
+
+                order.addStatusEvent(OrderStatus.CONFIRMED,
+                        isCod ? "Order confirmed — pay on delivery" : "Payment confirmed");
+            } else {
+                // Persist the terminal local state before touching remote inventory/coupon
+                // state. A remote release is deliberately best-effort + outboxed; flushing the
+                // order first avoids a database validation/constraint failure after a
+                // successful release leaving the order unpaid while its stock/coupon has
+                // already been returned. (This decline path still calls inventory/promotions
+                // inside the transaction — it is rare, and keeps the outbox write atomic with
+                // the cancellation, exactly like cancelOrder.)
+                order.setStatus(OrderStatus.CANCELLED);
+                order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
+                repo.save(order);
+                repo.flush();
+
+                releaseOrderSideEffects(order, "payment-failed-order-" + orderId);
+            }
+
+            Order saved = repo.save(order);
+
+            // AFTER_COMMIT listener: must be published inside the transaction to fire.
+            if (payment.succeeded()) {
+                eventPublisher.publishEvent(new OrderConfirmedEvent(saved.getId(), saved.getUserId(), userEmail,
+                        toEventItems(saved), saved.getTotalAmount()));
+            }
+            return new Settled(toResponse(saved), saved.getStatus());
+        });
+
+        if (settled.order() == null) {
+            // The money moved but the order can no longer take it. Refund rather than keep a
+            // charge for an order that will never ship. COD_PENDING captured nothing.
+            boolean refunded = false;
+            if (payment.succeeded() && !"COD_PENDING".equals(payment.status())) {
+                try {
+                    clients.refund().refund(orderId, amount, "late-payment-" + orderId);
+                    refunded = true;
+                } catch (RuntimeException e) {
+                    log.error("Order {} was {} when its payment completed and the automatic refund FAILED"
+                            + " — refund manually: {}", orderId, settled.statusFound(), e.getMessage());
+                }
+            }
+            throw new InvalidOrderStateException("Order " + orderId + " was " + settled.statusFound()
+                    + " while its payment was being processed"
+                    + (payment.succeeded() ? (refunded ? "; the payment has been refunded"
+                            : "; the payment could not be refunded automatically and will be reviewed") : ""));
         }
+        return new OrderPaymentResult(settled.order(), payment.succeeded());
+    }
 
-        Order saved = repo.save(order);
-
-        if (payment.succeeded()) {
-            eventPublisher.publishEvent(new OrderConfirmedEvent(saved.getId(), saved.getUserId(), userEmail,
-                    toEventItems(saved), saved.getTotalAmount()));
+    /** Unknown payment outcome: give the order back so the customer (or the sweep) can retry. */
+    private void releasePaymentClaimQuietly(Long orderId) {
+        try {
+            tx.executeWithoutResult(status -> repo.findByIdForUpdate(orderId)
+                    .filter(o -> o.getStatus() == OrderStatus.PAYMENT_PROCESSING).ifPresent(o -> {
+                        o.setStatus(OrderStatus.PENDING_PAYMENT);
+                        repo.save(o);
+                    }));
+        } catch (RuntimeException e) {
+            // Not fatal: releaseStalePaymentClaim (PendingOrderExpiryJob) recovers it.
+            log.warn("Could not release the payment claim on order {}: {}", orderId, e.getMessage());
         }
+    }
 
-        return new OrderPaymentResult(toResponse(saved), payment.succeeded());
+    /**
+     * Returns an order stranded in PAYMENT_PROCESSING (its request died mid-payment) to
+     * PENDING_PAYMENT. Safe for the customer to retry: the browser reuses its Idempotency-Key, so
+     * if the first attempt did reach payment-svc the retry replays that result rather than
+     * charging again. Called by PendingOrderExpiryJob.
+     *
+     * @return true if this call released the claim
+     */
+    @Transactional
+    public boolean releaseStalePaymentClaim(Long orderId, Instant claimedBefore) {
+        Order order = repo.findByIdForUpdate(orderId).orElse(null);
+        if (order == null || order.getStatus() != OrderStatus.PAYMENT_PROCESSING) {
+            return false;
+        }
+        Instant claimedAt = order.getPaymentStartedAt();
+        if (claimedAt != null && !claimedAt.isBefore(claimedBefore)) {
+            return false; // claimed again since the sweep listed it
+        }
+        order.setStatus(OrderStatus.PENDING_PAYMENT);
+        repo.save(order);
+        log.warn("Order {} was stuck in PAYMENT_PROCESSING since {}; returned to PENDING_PAYMENT. If the customer"
+                + " reports a charge without a confirmed order, reconcile with payment-svc.", orderId, claimedAt);
+        return true;
     }
 
     @Transactional
@@ -457,6 +615,10 @@ public class CheckoutSvc {
 
         if (order.getStatus() == OrderStatus.CANCELLED) {
             return toResponse(order);
+        }
+        if (order.getStatus() == OrderStatus.PAYMENT_PROCESSING) {
+            throw new InvalidOrderStateException(
+                    "A payment for order " + id + " is being processed right now; try cancelling again in a moment");
         }
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.CONFIRMED) {
             throw new InvalidOrderStateException(

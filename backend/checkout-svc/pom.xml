@@ -121,6 +121,19 @@
       <scope>test</scope>
     </dependency>
 
+    <!-- Real-Postgres integration tests (*IntegrationTest, tagged "integration", run by failsafe).
+         Versions come from the testcontainers-bom import in the root pom. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webmvc-test</artifactId>

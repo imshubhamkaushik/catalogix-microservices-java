@@ -33,6 +33,13 @@ public class Order {
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.PENDING_PAYMENT;
 
+    // When the most recent payment attempt started (set when the order enters
+    // PAYMENT_PROCESSING). Two jobs: (1) lets PendingOrderExpiryJob find claims
+    // orphaned by a crash, and (2) gives a customer whose attempt was interrupted a
+    // fresh payment window instead of expiring the order on its creation time.
+    @Column(name = "payment_started_at")
+    private Instant paymentStartedAt;
+
     @Column(name = "total_amount", precision = 12, scale = 2, nullable = false)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
@@ -237,4 +244,12 @@ public class Order {
 
     public String getCustomerEmail() { return customerEmail; }
     public void setCustomerEmail(String customerEmail) { this.customerEmail = customerEmail; }
+
+    public Instant getPaymentStartedAt() {
+        return paymentStartedAt;
+    }
+
+    public void setPaymentStartedAt(Instant paymentStartedAt) {
+        this.paymentStartedAt = paymentStartedAt;
+    }
 }

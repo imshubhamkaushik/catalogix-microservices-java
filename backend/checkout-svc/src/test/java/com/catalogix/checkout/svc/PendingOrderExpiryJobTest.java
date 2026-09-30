@@ -61,4 +61,31 @@ class PendingOrderExpiryJobTest {
 
         verify(checkoutSvc, never()).expireUnpaidOrder(any());
     }
+
+    @Test
+    void returnsEveryStalePaymentClaimToPendingPayment() {
+        when(orders.findIdsByStatusPaymentStartedBefore(
+                eq(OrderStatus.PAYMENT_PROCESSING), any(Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(7L, 8L));
+
+        job.sweep();
+
+        verify(checkoutSvc).releaseStalePaymentClaim(eq(7L), any(Instant.class));
+        verify(checkoutSvc).releaseStalePaymentClaim(eq(8L), any(Instant.class));
+    }
+
+    @Test
+    void oneFailingClaimReleaseDoesNotStopTheSweepOrTheExpiry() {
+        when(orders.findIdsByStatusPaymentStartedBefore(
+                eq(OrderStatus.PAYMENT_PROCESSING), any(Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(7L, 8L));
+        doThrow(new RuntimeException("db down")).when(checkoutSvc).releaseStalePaymentClaim(eq(7L), any(Instant.class));
+        when(orders.findIdsByStatusCreatedBefore(eq(OrderStatus.PENDING_PAYMENT), any(Instant.class), any(Pageable.class)))
+                .thenReturn(List.of(1L));
+
+        job.sweep();
+
+        verify(checkoutSvc).releaseStalePaymentClaim(eq(8L), any(Instant.class));
+        verify(checkoutSvc).expireUnpaidOrder(1L);
+    }
 }
