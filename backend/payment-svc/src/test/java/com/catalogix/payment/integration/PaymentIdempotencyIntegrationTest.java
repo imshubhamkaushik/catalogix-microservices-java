@@ -94,15 +94,20 @@ class PaymentIdempotencyIntegrationTest {
 
     @Test
     void aDeclinedPaymentIsRecordedDespiteTheExceptionAndReplaysAsDeclined() {
-        long user = SEQ.incrementAndGet(), order = SEQ.incrementAndGet();
+        long user = SEQ.incrementAndGet();
+        long order = SEQ.incrementAndGet();
+        ProcessPaymentRequest request = card(order, "0000", "100.00");
 
-        assertThatThrownBy(() -> svc.process(card(order, "0000", "100.00"), user, "decl-1"))
+        assertThatThrownBy(() -> svc.process(request, user, "decl-1"))
                 .isInstanceOf(DeclinedException.class);
-        // noRollbackFor: the FAILED row must survive the exception, or a retry would re-attempt the card.
+
+        // noRollbackFor: the FAILED row must survive the exception,
+        // or a retry would re-attempt the card.
         assertThat(paymentRows(user, "decl-1")).isEqualTo(1);
 
-        assertThatThrownBy(() -> svc.process(card(order, "0000", "100.00"), user, "decl-1"))
+        assertThatThrownBy(() -> svc.process(request, user, "decl-1"))
                 .isInstanceOf(DeclinedException.class);
+
         assertThat(paymentRows(user, "decl-1")).isEqualTo(1);
     }
 
@@ -158,16 +163,24 @@ class PaymentIdempotencyIntegrationTest {
 
     @Test
     void refundsCanNeverExceedTheOriginalPayment() {
-        long user = SEQ.incrementAndGet(), order = SEQ.incrementAndGet();
+        long user = SEQ.incrementAndGet();
+        long order = SEQ.incrementAndGet();
+
         svc.process(card(order, "4242", "100.00"), user, "refund-base");
 
         svc.refund(refund(order, "60.00"), "refund-1");
-        assertThatThrownBy(() -> svc.refund(refund(order, "60.00"), "refund-2"))
+
+        ProcessRefundRequest secondRefund = refund(order, "60.00");
+
+        assertThatThrownBy(() -> svc.refund(secondRefund, "refund-2"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("would exceed");
 
-        assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(amount), 0) FROM refunds WHERE order_id = ?",
-                BigDecimal.class, order)).isEqualByComparingTo("60.00");
+        assertThat(jdbc.queryForObject(
+                "SELECT COALESCE(SUM(amount), 0) FROM refunds WHERE order_id = ?",
+                BigDecimal.class,
+                order))
+                .isEqualByComparingTo("60.00");
     }
 
     @Test

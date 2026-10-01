@@ -40,6 +40,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CountDownLatch;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -170,43 +171,97 @@ class CheckoutPaymentIntegrationTest {
     void twoConcurrentPaymentsForOneOrderChargeExactlyOnce_evenWithDifferentIdempotencyKeys() throws Exception {
         long userId = newUserId();
         Long orderId = placeOrder(userId);
+
         AtomicInteger charges = new AtomicInteger();
-        when(paymentClient.process(eq(orderId), any(), any(), any(PayOrderRequest.class), anyString()))
+        CountDownLatch paymentStarted = new CountDownLatch(1);
+        CountDownLatch releasePayment = new CountDownLatch(1);
+
+        when(paymentClient.process(
+                eq(orderId),
+                any(),
+                any(),
+                any(PayOrderRequest.class),
+                anyString()))
                 .thenAnswer(inv -> {
                     charges.incrementAndGet();
-                    Thread.sleep(700); // payment-svc is slow; the second request arrives meanwhile
+                    paymentStarted.countDown();
+
+                    if (!releasePayment.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException(
+                                "Timed out waiting for test to release payment call");
+                    }
+
                     return approved();
                 });
 
         CyclicBarrier start = new CyclicBarrier(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
+
         try {
             List<Callable<Object>> calls = new ArrayList<>();
+
             for (int i = 0; i < 2; i++) {
-                final String key = "key-" + i; // payment-svc dedupes by key only, so DIFFERENT keys is the dangerous case
+                final String key = "key-" + i;
+
                 calls.add(() -> {
                     start.await(10, TimeUnit.SECONDS);
                     try {
-                        return svc.payOrder(orderId, userId, "USER", card(), EMAIL, key);
+                        return svc.payOrder(
+                                orderId,
+                                userId,
+                                "USER",
+                                card(),
+                                EMAIL,
+                                key);
                     } catch (InvalidOrderStateException e) {
                         return e;
                     }
                 });
             }
-            List<Future<Object>> results = pool.invokeAll(calls, 30, TimeUnit.SECONDS);
 
-            long confirmed = 0, rejected = 0;
-            for (Future<Object> f : results) {
-                Object r = f.get();
-                if (r instanceof InvalidOrderStateException) rejected++;
-                else confirmed++;
+            List<Future<Object>> futures = new ArrayList<>();
+            for (Callable<Object> call : calls) {
+                futures.add(pool.submit(call));
             }
-            assertThat(confirmed).as("exactly one request pays").isEqualTo(1);
-            assertThat(rejected).as("the other is turned away").isEqualTo(1);
+
+            assertThat(paymentStarted.await(10, TimeUnit.SECONDS))
+                    .as("one payment request should reach payment-svc")
+                    .isTrue();
+
+            // The first payment is deliberately held here so the second request
+            // has a chance to encounter PAYMENT_PROCESSING.
+            releasePayment.countDown();
+
+            long confirmed = 0;
+            long rejected = 0;
+
+            for (Future<Object> future : futures) {
+                Object result = future.get(30, TimeUnit.SECONDS);
+
+                if (result instanceof InvalidOrderStateException) {
+                    rejected++;
+                } else {
+                    confirmed++;
+                }
+            }
+
+            assertThat(confirmed)
+                    .as("exactly one request pays")
+                    .isEqualTo(1);
+
+            assertThat(rejected)
+                    .as("the other is turned away")
+                    .isEqualTo(1);
+
         } finally {
+            releasePayment.countDown();
             pool.shutdownNow();
         }
-        assertThat(charges.get()).as("payment-svc was called once — no double charge").isEqualTo(1);
+
+        assertThat(charges.get())
+                .as("payment-svc was called once — no double charge")
+                .isEqualTo(1);
+
         assertThat(statusOf(orderId)).isEqualTo("CONFIRMED");
     }
 
@@ -219,36 +274,75 @@ class CheckoutPaymentIntegrationTest {
     @Test
     void slowPaymentCallsDoNotExhaustTheConnectionPool() throws Exception {
         int customers = 12;
+
         List<long[]> orders = new ArrayList<>();
         for (int i = 0; i < customers; i++) {
             long userId = newUserId();
             orders.add(new long[] { userId, placeOrder(userId) });
         }
-        when(paymentClient.process(anyLong(), any(), any(), any(PayOrderRequest.class), anyString()))
+
+        CountDownLatch paymentCallsEntered = new CountDownLatch(customers);
+        CountDownLatch releasePayments = new CountDownLatch(1);
+
+        when(paymentClient.process(
+                anyLong(),
+                any(),
+                any(),
+                any(PayOrderRequest.class),
+                anyString()))
                 .thenAnswer(inv -> {
-                    Thread.sleep(2000);
+                    paymentCallsEntered.countDown();
+
+                    if (!releasePayments.await(30, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException(
+                                "Timed out waiting for test to release payments");
+                    }
+
                     return approved();
                 });
 
         ExecutorService pool = Executors.newFixedThreadPool(customers);
-        long startedAt = System.nanoTime();
+
         try {
-            List<Callable<String>> calls = new ArrayList<>();
-            for (long[] o : orders) {
-                calls.add(() -> {
-                    svc.payOrder(o[1], o[0], "USER", card(), EMAIL, "pool-" + o[1]);
-                    return statusOf(o[1]);
-                });
+            List<Future<String>> futures = new ArrayList<>();
+
+            for (long[] order : orders) {
+                futures.add(pool.submit(() -> {
+                    svc.payOrder(
+                            order[1],
+                            order[0],
+                            "USER",
+                            card(),
+                            EMAIL,
+                            "pool-" + order[1]);
+
+                    return statusOf(order[1]);
+                }));
             }
-            List<Future<String>> results = pool.invokeAll(calls, 60, TimeUnit.SECONDS);
-            for (Future<String> f : results) {
-                assertThat(f.get()).isEqualTo("CONFIRMED"); // get() rethrows a connection-timeout failure
+
+            /*
+             * All 12 remote payment calls must be able to reach this point
+             * before any of them is released.
+             *
+             * If CheckoutSvc held a DB connection while calling payment-svc,
+             * the 5-connection pool would allow only the first wave to proceed;
+             * the remaining requests would block waiting for connections.
+             */
+            assertThat(paymentCallsEntered.await(10, TimeUnit.SECONDS))
+                    .as("all payment calls should execute without exhausting the DB pool")
+                    .isTrue();
+
+            releasePayments.countDown();
+
+            for (Future<String> future : futures) {
+                assertThat(future.get(30, TimeUnit.SECONDS))
+                        .isEqualTo("CONFIRMED");
             }
+
         } finally {
+            releasePayments.countDown();
             pool.shutdownNow();
         }
-        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
-        assertThat(elapsedMs).as("payments ran concurrently, not queued behind 5 connections").isLessThan(8000);
     }
 
     @Test
@@ -269,16 +363,41 @@ class CheckoutPaymentIntegrationTest {
     void anUnknownPaymentOutcomeReleasesTheClaimSoTheCustomerCanRetry() {
         long userId = newUserId();
         Long orderId = placeOrder(userId);
-        when(paymentClient.process(eq(orderId), any(), any(), any(PayOrderRequest.class), eq("retry-key")))
+
+        when(paymentClient.process(
+                eq(orderId),
+                any(),
+                any(),
+                any(PayOrderRequest.class),
+                eq("retry-key")))
                 .thenThrow(new IllegalStateException("payment-svc timed out"))
                 .thenReturn(approved());
 
-        assertThatThrownBy(() -> svc.payOrder(orderId, userId, "USER", card(), EMAIL, "retry-key"))
-                .isInstanceOf(IllegalStateException.class);
-        assertThat(statusOf(orderId)).as("claim released, not stuck").isEqualTo("PENDING_PAYMENT");
-        verify(inventoryClient, never()).adjust(eq(1L), eq(2), any(), any()); // outcome unknown: keep the stock
+        PayOrderRequest request = card();
 
-        svc.payOrder(orderId, userId, "USER", card(), EMAIL, "retry-key");
+        assertThatThrownBy(() -> svc.payOrder(
+                orderId,
+                userId,
+                "USER",
+                request,
+                EMAIL,
+                "retry-key"))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(statusOf(orderId))
+                .as("claim released, not stuck")
+                .isEqualTo("PENDING_PAYMENT");
+
+        verify(inventoryClient, never())
+                .adjust(eq(1L), eq(2), any(), any());
+
+        svc.payOrder(
+                orderId,
+                userId,
+                "USER",
+                request,
+                EMAIL,
+                "retry-key");
 
         assertThat(statusOf(orderId)).isEqualTo("CONFIRMED");
     }

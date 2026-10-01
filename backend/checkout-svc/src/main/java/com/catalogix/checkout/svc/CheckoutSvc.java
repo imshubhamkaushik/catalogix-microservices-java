@@ -374,85 +374,183 @@ public class CheckoutSvc {
         });
     }
 
-    /** Result of step 3. {@code order} is null when the claim was lost (see settlePayment). */
+    /**
+     * Result of step 3. {@code order} is null when the claim was lost.
+     */
     private record Settled(OrderResponse order, OrderStatus statusFound) {
     }
 
-    /** Step 3: record the payment outcome. */
-    private OrderPaymentResult settlePayment(Long orderId, BigDecimal amount, PayOrderRequest req, String userEmail,
+    /**
+     * Step 3: record the payment outcome.
+     */
+    private OrderPaymentResult settlePayment(
+            Long orderId,
+            BigDecimal amount,
+            PayOrderRequest req,
+            String userEmail,
             PaymentClient.PaymentOutcome payment) {
-        Settled settled = tx.execute(status -> {
-            Order order = repo.findByIdForUpdate(orderId).orElseThrow(() -> new OrderNotFoundException(orderId));
 
-            // PENDING_PAYMENT is tolerated: the stale-claim sweep may have returned this order to
-            // PENDING_PAYMENT while we were still waiting on payment-svc. Anything else means the
-            // order moved on without us (e.g. expired, then cancelled) — handled below.
-            if (order.getStatus() != OrderStatus.PAYMENT_PROCESSING
-                    && order.getStatus() != OrderStatus.PENDING_PAYMENT) {
-                return new Settled(null, order.getStatus());
-            }
-
-            if (payment.succeeded()) {
-                order.setStatus(OrderStatus.CONFIRMED);
-                order.setPaymentMethod(req.getMethod());
-                order.setPaymentReference(payment.reference());
-                order.setCustomerEmail(userEmail);
-
-                // COD never actually captured anything — the note should say
-                // so, not claim a payment happened that didn't (see
-                // PaymentSvc#processCod on the payment-svc side for why
-                // COD_PENDING still counts as payment.succeeded() here: the
-                // order IS confirmed the moment COD is chosen, even though no
-                // money has moved yet).
-                boolean isCod = "COD_PENDING".equals(payment.status());
-
-                order.addStatusEvent(OrderStatus.CONFIRMED,
-                        isCod ? "Order confirmed — pay on delivery" : "Payment confirmed");
-            } else {
-                // Persist the terminal local state before touching remote inventory/coupon
-                // state. A remote release is deliberately best-effort + outboxed; flushing the
-                // order first avoids a database validation/constraint failure after a
-                // successful release leaving the order unpaid while its stock/coupon has
-                // already been returned. (This decline path still calls inventory/promotions
-                // inside the transaction — it is rare, and keeps the outbox write atomic with
-                // the cancellation, exactly like cancelOrder.)
-                order.setStatus(OrderStatus.CANCELLED);
-                order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
-                repo.save(order);
-                repo.flush();
-
-                releaseOrderSideEffects(order, "payment-failed-order-" + orderId);
-            }
-
-            Order saved = repo.save(order);
-
-            // AFTER_COMMIT listener: must be published inside the transaction to fire.
-            if (payment.succeeded()) {
-                eventPublisher.publishEvent(new OrderConfirmedEvent(saved.getId(), saved.getUserId(), userEmail,
-                        toEventItems(saved), saved.getTotalAmount()));
-            }
-            return new Settled(toResponse(saved), saved.getStatus());
-        });
+        Settled settled = tx.execute(status -> settlePaymentInTransaction(orderId, req, userEmail, payment));
 
         if (settled.order() == null) {
-            // The money moved but the order can no longer take it. Refund rather than keep a
-            // charge for an order that will never ship. COD_PENDING captured nothing.
-            boolean refunded = false;
-            if (payment.succeeded() && !"COD_PENDING".equals(payment.status())) {
-                try {
-                    clients.refund().refund(orderId, amount, "late-payment-" + orderId);
-                    refunded = true;
-                } catch (RuntimeException e) {
-                    log.error("Order {} was {} when its payment completed and the automatic refund FAILED"
-                            + " — refund manually: {}", orderId, settled.statusFound(), e.getMessage());
-                }
-            }
-            throw new InvalidOrderStateException("Order " + orderId + " was " + settled.statusFound()
-                    + " while its payment was being processed"
-                    + (payment.succeeded() ? (refunded ? "; the payment has been refunded"
-                            : "; the payment could not be refunded automatically and will be reviewed") : ""));
+            boolean refunded = refundLatePaymentIfRequired(orderId, amount, payment, settled);
+
+            throw buildLatePaymentException(orderId, payment, settled.statusFound(), refunded);
         }
+
         return new OrderPaymentResult(settled.order(), payment.succeeded());
+    }
+
+    /**
+     * Persists the payment result in a short transaction.
+     *
+     * PENDING_PAYMENT is tolerated because the stale-claim sweep may have returned
+     * the order to PENDING_PAYMENT while payment-svc was still processing.
+     */
+    private Settled settlePaymentInTransaction(
+            Long orderId,
+            PayOrderRequest req,
+            String userEmail,
+            PaymentClient.PaymentOutcome payment) {
+
+        Order order = txLockedOrder(orderId);
+
+        if (!isPaymentSettleable(order)) {
+            return new Settled(null, order.getStatus());
+        }
+
+        applyPaymentOutcome(order, req, payment, userEmail);
+
+        Order saved = repo.save(order);
+
+        publishConfirmationEventIfNeeded(saved, userEmail, payment);
+
+        return new Settled(toResponse(saved), saved.getStatus());
+    }
+
+    private Order txLockedOrder(Long orderId) {
+        return repo.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new OrderNotFoundException(orderId));
+    }
+
+    private boolean isPaymentSettleable(Order order) {
+        return order.getStatus() == OrderStatus.PAYMENT_PROCESSING
+                || order.getStatus() == OrderStatus.PENDING_PAYMENT;
+    }
+
+    private void applyPaymentOutcome(
+            Order order,
+            PayOrderRequest req,
+            PaymentClient.PaymentOutcome payment,
+            String userEmail) {
+
+        if (payment.succeeded()) {
+            applySuccessfulPayment(order, req, payment, userEmail);
+            return;
+        }
+
+        applyDeclinedPayment(order);
+    }
+
+    private void applySuccessfulPayment(
+            Order order,
+            PayOrderRequest req,
+            PaymentClient.PaymentOutcome payment,
+            String userEmail) {
+
+        order.setStatus(OrderStatus.CONFIRMED);
+        order.setPaymentMethod(req.getMethod());
+        order.setPaymentReference(payment.reference());
+        order.setCustomerEmail(userEmail);
+
+        String note = successfulPaymentNote(payment);
+        order.addStatusEvent(OrderStatus.CONFIRMED, note);
+    }
+
+    private String successfulPaymentNote(PaymentClient.PaymentOutcome payment) {
+        if ("COD_PENDING".equals(payment.status())) {
+            return "Order confirmed — pay on delivery";
+        }
+
+        return "Payment confirmed";
+    }
+
+    private void applyDeclinedPayment(Order order) {
+        order.setStatus(OrderStatus.CANCELLED);
+        order.addStatusEvent(OrderStatus.CANCELLED, "Payment declined");
+
+        // Persist the terminal local state before touching remote inventory/coupon
+        // state.
+        repo.save(order);
+        repo.flush();
+
+        releaseOrderSideEffects(order, "payment-failed-order-" + order.getId());
+    }
+
+    private void publishConfirmationEventIfNeeded(
+            Order saved,
+            String userEmail,
+            PaymentClient.PaymentOutcome payment) {
+
+        if (payment.succeeded()) {
+            eventPublisher.publishEvent(
+                    new OrderConfirmedEvent(
+                            saved.getId(),
+                            saved.getUserId(),
+                            userEmail,
+                            toEventItems(saved),
+                            saved.getTotalAmount()));
+        }
+    }
+
+    private boolean refundLatePaymentIfRequired(
+            Long orderId,
+            BigDecimal amount,
+            PaymentClient.PaymentOutcome payment,
+            Settled settled) {
+
+        if (!payment.succeeded() || "COD_PENDING".equals(payment.status())) {
+            return false;
+        }
+
+        try {
+            clients.refund().refund(orderId, amount, "late-payment-" + orderId);
+            return true;
+        } catch (RuntimeException e) {
+            log.error(
+                    "Order {} was {} when its payment completed and the automatic refund FAILED"
+                            + " — refund manually: {}",
+                    orderId,
+                    settled.statusFound(),
+                    e.getMessage());
+
+            return false;
+        }
+    }
+
+    private InvalidOrderStateException buildLatePaymentException(
+            Long orderId,
+            PaymentClient.PaymentOutcome payment,
+            OrderStatus statusFound,
+            boolean refunded) {
+
+        String message = "Order " + orderId
+                + " was " + statusFound
+                + " while its payment was being processed";
+
+        if (payment.succeeded()) {
+            message += latePaymentRefundMessage(refunded);
+        }
+
+        return new InvalidOrderStateException(message);
+    }
+
+    private String latePaymentRefundMessage(boolean refunded) {
+        if (refunded) {
+            return "; the payment has been refunded";
+        }
+
+        return "; the payment could not be refunded automatically and will be reviewed";
     }
 
     /** Unknown payment outcome: give the order back so the customer (or the sweep) can retry. */

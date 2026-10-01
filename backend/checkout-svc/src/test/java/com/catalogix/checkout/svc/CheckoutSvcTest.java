@@ -773,8 +773,11 @@ class CheckoutSvcTest {
         order.setStatus(OrderStatus.PAYMENT_PROCESSING);
         when(repo.findByIdForUpdate(5L)).thenReturn(Optional.of(order));
 
-        InvalidOrderStateException e = assertThrows(InvalidOrderStateException.class,
-                () -> svc.payOrder(5L, 42L, "USER", cardRequest(), EMAIL));
+        PayOrderRequest request = cardRequest();
+
+        InvalidOrderStateException e = assertThrows(
+                InvalidOrderStateException.class,
+                () -> svc.payOrder(5L, 42L, "USER", request, EMAIL));
 
         assertTrue(e.getMessage().contains("PAYMENT_PROCESSING"));
         verifyNoInteractions(paymentClient);
@@ -925,18 +928,29 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderDoesNotReleaseTheSharedReservationWhenAConcurrentRequestWithTheSameKeyWon() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
-        when(repo.save(any(Order.class))).thenThrow(new DataIntegrityViolationException("uq_orders_user_idempotency"));
+        when(catalogClient.fetch(1L, TOKEN))
+                .thenReturn(product(1L, "Phone", "100.00", 42L));
+
+        when(repo.save(any(Order.class)))
+                .thenThrow(new DataIntegrityViolationException("uq_orders_user_idempotency"));
+
         Order winner = new Order();
-        winner.setId(9L); winner.setUserId(42L); winner.setStatus(OrderStatus.PENDING_PAYMENT);
+        winner.setId(9L);
+        winner.setUserId(42L);
+        winner.setStatus(OrderStatus.PENDING_PAYMENT);
+
         when(repo.findByUserIdAndIdempotencyKey(42L, "dbl-click"))
-                .thenReturn(Optional.empty())      // pre-check: nothing yet
-                .thenReturn(Optional.of(winner));  // after the failed insert: the winner exists
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(winner));
 
-        assertThrows(DataIntegrityViolationException.class,
-                () -> svc.createOrder(42L, requestFor(1L, 2), TOKEN, "dbl-click"));
+        CreateOrderRequest request = requestFor(1L, 2);
 
-        // Only the reserve (-2). A release (+2) would return stock the winner's order relies on.
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () -> svc.createOrder(42L, request, TOKEN, "dbl-click"));
+
+        // Only the reserve (-2). A release (+2) would return stock the winner's order
+        // relies on.
         verify(inventoryClient).adjust(eq(1L), eq(-2), any(), any());
         verify(inventoryClient, never()).adjust(eq(1L), eq(2), any(), any());
         verifyNoInteractions(outboxWriter);
@@ -944,13 +958,22 @@ class CheckoutSvcTest {
 
     @Test
     void createOrderStillCompensatesWhenTheInsertFailsForSomeOtherReason() {
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00", 42L));
-        when(repo.save(any(Order.class))).thenThrow(new DataIntegrityViolationException("some other constraint"));
-        when(repo.findByUserIdAndIdempotencyKey(42L, "k-1")).thenReturn(Optional.empty()); // nobody else owns it
+        when(catalogClient.fetch(1L, TOKEN))
+                .thenReturn(product(1L, "Phone", "100.00", 42L));
 
-        assertThrows(DataIntegrityViolationException.class,
-                () -> svc.createOrder(42L, requestFor(1L, 2), TOKEN, "k-1"));
+        when(repo.save(any(Order.class)))
+                .thenThrow(new DataIntegrityViolationException("some other constraint"));
 
-        verify(inventoryClient).adjust(eq(1L), eq(2), any(), any()); // stock released
+        when(repo.findByUserIdAndIdempotencyKey(42L, "k-1"))
+                .thenReturn(Optional.empty()); // nobody else owns it
+
+        CreateOrderRequest request = requestFor(1L, 2);
+
+        assertThrows(
+                DataIntegrityViolationException.class,
+                () -> svc.createOrder(42L, request, TOKEN, "k-1"));
+
+        verify(inventoryClient)
+                .adjust(eq(1L), eq(2), any(), any()); // stock released
     }
 }
