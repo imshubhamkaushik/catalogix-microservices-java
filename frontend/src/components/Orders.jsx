@@ -34,6 +34,7 @@ function formatDate(value) {
 
 const STATUS_BADGE_CLASS = {
   PENDING_PAYMENT: "badge-low-stock",
+  PAYMENT_PROCESSING: "badge-low-stock",
   CONFIRMED: "badge-in-stock",
   SHIPPED: "badge-category",
   DELIVERED: "badge-admin",
@@ -64,7 +65,9 @@ function PaymentForm({ order, onPaid, onError }) {
   // Stable for the lifetime of this payment form. A retry after a transport
   // timeout therefore repeats the same logical payment instead of charging
   // twice. We intentionally reset it whenever the payment inputs change.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  );
 
   let paymentButtonText = `Pay ${formatPrice(order.totalAmount)}`;
 
@@ -860,17 +863,18 @@ export default function Orders() {
                         : "Track order"}
                     </button>
 
-                    {order.status !== "PENDING_PAYMENT" && (
-                      <button
-                        className="btn-small"
-                        type="button"
-                        onClick={() => {
-                          setInvoiceOpenFor(order.id);
-                        }}
-                      >
-                        Invoice
-                      </button>
-                    )}
+                    {order.status !== "PENDING_PAYMENT" &&
+                      order.status !== "PAYMENT_PROCESSING" && (
+                        <button
+                          className="btn-small"
+                          type="button"
+                          onClick={() => {
+                            setInvoiceOpenFor(order.id);
+                          }}
+                        >
+                          Invoice
+                        </button>
+                      )}
                   </div>
 
                   {trackingOpenFor === order.id && (
