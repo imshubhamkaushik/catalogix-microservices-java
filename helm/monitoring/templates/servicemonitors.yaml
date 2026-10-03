@@ -21,7 +21,7 @@ spec:
           - payment-svc
           - checkout-svc
           - notification-svc
-          # frontend-svc is excluded: nginx does not expose /actuator/prometheus.
+          # frontend is excluded: nginx does not expose /actuator/prometheus.
           # Add it here if a metrics endpoint is added to the frontend image.
   endpoints:
     - port: http
