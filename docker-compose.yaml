@@ -113,16 +113,7 @@ services:
       # Local compose serves the app over plain HTTP (http://localhost:11000,
       # no TLS). A Secure-flagged cookie set over a non-HTTPS response is
       # silently dropped by the browser — see UserController's cookieSecure
-      # Javadoc. Real deployments (behind the ALB's TLS) should NOT set this
-      # and must keep the true default.
-      #
-      # NOTE: this exact fix was applied once before in this conversation,
-      # to this exact file, then silently lost when a fresh zip was
-      # re-uploaded and this session switched to working from that copy
-      # instead — the re-uploaded zip simply predated this fix. Re-applying
-      # it now while already in this block for the seed-data wiring below.
-      # If register/login mysteriously "work but don't stay logged in"
-      # again in the future, this line is the first thing to check exists.
+      # Javadoc. Real deployments (behind the ALB's TLS) should NOT set this and must keep the true default.
       REFRESH_COOKIE_SECURE: "false"
       # See AdminSeeder's Javadoc: the bootstrap admin, created on first start if no admin
       # exists yet. Fixed local-only credentials — this file never leaves your machine.
