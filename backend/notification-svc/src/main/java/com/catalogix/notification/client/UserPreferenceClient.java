@@ -78,6 +78,6 @@ public class UserPreferenceClient {
     // as OrderConfirmedEvent's Javadoc on why events/DTOs are duplicated per
     // service rather than shared. Package-private (not private) so the test
     // in this same package can construct one directly.
-    record PreferencesPayload(boolean orderEmailsEnabled, boolean promoEmailsEnabled) {
+    record PreferencesPayload(boolean orderEmailsEnabled) {
     }
 }

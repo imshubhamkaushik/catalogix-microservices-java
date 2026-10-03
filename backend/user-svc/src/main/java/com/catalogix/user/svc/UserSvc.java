@@ -422,7 +422,6 @@ public class UserSvc {
         response.setVerified(u.isVerified());
         response.setCreatedAt(u.getCreatedAt());
         response.setOrderEmailsEnabled(u.isOrderEmailsEnabled());
-        response.setPromoEmailsEnabled(u.isPromoEmailsEnabled());
         response.setRequestedRole(u.getRequestedRole());
 
         return response;
@@ -546,7 +545,6 @@ public class UserSvc {
         User user = repo.findById(userId)
                 .orElseThrow(() -> new UnauthorizedException(ACCOUNT_NO_LONGER_EXISTS));
         user.setOrderEmailsEnabled(req.isOrderEmailsEnabled());
-        user.setPromoEmailsEnabled(req.isPromoEmailsEnabled());
         return toResponse(repo.save(user));
     }
 
@@ -560,7 +558,7 @@ public class UserSvc {
     @Transactional(readOnly = true)
     public NotificationPreferencesResponse getNotificationPreferences(Long userId) {
         return repo.findById(userId)
-                .map(u -> new NotificationPreferencesResponse(u.isOrderEmailsEnabled(), u.isPromoEmailsEnabled()))
-                .orElse(new NotificationPreferencesResponse(true, true));
+                .map(u -> new NotificationPreferencesResponse(u.isOrderEmailsEnabled()))
+                .orElse(new NotificationPreferencesResponse(true));
     }
 }

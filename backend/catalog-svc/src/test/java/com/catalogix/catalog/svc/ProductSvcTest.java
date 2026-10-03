@@ -1,7 +1,6 @@
 package com.catalogix.catalog.svc;
 
 import com.catalogix.catalog.client.InventoryClient;
-import com.catalogix.catalog.client.ReviewClient;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
@@ -28,8 +27,6 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
@@ -37,7 +34,6 @@ class ProductSvcTest {
 
     @Mock private ProductRepository repo;
     @Mock private InventoryClient inventoryClient;
-    @Mock private ReviewClient reviewClient;
     @Mock private ProductCacheSvc productCacheSvc;
 
     private ProductSvc svc;
@@ -47,13 +43,7 @@ class ProductSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new ProductSvc(repo, inventoryClient, reviewClient, productCacheSvc);
-        // Default for every test that doesn't care about ratings — without
-        // this, any test exercising toResponse/findById (i.e. almost all of
-        // them) would NPE on the unstubbed fetchSummary() call, since
-        // ProductSvc unconditionally merges a rating into every response.
-        when(reviewClient.fetchSummary(anyLong(), anyString()))
-                .thenReturn(new ReviewClient.Summary(null, 0));
+        svc = new ProductSvc(repo, inventoryClient, productCacheSvc);
     }
 
     private Product product(Long id, String name, String price, String category, Long ownerId) {

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 /**
  * Registers a self-updating gauge for the outbox's DEAD_LETTER count —
  * rows the scheduled CompensationOutboxProcessor gave up retrying, which
- * need manual attention (a stuck refund/stock-release/coupon-restore that
+ * need manual attention (a stuck stock-release compensation that
  * never completed). Before this, the only way to see this number was a
  * manual GET /admin/outbox call (see AdminController) — invisible to
  * Prometheus/Grafana/Alertmanager, so a growing backlog of failed

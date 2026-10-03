@@ -11,8 +11,6 @@ public class CreateOrderRequest {
     @Valid
     private List<OrderItemRequest> items;
 
-    // Optional — validated and applied at checkout if present (see OrderSvc).
-    private String couponCode;
 
     // Optional for now: id of an address from the caller's own user-svc
     // address book (see AddressClient). If given, its fields are snapshotted
@@ -35,12 +33,6 @@ public class CreateOrderRequest {
         this.items = items;
     }
 
-    public String getCouponCode() {
-        return couponCode;
-    }
-    public void setCouponCode(String couponCode) {
-        this.couponCode = couponCode;
-    }
 
     public Long getAddressId() {
         return addressId;

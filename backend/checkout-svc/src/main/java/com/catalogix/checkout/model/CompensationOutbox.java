@@ -12,9 +12,9 @@ import java.time.Instant;
 
 /**
  * Generalized from the original stock_adjustment_outbox: this system now has
- * two kinds of compensating action that need to reach a downstream service
- * "eventually" even if it can't happen right now — releasing reserved stock
- * (inventory-svc) and releasing a redeemed coupon use (promotions-svc).
+ * a compensating action that needs to reach a downstream service
+ * "eventually" even if it cannot happen right now — releasing reserved stock
+ * in inventory-svc.
  * Persisted transactionally with the local state change when the compensation
  * belongs to an existing order transition, or independently when the local
  * transaction must roll back after a remote side effect has already committed.
@@ -31,7 +31,6 @@ public class CompensationOutbox {
     @Column(nullable = false, length = 20)
     private CompensationType type;
 
-    // Populated for RELEASE_STOCK, null for RELEASE_COUPON.
     @Column(name = "product_id")
     private Long productId;
 
@@ -45,9 +44,6 @@ public class CompensationOutbox {
     @Column(name = "undo_of", length = 120)
     private String undoOf;
 
-    // Populated for RELEASE_COUPON, null for RELEASE_STOCK.
-    @Column(name = "coupon_code", length = 50)
-    private String couponCode;
 
     @Column(length = 255)
     private String reason;
@@ -100,18 +96,7 @@ public class CompensationOutbox {
         return undoOf;
     }
 
-    public static CompensationOutbox releaseCoupon(String couponCode, String reason) {
-        return releaseCoupon(couponCode, reason, null);
-    }
 
-    public static CompensationOutbox releaseCoupon(String couponCode, String reason, String operationId) {
-        CompensationOutbox e = new CompensationOutbox();
-        e.type = CompensationType.RELEASE_COUPON;
-        e.couponCode = couponCode;
-        e.reason = reason;
-        e.operationId = operationId;
-        return e;
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -121,8 +106,6 @@ public class CompensationOutbox {
     public void setProductId(Long productId) { this.productId = productId; }
     public Integer getDelta() { return delta; }
     public void setDelta(Integer delta) { this.delta = delta; }
-    public String getCouponCode() { return couponCode; }
-    public void setCouponCode(String couponCode) { this.couponCode = couponCode; }
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }
     public OutboxStatus getStatus() { return status; }

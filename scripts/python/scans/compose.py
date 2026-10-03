@@ -29,11 +29,6 @@ def parse_args() -> argparse.Namespace:
         help="Operate on one or more Compose services.",
     )
     parser.add_argument(
-        "--tools",
-        action="store_true",
-        help="Enable the Compose 'tools' profile (Jaeger in the current project).",
-    )
-    parser.add_argument(
         "--follow",
         action="store_true",
         help="Follow logs for the 'logs' action.",
@@ -55,8 +50,7 @@ def main() -> int:
     require_command("docker")
     args = parse_args()
 
-    profile = "tools" if args.tools else None
-    command = base_command(profile)
+    command = base_command()
 
     services = args.service or []
 

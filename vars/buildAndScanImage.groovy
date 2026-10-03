@@ -1,8 +1,8 @@
 // jenkins/shared-library/vars/buildAndScanImage.groovy
 //
-// Builds a Docker image and fails the build on HIGH/CRITICAL CVEs, honoring
-// .trivyignore.yaml (entries there carry expiry dates). One function used for all 11 images (9 backend +
-// frontend-svc + gateway) instead of a duplicated block per service — this
+// Builds a Docker image and fails the build on HIGH/CRITICAL CVEs, honoring .trivyignore. 
+// One function is used for all 9 application images (7 backend +
+// frontend + gateway) instead of a duplicated block per service — this
 // is the piece that keeps the Jenkinsfile's line count from scaling with
 // service count.
 //
@@ -35,12 +35,12 @@ def call(Map args) {
     sh """
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
-          -v \$(pwd)/.trivyignore.yaml:/.trivyignore.yaml \
+          -v \$(pwd)/.trivyignore:/.trivyignore \
           ${trivyImage} image \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --ignore-unfixed \
-          --ignorefile /.trivyignore.yaml \
+          --ignorefile /.trivyignore \
           ${imageRef}
     """
 }

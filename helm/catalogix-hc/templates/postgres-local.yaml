@@ -1,12 +1,7 @@
 {{- if ne .Values.global.cloudProvider "aws" }}
-# Local-cluster stand-in for RDS. A single-replica, single-database-instance
-# Postgres, database-per-service on one shared role — same model
-# postgres-init/01-create-databases.sh uses for local docker-compose (see
-# that file's header comment for the honest scope note on what this is and
-# isn't). Not for staging/prod: no backups, no Multi-AZ, no per-service
-# roles — purely so `helm install -f values-dev.yaml -f values-local.yaml`
-# works on a laptop cluster (kind/minikube/Docker Desktop) with zero AWS
-# dependency.
+# Local-cluster stand-in for RDS. A single Postgres instance hosts one
+# database per backend service. This is for local Kubernetes development;
+# staging and production use the AWS RDS configuration instead.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -85,25 +80,8 @@ spec:
           resources:
             requests: { cpu: "100m", memory: "128Mi" }
             limits: { cpu: "500m", memory: "512Mi" }
-          # No startupProbe previously existed here, so livenessProbe's own
-          # initialDelaySeconds/periodSeconds/failureThreshold (a ~45s
-          # budget) was the only thing standing between "first boot" and
-          # "kubelet kills it". On a fresh, empty PGDATA that's often not
-          # enough time for initdb + running every CREATE DATABASE
-          # statement in 01-create-databases.sh (9 of them, each a
-          # separate psql process) — especially on hostpath storage on a
-          # laptop. If livenessProbe kills the container mid-bootstrap,
-          # PGDATA is already on disk from the interrupted attempt, so
-          # Postgres's entrypoint skips initdb AND skips
-          # /docker-entrypoint-initdb.d on the restart — permanently. Every
-          # backend service then crash-loops forever on "database does not
-          # exist", and the only fix is manually creating the databases by
-          # hand, since Postgres will never re-run the init scripts on its
-          # own. A startupProbe with a generous budget (150s) makes sure
-          # liveness/readiness don't even start evaluating until the
-          # startup+init sequence has actually finished, exactly like the
-          # startupProbe already used for every backend Spring Boot service
-          # in _helpers.tpl's catalogix.probes.
+          # Database initialization can include creating seven service databases,
+          # so liveness/readiness should wait until the initial bootstrap completes.
           startupProbe:
             exec:
               command: ["pg_isready", "-U", "$(POSTGRES_USER)"]

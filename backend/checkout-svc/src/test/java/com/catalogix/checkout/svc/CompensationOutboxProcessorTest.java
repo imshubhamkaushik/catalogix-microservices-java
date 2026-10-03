@@ -1,7 +1,6 @@
 package com.catalogix.checkout.svc;
 
 import com.catalogix.checkout.client.InventoryClient;
-import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.OutboxStatus;
 import com.catalogix.checkout.repository.CompensationOutboxRepository;
@@ -21,14 +20,13 @@ class CompensationOutboxProcessorTest {
 
     @Mock private CompensationOutboxRepository outboxRepo;
     @Mock private InventoryClient inventoryClient;
-    @Mock private PromotionsClient promotionsClient;
 
     private CompensationOutboxProcessor processor;
 
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        processor = new CompensationOutboxProcessor(outboxRepo, inventoryClient, promotionsClient);
+        processor = new CompensationOutboxProcessor(outboxRepo, inventoryClient);
         when(outboxRepo.save(any(CompensationOutbox.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -41,20 +39,7 @@ class CompensationOutboxProcessorTest {
 
         assertEquals(OutboxStatus.COMPLETED, entry.getStatus());
         verify(inventoryClient).adjust(1L, 2);
-        verifyNoInteractions(promotionsClient);
         verify(outboxRepo).save(entry);
-    }
-
-    @Test
-    void completesACouponReleaseEntryOnSuccess() {
-        CompensationOutbox entry = CompensationOutbox.releaseCoupon("SAVE10", "payment declined");
-        when(outboxRepo.claimPendingBatch()).thenReturn(List.of(entry));
-
-        processor.processPending();
-
-        assertEquals(OutboxStatus.COMPLETED, entry.getStatus());
-        verify(promotionsClient).release("SAVE10", null);
-        verifyNoInteractions(inventoryClient);
     }
 
 
@@ -91,7 +76,7 @@ class CompensationOutboxProcessorTest {
     @Test
     void aFailureInOneEntryDoesNotStopTheRestOfTheBatch() {
         CompensationOutbox failing = CompensationOutbox.releaseStock(1L, 2, "cancel-order-5");
-        CompensationOutbox succeeding = CompensationOutbox.releaseCoupon("SAVE10", "cancel-order-6");
+        CompensationOutbox succeeding = CompensationOutbox.releaseStock(2L, 1, "cancel-order-6");
         when(outboxRepo.claimPendingBatch()).thenReturn(List.of(failing, succeeding));
         doThrow(new RuntimeException("inventory-svc unreachable"))
                 .when(inventoryClient).adjust(1L, 2);
@@ -109,7 +94,7 @@ class CompensationOutboxProcessorTest {
 
         processor.processPending();
 
-        verifyNoInteractions(inventoryClient, promotionsClient);
+        verifyNoInteractions(inventoryClient);
         verify(outboxRepo, never()).save(any());
     }
 

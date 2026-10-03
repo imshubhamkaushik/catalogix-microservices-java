@@ -15,7 +15,7 @@ T=$(mktemp -d); trap 'kill $(cat "$T/nginx.pid" 2>/dev/null) $ECHO_PID 2>/dev/nu
 
 # Upstream names in nginx.conf must resolve at config load; map them all to a local echo server.
 # (nginx resolves via /etc/hosts; if you cannot edit it, run this in a container.)
-for h in user-svc cart-svc catalog-svc checkout-svc notification-svc promotions-svc review-svc frontend; do
+for h in user-svc cart-svc catalog-svc checkout-svc notification-svc frontend; do
   getent hosts "$h" >/dev/null || { echo "SKIP: add '127.0.0.1 $h' to /etc/hosts (or run in a throwaway container)"; exit 2; }
 done
 

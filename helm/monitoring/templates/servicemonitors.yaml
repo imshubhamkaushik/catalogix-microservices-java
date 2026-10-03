@@ -18,11 +18,9 @@ spec:
           - catalog-svc
           - inventory-svc
           - cart-svc
-          - promotions-svc
           - payment-svc
           - checkout-svc
           - notification-svc
-          - review-svc
           # frontend-svc is excluded: nginx does not expose /actuator/prometheus.
           # Add it here if a metrics endpoint is added to the frontend image.
   endpoints:

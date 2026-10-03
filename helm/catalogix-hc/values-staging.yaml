@@ -9,9 +9,8 @@ database:
   # No shared username here anymore — each service authenticates with its
   # own role (db_user_<svc>/db_password_<svc>, see
   # templates/_helpers.tpl's commonEnv), created by
-  # terraform/platform-infra/modules/db-roles. The old shared "catalogix"
-  # master role is now used only by Terraform's postgresql provider itself
-  # to create those per-service roles, never by an app service directly.
+  # terraform/platform-infra/modules/db-roles. The shared master role is used
+  # only by Terraform's PostgreSQL provider to create and manage these roles.
 
 # DB password, JWT secret, and RabbitMQ credentials are NOT stored here —
 # they're pulled from AWS Secrets Manager by the ExternalSecret template
@@ -48,7 +47,7 @@ hpa:
 
 # One entry per backend service. Every field here is consumed generically by
 # templates/backend-deployments.yaml, services.yaml, hpa.yaml, and pdb.yaml — adding
-# a 10th service is a new map entry, not a new template.
+# another backend service only requires a new map entry.
 backendServices:
 
   user-svc:
@@ -71,9 +70,8 @@ backendServices:
         value: "true"
       - name: ADMIN_EMAILS
         value: "admin@example.com"
-      # TEMPORARY: see the matching comment in values-dev.yaml — the ALB
-      # ingress has no 443/ACM listener yet, so this must stay false until
-      # ingress.tlsCertArn is set, or the refresh cookie is silently dropped.
+      # Keep this false until ingress.tlsCertArn is configured for HTTPS;
+      # a Secure cookie is not stored when staging is served over HTTP.
       - name: REFRESH_COOKIE_SECURE
         value: "false"
       # See backend/user-svc's AdminSeeder Javadoc / values-dev.yaml's
@@ -101,8 +99,6 @@ backendServices:
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
       # REQUIRED — see the same fix's comment in values-dev.yaml.
-      - name: REVIEW_SVC_URL
-        value: "http://review-svc:11009"
       - name: SEED_DATA
         value: "true"
       # REQUIRED by every service — see values-dev.yaml's comment.
@@ -142,26 +138,9 @@ backendServices:
         value: "http://catalog-svc:11002"
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
-      - name: PROMOTIONS_SVC_URL
-        value: "http://promotions-svc:11005"
       - name: ALLOWED_ORIGINS
         value: "*"
 
-  promotions-svc:
-    dbName: catalogix_promotions
-    image: { repository: "promotions-svc", pullPolicy: "IfNotPresent" }
-    port: 11005
-    replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /coupons
-    resources:
-      requests: { cpu: "100m", memory: "128Mi" }
-      limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv:
-      - name: ALLOWED_ORIGINS
-        value: "*"
 
   payment-svc:
     dbName: catalogix_payment
@@ -199,8 +178,6 @@ backendServices:
         value: "http://catalog-svc:11002"
       - name: INVENTORY_SVC_URL
         value: "http://inventory-svc:11003"
-      - name: PROMOTIONS_SVC_URL
-        value: "http://promotions-svc:11005"
       - name: PAYMENT_SVC_URL
         value: "http://payment-svc:11006"
       - name: CART_SVC_URL
@@ -238,24 +215,6 @@ backendServices:
       # local dev/dev-cluster values point at an in-cluster Mailpit if added.
       - name: USER_SVC_URL
         value: "http://user-svc:11010"
-      - name: ALLOWED_ORIGINS
-        value: "*"
-
-  review-svc:
-    dbName: catalogix_reviews
-    image: { repository: "review-svc", pullPolicy: "IfNotPresent" }
-    port: 11009
-    replicaCount: 2
-    routeToALB: true
-    ingressPaths:
-      - /reviews
-    resources:
-      requests: { cpu: "100m", memory: "128Mi" }
-      limits: { cpu: "400m", memory: "384Mi" }
-    hpa: { minReplicas: 3, maxReplicas: 4, cpuUtilization: 75, memoryUtilization: 75 }
-    extraEnv:
-      - name: CHECKOUT_SVC_URL
-        value: "http://checkout-svc:11007"
       - name: ALLOWED_ORIGINS
         value: "*"
 

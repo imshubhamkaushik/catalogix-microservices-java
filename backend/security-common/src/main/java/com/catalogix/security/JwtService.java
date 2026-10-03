@@ -21,20 +21,9 @@ import java.time.Instant;
  * (e.g. catalog-svc calling inventory-svc's /adjust endpoint, or
  * checkout-svc's background compensation outbox processor).
  *
- * Previously this class (and JwtAuthFilter/RateLimiterFilter/CorsConfig)
- * existed as 9 separate, hand-copied files — one per service package — kept
- * deliberately duplicated rather than shared, on the reasoning that each
- * service should own its code independently. In practice this meant a fix
- * or CVE patch here had to be found and applied 9 times by hand, with
- * nothing enforcing the copies stayed in sync (and generateSystemToken()
- * had in fact already drifted: catalog-svc and checkout-svc each carried an
- * identical copy of it, and user-svc's own version used a different sentinel
- * email claim, "user-svc@internal", inconsistent with the "system@internal"
- * convention used by the other services
- * expected). Consolidating the genuinely-identical parts here removes that
- * drift risk; only real per-user token issuance (see user-svc's JwtService,
- * which extends this class) stays service-specific, because it's the one
- * piece that's actually different per service, not just copy-pasted.
+ * Shared JWT verification and system-token support live here so all backend
+ * services use the same security behavior and token conventions. User-specific
+ * token issuance remains in user-svc, which extends this class.
  *
  * MUST be configured with the same JWT_SECRET as every other service —
  * HS256/HMAC is symmetric, so anyone holding the secret can both sign and

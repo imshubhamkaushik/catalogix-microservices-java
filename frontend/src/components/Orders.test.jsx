@@ -170,7 +170,7 @@ describe("Orders page", () => {
       sellerName: "Catalogix Retail Pvt. Ltd.", customerEmail: "buyer@example.com",
       billingAddress: null,
       items: [{ productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100 }],
-      itemsSubtotal: 100, discountAmount: 0, taxableValue: 100, taxRatePercent: 18, taxAmount: 18,
+      itemsSubtotal: 100, taxableValue: 100, taxRatePercent: 18, taxAmount: 18,
       totalAmount: 118, paymentMethod: "CARD", paymentReference: "MOCK-CARD-abc",
     });
 
@@ -193,63 +193,9 @@ describe("Orders page", () => {
     expect(screen.queryByText("INV-00000011")).not.toBeInTheDocument();
   });
 
-  it("offers a return request only for delivered orders, not others", async () => {
-    api.getOrders.mockResolvedValue({
-      content: [{
-        id: 12, userId: 1, status: "SHIPPED", totalAmount: 100,
-        createdAt: new Date().toISOString(),
-        items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100 }],
-      }],
-      page: 0, size: 20, totalElements: 1, totalPages: 1,
-    });
+;
 
-    renderOrders();
-    await screen.findByText(/order #12/i);
-    expect(screen.queryByRole("button", { name: /request return/i })).not.toBeInTheDocument();
-  });
+;
 
-  it("submits a return request with the chosen item quantities and reason", async () => {
-    api.getOrders.mockResolvedValue({
-      content: [{
-        id: 13, userId: 1, status: "DELIVERED", totalAmount: 200,
-        createdAt: new Date().toISOString(),
-        items: [{ productId: 1, productName: "Phone", quantity: 2, unitPrice: 100, subtotal: 200 }],
-      }],
-      page: 0, size: 20, totalElements: 1, totalPages: 1,
-    });
-    api.requestReturn.mockResolvedValue({});
-
-    renderOrders();
-    await userEvent.click(await screen.findByRole("button", { name: /request return/i }));
-
-    const qtyInput = await screen.findByDisplayValue("0");
-    await userEvent.clear(qtyInput);
-    await userEvent.type(qtyInput, "1");
-    await userEvent.type(screen.getByLabelText(/reason/i), "Wrong size");
-    await userEvent.click(screen.getByRole("button", { name: /submit return request/i }));
-
-    await waitFor(() => expect(api.requestReturn).toHaveBeenCalledWith(
-      13, "Wrong size", [{ productId: 1, quantity: 1 }]
-    ));
-    expect(await screen.findByText(/return request submitted/i)).toBeInTheDocument();
-  });
-
-  it("requires at least one item selected before submitting a return", async () => {
-    api.getOrders.mockResolvedValue({
-      content: [{
-        id: 14, userId: 1, status: "DELIVERED", totalAmount: 100,
-        createdAt: new Date().toISOString(),
-        items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100 }],
-      }],
-      page: 0, size: 20, totalElements: 1, totalPages: 1,
-    });
-
-    renderOrders();
-    await userEvent.click(await screen.findByRole("button", { name: /request return/i }));
-    await userEvent.type(screen.getByLabelText(/reason/i), "Changed my mind");
-    await userEvent.click(screen.getByRole("button", { name: /submit return request/i }));
-
-    expect(await screen.findByText(/choose at least one item/i)).toBeInTheDocument();
-    expect(api.requestReturn).not.toHaveBeenCalled();
-  });
+;
 });

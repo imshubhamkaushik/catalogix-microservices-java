@@ -160,7 +160,7 @@ describe("Account page", () => {
   it("saves notification preferences", async () => {
     api.updateNotificationPreferences.mockResolvedValue({
       id: 1, name: "Alice", email: "alice@example.com", role: "USER", verified: false,
-      orderEmailsEnabled: false, promoEmailsEnabled: true,
+      orderEmailsEnabled: false,
     });
     renderAccount();
 
@@ -169,7 +169,7 @@ describe("Account page", () => {
     await userEvent.click(screen.getByRole("button", { name: /save preferences/i }));
 
     await waitFor(() => expect(api.updateNotificationPreferences).toHaveBeenCalledWith({
-      orderEmailsEnabled: false, promoEmailsEnabled: true,
+      orderEmailsEnabled: false,
     }));
   });
 

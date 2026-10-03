@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Releases stock (and coupon uses) held by orders that were placed but never paid.
+ * Releases reserved stock held by orders that were placed but never paid.
  *
  * Placing an order reserves stock immediately, but nothing ever gave it back if the customer
  * simply walked away — so abandoned checkouts slowly drained availability. Orders still in

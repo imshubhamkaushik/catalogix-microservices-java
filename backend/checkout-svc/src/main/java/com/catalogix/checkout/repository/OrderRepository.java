@@ -46,10 +46,4 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             @Param("cutoff") java.time.Instant cutoff,
             org.springframework.data.domain.Pageable pageable);
 
-    // Backs the "Verified Purchase" badge on reviews (see review-svc's
-    // OrderClient) — true only once the order has actually been delivered,
-    // not merely placed or paid, matching what Amazon/Flipkart's own badge means.
-    @Query("SELECT COUNT(o) > 0 FROM Order o JOIN o.items i " +
-           "WHERE o.userId = :userId AND i.productId = :productId AND o.status = 'DELIVERED'")
-    boolean existsDeliveredOrderWithProduct(@Param("userId") Long userId, @Param("productId") Long productId);
 }

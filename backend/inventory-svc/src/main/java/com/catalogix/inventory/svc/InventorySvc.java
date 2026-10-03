@@ -76,7 +76,7 @@ public class InventorySvc {
      * delta negative = reserve (checkout), positive = restock (compensation).
      * Pessimistic row lock makes the read-check-write atomic against
      * concurrent adjustments for the same product — this is the exact
-     * protection the original review found coupon redemption was missing;
+     * protection the inventory operation must remain idempotent and bounded;
      * stock has always had it and still does here.
      */
     @Transactional

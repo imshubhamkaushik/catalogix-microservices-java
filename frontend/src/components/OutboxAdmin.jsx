@@ -17,15 +17,9 @@ function Toast({ message, onDone }) {
 Toast.propTypes = { message: PropTypes.string.isRequired, onDone: PropTypes.func.isRequired };
 
 function describeEntry(entry) {
-  // Only 2 real CompensationType values exist (confirmed against the enum
-  // itself) — not every field is populated for every entry (a
-  // RELEASE_COUPON entry has couponCode but no productId/delta, and vice
-  // versa for RELEASE_STOCK).
   switch (entry.type) {
     case "RELEASE_STOCK":
       return `Release ${Math.abs(entry.delta)} unit(s) of product #${entry.productId}`;
-    case "RELEASE_COUPON":
-      return `Restore coupon "${entry.couponCode}"`;
     default:
       return entry.reason || entry.type;
   }
@@ -76,7 +70,7 @@ export default function OutboxAdmin() {
         <div>
           <h1 className="page-title">Compensation Outbox</h1>
           <p className="page-subtitle">
-            Stuck refunds, stock releases, and coupon restores — see checkout-svc&apos;s CompensationOutboxProcessor.
+            Stuck stock releases — see checkout-svc&apos;s CompensationOutboxProcessor.
           </p>
         </div>
       </div>

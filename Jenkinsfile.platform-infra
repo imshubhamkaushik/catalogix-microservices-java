@@ -17,7 +17,7 @@ pipeline {
         // dev and staging use var.cluster_name="catalogix-cluster", so the
         //  real names are "catalogix-cluster-dev" and"catalogix-staging".
         //  Keep this expression identical in Jenkinsfile.app-cicd — see the explanation there. 
-        // Every SSM path below (loki-bucket, ...), the Secrets Manager names
+        // Every SSM path below and the Secrets Manager names
         // and every `aws eks`/`kubectl` call derive from this one value.
         CLUSTER_NAME = "${params.ENV == 'dev' ? 'catalogix-cluster-dev' : 'catalogix-cluster-' + params.ENV}"
         TF_DIR       = "terraform/platform-infra/env/${params.ENV}"
@@ -156,7 +156,7 @@ pipeline {
         }
 
         // Terraform formatting for this directory is already gated in
-        // Jenkinsfile.lint on every push, so it isn't repeated here.
+        // Application CI/CD owns application test and scan execution.
         stage("Trivy Terraform IaC Scan") {
             when {
                 expression { params.ACTION == 'Apply' }
@@ -209,7 +209,7 @@ pipeline {
                 script {
                     dir("${TF_DIR}") {
                         // -detailed-exitcode: 0 = no changes, 1 = error,
-                        // 2 = changes present. Previously ignored entirely
+                        // Exit code 2 means Terraform found changes to apply.
                         // (plain `terraform plan`, always exit 0 on
                         // success) — every single run paused for a human
                         // approval below even when the plan showed nothing
@@ -358,7 +358,7 @@ pipeline {
             }
         }
 
-        // Monitoring is deployed here — after the cluster and ESO are ready — rather than as a separate manual step. 
+        // Monitoring is deployed here — after the cluster and ESO are ready — rather than as a separate manual step.
         // This makes the platform-infra pipeline the single entry point for all cluster-level infrastructure, with app deployments handled separately.
         stage('Deploy Monitoring Stack') {
             when {
@@ -366,26 +366,11 @@ pipeline {
             }
             steps {
                 script {
-                    // Same pattern as the RDS endpoint lookup elsewhere in
-                    // this pipeline — modules/observability-storage writes
-                    // these 4 SSM params, values.yaml carries only empty
-                    // placeholders (values.yaml files aren't Terraform- or
-                    // Helm-templated at write time, so this is the only
-                    // way a Terraform-generated bucket name/role ARN
-                    // reaches a `helm upgrade` invocation).
                     // Grafana's login comes from the operator-chosen credentials (dev only —
                     // staging keeps the chart default until it is brought up to parity).
                     env.OPERATOR_HELM_ARGS = (params.ENV == 'dev')
                         ? "--set global.operatorSecretName=${env.CLUSTER_NAME}/operator-credentials --set kube-prometheus-stack.grafana.admin.existingSecret=grafana-admin-secret"
                         : ""
-                    env.LOKI_BUCKET = sh(
-                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-bucket --query Parameter.Value --output text --region ${AWS_REGION}",
-                        returnStdout: true
-                    ).trim()
-                    env.LOKI_ROLE_ARN = sh(
-                        script: "aws ssm get-parameter --name /${CLUSTER_NAME}/loki-role-arn --query Parameter.Value --output text --region ${AWS_REGION}",
-                        returnStdout: true
-                    ).trim()
                 }
 
                 // Free-form job parameters are passed as ENVIRONMENT VARIABLES and
@@ -402,8 +387,7 @@ pipeline {
                 # helm repo add is idempotent — safe on every run.
                 # Without this, helm dependency update fails on a clean Jenkins workspace.
                 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-                helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
-                helm repo update prometheus-community grafana
+                helm repo update prometheus-community
 
                 # Resolve the kube-prometheus-stack dependency before install
                 helm dependency update helm/monitoring
@@ -416,11 +400,6 @@ pipeline {
                     --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=\$ALERT_EMAIL_TO_PARAM" \\
                     --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].smarthost=\$SMTP_HOST_PARAM" \\
                     --set "kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].auth_username=\$SMTP_USERNAME_PARAM" \\
-                    --set loki.loki.storage.bucketNames.chunks=${LOKI_BUCKET} \\
-                    --set loki.loki.storage.bucketNames.ruler=${LOKI_BUCKET} \\
-                    --set loki.loki.storage.bucketNames.admin=${LOKI_BUCKET} \\
-                    --set loki.loki.storage.s3.region=${AWS_REGION} \\
-                    --set loki.serviceAccount.annotations.'eks\\.amazonaws\\.com/role-arn'=${LOKI_ROLE_ARN} \\
                     --wait --timeout 300s
                 """
                 }

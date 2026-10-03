@@ -15,8 +15,6 @@ public class ProductResponse {
     private Long ownerId;
     private String imageUrl;
     private Instant createdAt;
-    private BigDecimal averageRating;
-    private long reviewCount;
     private ModerationStatus moderationStatus;
 
     public ProductResponse() {
@@ -105,13 +103,6 @@ public class ProductResponse {
         this.createdAt = createdAt;
     }
 
-    public BigDecimal getAverageRating() {
-        return averageRating;
-    }
-
-    public void setAverageRating(BigDecimal averageRating) {
-        this.averageRating = averageRating;
-    }
 
     public ModerationStatus getModerationStatus() { 
         return moderationStatus; 
@@ -121,11 +112,4 @@ public class ProductResponse {
         this.moderationStatus = moderationStatus; 
     }
 
-    public long getReviewCount() {
-        return reviewCount;
-    }
-
-    public void setReviewCount(long reviewCount) {
-        this.reviewCount = reviewCount;
-    }
 }

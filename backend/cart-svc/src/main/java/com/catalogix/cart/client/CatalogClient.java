@@ -13,8 +13,7 @@ import org.springframework.web.client.RestTemplate;
 /**
  * Reads a product's name/price for display. catalog-svc, not cart-svc, is
  * the source of truth for both — a cart line never carries its own price;
- * it's re-fetched live every time the cart is read, same as the original
- * (pre-split) CartSvc did against product-svc.
+ * it's re-fetched live every time the cart is read.
  */
 @Component
 public class CatalogClient {

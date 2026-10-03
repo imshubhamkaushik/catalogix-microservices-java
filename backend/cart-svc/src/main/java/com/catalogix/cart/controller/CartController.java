@@ -38,16 +38,6 @@ public class CartController {
         return svc.removeItem(userId(request), productId, bearer(request));
     }
 
-    @PostMapping("/coupon")
-    public CartResponse applyCoupon(@RequestBody java.util.Map<String, String> body, HttpServletRequest request) {
-        return svc.applyCoupon(userId(request), body.get("code"), bearer(request));
-    }
-
-    @DeleteMapping("/coupon")
-    public CartResponse removeCoupon(HttpServletRequest request) {
-        return svc.removeCoupon(userId(request), bearer(request));
-    }
-
     // Internal — called only by checkout-svc, using the caller's own
     // forwarded token, to fetch the cart's contents at the moment of
     // checkout. Not what the browser calls; the browser's "Checkout" button

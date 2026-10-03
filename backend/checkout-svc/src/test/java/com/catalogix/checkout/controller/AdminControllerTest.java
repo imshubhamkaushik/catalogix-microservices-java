@@ -64,11 +64,11 @@ class AdminControllerTest {
 
     @Test
     void retryResetsAnEntryBackToPending() throws Exception {
-        CompensationOutbox entry = CompensationOutbox.releaseCoupon("SAVE10", "payment declined");
+        CompensationOutbox entry = CompensationOutbox.releaseStock(1L, 2, "payment declined");
         entry.setId(9L);
         entry.setStatus(OutboxStatus.DEAD_LETTER);
         entry.setAttempts(5);
-        entry.setLastError("promotions-svc unreachable");
+        entry.setLastError("inventory-svc unreachable");
         when(outboxRepo.findById(9L)).thenReturn(Optional.of(entry));
         when(outboxRepo.save(any(CompensationOutbox.class))).thenAnswer(inv -> inv.getArgument(0));
 

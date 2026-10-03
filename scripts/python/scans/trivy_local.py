@@ -25,9 +25,9 @@ def trivy_base() -> list[str]:
 
 
 def ignorefile_argument() -> list[str]:
-    ignorefile = REPO_ROOT / ".trivyignore.yaml"
+    ignorefile = REPO_ROOT / ".trivyignore"
     if ignorefile.is_file():
-        return ["--ignorefile", "/repo/.trivyignore.yaml"]
+        return ["--ignorefile", "/repo/.trivyignore"]
     return []
 
 

@@ -22,20 +22,15 @@ function renderOutboxAdmin() {
   );
 }
 
-// Only RELEASE_STOCK and RELEASE_COUPON are real CompensationType values
 // (confirmed against the enum in backend/checkout-svc — see
 // describeEntry's own comment in OutboxAdmin.jsx for why REFUND_PAYMENT
 // isn't tested here, it doesn't exist).
 const STOCK_ENTRY = {
-  id: 12, type: "RELEASE_STOCK", productId: 77, delta: 2, couponCode: null,
+  id: 12, type: "RELEASE_STOCK", productId: 77, delta: 2,
   reason: null, status: "DEAD_LETTER", attempts: 5, lastError: "inventory-svc unreachable",
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T01:00:00Z",
 };
-const COUPON_ENTRY = {
-  id: 13, type: "RELEASE_COUPON", productId: null, delta: null, couponCode: "SAVE10",
-  reason: null, status: "PENDING", attempts: 1, lastError: null,
-  createdAt: "2026-01-02T00:00:00Z", updatedAt: "2026-01-02T00:05:00Z",
-};
+
 
 describe("OutboxAdmin page", () => {
   beforeEach(() => {
@@ -58,15 +53,8 @@ describe("OutboxAdmin page", () => {
     expect(screen.getByText(/inventory-svc unreachable/i)).toBeInTheDocument();
   });
 
-  it("describes a RELEASE_COUPON entry using its couponCode", async () => {
-    api.getOutboxEntries.mockResolvedValue([COUPON_ENTRY]);
-    renderOutboxAdmin();
-    expect(await screen.findByText(/restore coupon "save10"/i)).toBeInTheDocument();
-    expect(screen.getByText("Pending")).toBeInTheDocument();
-  });
-
   it("only offers a retry button for DEAD_LETTER entries, not PENDING ones", async () => {
-    api.getOutboxEntries.mockResolvedValue([STOCK_ENTRY, COUPON_ENTRY]);
+    api.getOutboxEntries.mockResolvedValue([STOCK_ENTRY]);
     renderOutboxAdmin();
     await screen.findByText(/release 2 unit\(s\)/i);
     // Exactly one retry ("Retry"-titled) icon button — for the DEAD_LETTER

@@ -12,7 +12,6 @@ public class UserResponse {
     private boolean verified;
     private Instant createdAt;
     private boolean orderEmailsEnabled;
-    private boolean promoEmailsEnabled;
     // Pending request for a higher role awaiting admin approval; null when none.
     private String requestedRole;
 
@@ -41,7 +40,6 @@ public class UserResponse {
         this.verified = verified;
         this.createdAt = null;
         this.orderEmailsEnabled = true;
-        this.promoEmailsEnabled = true;
         this.requestedRole = null;
     }
 
@@ -101,13 +99,6 @@ public class UserResponse {
         this.orderEmailsEnabled = orderEmailsEnabled;
     }
 
-    public boolean isPromoEmailsEnabled() {
-        return promoEmailsEnabled;
-    }
-
-    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) {
-        this.promoEmailsEnabled = promoEmailsEnabled;
-    }
 
     public String getRequestedRole() {
         return requestedRole;

@@ -20,7 +20,7 @@ public interface CompensationOutboxRepository extends JpaRepository<Compensation
      * audit found: the old processor had no claiming step, so if checkout-svc
      * were ever scaled to multiple replicas, each one would independently
      * pick up and process the same pending rows, double-releasing stock or
-     * coupon uses. Locking (and skipping already-locked) rows here means two
+     * stock releases. Locking (and skipping already-locked) rows here means two
      * replicas racing to run the scheduled job at the same moment simply
      * split the batch between them instead of duplicating it — each row is
      * claimed by exactly one replica's transaction.

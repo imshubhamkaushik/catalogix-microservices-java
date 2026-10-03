@@ -26,7 +26,7 @@ export default function HomePage() {
           </div>
           <h2 className="hero-title">Welcome to Catalogix</h2>
           <p className="hero-desc">
-            Browse the catalogue, save favourites to your wishlist, and check
+            Browse the catalogue and check
             out — all scoped to your signed-in account.
           </p>
           <div className="hero-actions">

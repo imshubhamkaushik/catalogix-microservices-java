@@ -8,7 +8,6 @@ import {
   updateOrderStatus,
   getOrderTracking,
   getOrderInvoice,
-  requestReturn,
 } from "../api";
 import { useAuth } from "../context/AuthContext";
 import Toast from "./Toast";
@@ -306,15 +305,18 @@ function InvoiceModal({ orderId, onClose, onError }) {
         onClick={onClose}
       />
 
-      <div
+      <dialog
+        open
         className="modal-card"
-        role="dialog"
-        aria-modal="true"
         aria-label={`Invoice ${invoice.invoiceNumber}`}
+        onCancel={onClose}
       >
         <div className="modal-header">
           <div>
-            <p className="form-panel-label" style={{ marginBottom: 2 }}>
+            <p
+              className="form-panel-label"
+              style={{ marginBottom: 2 }}
+            >
               {invoice.invoiceNumber}
             </p>
 
@@ -400,13 +402,6 @@ function InvoiceModal({ orderId, onClose, onError }) {
             <span>{formatPrice(invoice.itemsSubtotal)}</span>
           </div>
 
-          {invoice.discountAmount > 0 && (
-            <div className="invoice-totals-row">
-              <span>Discount</span>
-              <span>-{formatPrice(invoice.discountAmount)}</span>
-            </div>
-          )}
-
           <div className="invoice-totals-row">
             <span>Taxable value</span>
             <span>{formatPrice(invoice.taxableValue)}</span>
@@ -442,7 +437,7 @@ function InvoiceModal({ orderId, onClose, onError }) {
             Close
           </button>
         </div>
-      </div>
+      </dialog>
     </div>
   );
 }
@@ -452,192 +447,6 @@ InvoiceModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onError: PropTypes.func.isRequired,
 };
-
-// -------- Return request modal --------
-
-function ReturnRequestModal({ order, onClose, onSubmitted, onError }) {
-  const [quantities, setQuantities] = useState(() =>
-    Object.fromEntries(order.items.map((item) => [item.productId, 0])),
-  );
-
-  const [reason, setReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const setQty = (productId, value, max) => {
-    const quantity = Math.max(0, Math.min(max, Number(value) || 0));
-
-    setQuantities((previous) => ({
-      ...previous,
-      [productId]: quantity,
-    }));
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-
-    const items = order.items
-      .filter((item) => quantities[item.productId] > 0)
-      .map((item) => ({
-        productId: item.productId,
-        quantity: quantities[item.productId],
-      }));
-
-    if (items.length === 0) {
-      onError("Choose at least one item to return.");
-      return;
-    }
-
-    if (!reason.trim()) {
-      onError("A reason is required.");
-      return;
-    }
-
-    setSubmitting(true);
-
-    try {
-      await requestReturn(order.id, reason, items);
-      onSubmitted();
-    } catch (error) {
-      onError(
-        error.response?.data?.message || "Failed to submit return request.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay">
-      <button
-        type="button"
-        className="modal-backdrop"
-        aria-label="Close return request"
-        onClick={onClose}
-        disabled={submitting}
-      />
-
-      <div
-        className="modal-card"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Request a return for order ${order.id}`}
-      >
-        <div className="modal-header">
-          <p className="form-panel-label" style={{ marginBottom: 0 }}>
-            Request a return — Order #{order.id}
-          </p>
-
-          <button
-            className="modal-close"
-            onClick={onClose}
-            title="Close"
-            type="button"
-            disabled={submitting}
-          >
-            ✕
-          </button>
-        </div>
-
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <div className="item-list" style={{ marginBottom: 12 }}>
-            {order.items.map((item) => (
-              <div key={item.productId} className="item-row">
-                <div className="item-meta">
-                  <div className="item-name">{item.productName}</div>
-
-                  <div className="item-sub">
-                    Purchased: {item.quantity} × {formatPrice(item.unitPrice)}
-                  </div>
-                </div>
-
-                <div className="item-actions">
-                  <span className="auth-help-text" style={{ margin: 0 }}>
-                    Return qty:
-                  </span>
-
-                  <input
-                    className="qty-input"
-                    type="number"
-                    min={0}
-                    max={item.quantity}
-                    value={quantities[item.productId]}
-                    onChange={(event) => {
-                      setQty(item.productId, event.target.value, item.quantity);
-                    }}
-                    disabled={submitting}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="field-wrap">
-            <label className="field-label" htmlFor="return-reason">
-              Reason
-            </label>
-
-            <textarea
-              id="return-reason"
-              className="field-input"
-              rows={3}
-              placeholder="Wrong size, damaged item, changed my mind…"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              disabled={submitting}
-            />
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-            }}
-          >
-            <button
-              className="form-submit auth-submit"
-              type="submit"
-              disabled={submitting}
-            >
-              {submitting ? "Submitting…" : "Submit return request"}
-            </button>
-
-            <button
-              className="btn-outline"
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Cancel
-            </button>
-          </div>
-
-          <span className="auth-help-text">
-            Returns are only accepted within 7 days of delivery. An admin will
-            review your request.
-          </span>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-ReturnRequestModal.propTypes = {
-  order: PropTypes.shape({
-    id: PropTypes.number.isRequired,
-    items: PropTypes.arrayOf(
-      PropTypes.shape({
-        productId: PropTypes.number,
-        productName: PropTypes.string,
-        quantity: PropTypes.number,
-        unitPrice: PropTypes.number,
-      }),
-    ).isRequired,
-  }).isRequired,
-  onClose: PropTypes.func.isRequired,
-  onSubmitted: PropTypes.func.isRequired,
-  onError: PropTypes.func.isRequired,
-};
-
 // -------- Orders page --------
 
 export default function Orders() {
@@ -650,7 +459,6 @@ export default function Orders() {
 
   const [trackingOpenFor, setTrackingOpenFor] = useState(null);
   const [invoiceOpenFor, setInvoiceOpenFor] = useState(null);
-  const [returnOpenFor, setReturnOpenFor] = useState(null);
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -670,11 +478,11 @@ export default function Orders() {
   }, []);
 
   useEffect(() => {
-    fetchOrders();
+    void fetchOrders();
   }, [fetchOrders]);
 
   const handlePaid = (result) => {
-    fetchOrders();
+    void fetchOrders();
 
     if (result.payment.status !== "SUCCEEDED") {
       setToast({
@@ -839,9 +647,6 @@ export default function Orders() {
 
                   <div className="item-sub item-sub-faint">
                     {formatDate(order.createdAt)}
-
-                    {order.appliedCouponCode &&
-                      ` · Coupon ${order.appliedCouponCode} (-${formatPrice(order.discountAmount)})`}
                   </div>
 
                   {order.status === "PENDING_PAYMENT" && (
@@ -905,7 +710,7 @@ export default function Orders() {
                       className="btn-small"
                       type="button"
                       onClick={() => {
-                        handleAdvanceStatus(order, "SHIPPED");
+                        void handleAdvanceStatus(order, "SHIPPED");
                       }}
                     >
                       Mark shipped
@@ -917,22 +722,10 @@ export default function Orders() {
                       className="btn-small"
                       type="button"
                       onClick={() => {
-                        handleAdvanceStatus(order, "DELIVERED");
+                        void handleAdvanceStatus(order, "DELIVERED");
                       }}
                     >
                       Mark delivered
-                    </button>
-                  )}
-
-                  {!isAdmin && order.status === "DELIVERED" && (
-                    <button
-                      className="btn-small"
-                      type="button"
-                      onClick={() => {
-                        setReturnOpenFor(order);
-                      }}
-                    >
-                      Request return
                     </button>
                   )}
                 </div>
@@ -946,23 +739,6 @@ export default function Orders() {
         <InvoiceModal
           orderId={invoiceOpenFor}
           onClose={() => setInvoiceOpenFor(null)}
-          onError={setError}
-        />
-      )}
-
-      {returnOpenFor && (
-        <ReturnRequestModal
-          order={returnOpenFor}
-          onClose={() => setReturnOpenFor(null)}
-          onSubmitted={() => {
-            setReturnOpenFor(null);
-
-            setToast({
-              message:
-                "Return request submitted — you'll hear back once it's reviewed.",
-              type: "success",
-            });
-          }}
           onError={setError}
         />
       )}

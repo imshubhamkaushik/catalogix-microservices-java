@@ -17,11 +17,9 @@
         <module>backend/catalog-svc</module>
         <module>backend/inventory-svc</module>
         <module>backend/cart-svc</module>
-        <module>backend/promotions-svc</module>
         <module>backend/payment-svc</module>
         <module>backend/checkout-svc</module>
         <module>backend/notification-svc</module>
-        <module>backend/review-svc</module>
     </modules>
 
     <!-- Global Properties -->
@@ -33,6 +31,8 @@
         <httpclient5.version>5.6.4</httpclient5.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
 
     <!-- Dependency Management -->

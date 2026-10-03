@@ -3,7 +3,6 @@ package com.catalogix.cart.svc;
 import com.catalogix.cart.client.CatalogClient;
 import com.catalogix.cart.client.InventoryClient;
 import com.catalogix.cart.client.ProductInfo;
-import com.catalogix.cart.client.PromotionsClient;
 import com.catalogix.cart.dto.AddCartItemRequest;
 import com.catalogix.cart.dto.CartResponse;
 import com.catalogix.cart.dto.CheckoutHandoff;
@@ -32,7 +31,6 @@ class CartSvcTest {
     @Mock private CartRepository repo;
     @Mock private CatalogClient catalogClient;
     @Mock private InventoryClient inventoryClient;
-    @Mock private PromotionsClient promotionsClient;
 
     private CartSvc svc;
 
@@ -41,7 +39,7 @@ class CartSvcTest {
     @BeforeEach
     void setUp() {
         MockitoAnnotations.openMocks(this);
-        svc = new CartSvc(repo, catalogClient, inventoryClient, promotionsClient);
+        svc = new CartSvc(repo, catalogClient, inventoryClient);
         when(repo.save(any(Cart.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -66,9 +64,7 @@ class CartSvcTest {
 
     @Test
     void getOrCreateCartPropagatesWhenProductLookupFails() {
-        // Unlike checkout-svc's old (deleted) cart tests, this service does
-        // NOT degrade a dead product to a placeholder line — a lookup
-        // failure here is a real, unhandled exception. See CartSvc.toResponse.
+        // A failed catalog lookup is propagated as an application error.
         Cart cart = new Cart(42L);
         cart.addItem(new CartItem(1L, 2));
         when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
@@ -191,90 +187,7 @@ class CartSvcTest {
         assertThrows(EmptyCartException.class, () -> svc.removeItem(42L, 1L, TOKEN));
     }
 
-    // ---- applyCoupon / removeCoupon ----
-
-    @Test
-    void applyCouponAppliesDiscountAndUppercasesCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        // preview() is called twice: once in applyCoupon itself against the
-        // code exactly as passed in ("save10"), then again inside the
-        // toResponse() it calls afterwards, by which point the code on the
-        // entity has already been uppercased to "SAVE10" — see CartSvc.applyCoupon.
-        when(promotionsClient.preview("save10", new BigDecimal("200.00"), TOKEN))
-                .thenReturn(new BigDecimal("20.00"));
-        when(promotionsClient.preview("SAVE10", new BigDecimal("200.00"), TOKEN))
-                .thenReturn(new BigDecimal("20.00"));
-
-        CartResponse resp = svc.applyCoupon(42L, "save10", TOKEN);
-
-        assertEquals("SAVE10", cart.getCouponCode());
-        assertEquals(new BigDecimal("20.00"), resp.getDiscountAmount());
-        assertEquals(new BigDecimal("180.00"), resp.getTotal());
-    }
-
-    @Test
-    void applyCouponRejectsInvalidCodeAndLeavesCartUntouched() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 1));
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        when(promotionsClient.preview(eq("BAD"), any(), eq(TOKEN)))
-                .thenThrow(new ProductUnavailableException("Coupon is not valid: BAD"));
-
-        assertThrows(ProductUnavailableException.class, () -> svc.applyCoupon(42L, "BAD", TOKEN));
-        // setCouponCode only runs after preview() succeeds, so a rejected
-        // coupon never gets persisted onto the cart in the first place.
-        assertNull(cart.getCouponCode());
-    }
-
-    @Test
-    void removeCouponClearsTheCode() {
-        Cart cart = new Cart(42L);
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-
-        svc.removeCoupon(42L, TOKEN);
-
-        assertNull(cart.getCouponCode());
-    }
-
-    @Test
-    void renderingKeepsACouponWhenPromotionServiceIsTemporarilyUnavailable() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-        when(catalogClient.fetch(1L, TOKEN)).thenReturn(product(1L, "Phone", "100.00"));
-        when(inventoryClient.fetchQuantity(1L, TOKEN)).thenReturn(10);
-        when(promotionsClient.preview(eq("SAVE10"), any(), eq(TOKEN)))
-                .thenThrow(new ProductUnavailableException("Coupon is not valid: SAVE10"));
-
-        CartResponse resp = svc.getOrCreateCart(42L, TOKEN);
-
-        assertEquals("SAVE10", resp.getCouponCode());
-        assertEquals("SAVE10", cart.getCouponCode());
-        assertEquals(BigDecimal.ZERO, resp.getDiscountAmount());
-    }
-
     // ---- toCheckoutHandoff ----
-
-    @Test
-    void toCheckoutHandoffCarriesItemsAndCouponCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-
-        CheckoutHandoff handoff = svc.toCheckoutHandoff(42L);
-
-        assertEquals(1, handoff.getItems().size());
-        assertEquals(1L, handoff.getItems().get(0).getProductId());
-        assertEquals(2, handoff.getItems().get(0).getQuantity());
-        assertEquals("SAVE10", handoff.getCouponCode());
-    }
 
     @Test
     void toCheckoutHandoffRejectsWhenCartDoesNotExist() {
@@ -289,20 +202,6 @@ class CartSvcTest {
     }
 
     // ---- clear ----
-
-    @Test
-    void clearEmptiesItemsAndCouponCode() {
-        Cart cart = new Cart(42L);
-        cart.addItem(new CartItem(1L, 2));
-        cart.setCouponCode("SAVE10");
-        when(repo.findByUserId(42L)).thenReturn(Optional.of(cart));
-
-        svc.clear(42L);
-
-        assertTrue(cart.getItems().isEmpty());
-        assertNull(cart.getCouponCode());
-        verify(repo).save(cart);
-    }
 
     @Test
     void clearIsANoOpWhenCartDoesNotExist() {

@@ -6,7 +6,6 @@ import com.catalogix.checkout.client.CartClient;
 import com.catalogix.checkout.client.CatalogClient;
 import com.catalogix.checkout.client.InventoryClient;
 import com.catalogix.checkout.client.PaymentClient;
-import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.client.RefundClient;
 import com.catalogix.checkout.dto.CreateOrderRequest;
 import com.catalogix.checkout.dto.OrderItemRequest;
@@ -100,7 +99,6 @@ class CheckoutPaymentIntegrationTest {
     @MockitoBean PaymentClient paymentClient;
     @MockitoBean InventoryClient inventoryClient;
     @MockitoBean CatalogClient catalogClient;
-    @MockitoBean PromotionsClient promotionsClient;
     @MockitoBean CartClient cartClient;
     @MockitoBean AddressClient addressClient;
     @MockitoBean RefundClient refundClient;

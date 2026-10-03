@@ -8,7 +8,6 @@ import com.catalogix.checkout.dto.OrderTrackingResponse;
 import com.catalogix.checkout.dto.PagedResponse;
 import com.catalogix.checkout.dto.PayOrderRequest;
 import com.catalogix.checkout.dto.UpdateOrderStatusRequest;
-import com.catalogix.checkout.dto.VerifiedPurchaseResponse;
 import com.catalogix.checkout.exception.ForbiddenException;
 import com.catalogix.checkout.svc.CheckoutSvc;
 
@@ -25,7 +24,6 @@ import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -159,19 +157,6 @@ public class OrderController {
         return ResponseEntity.ok(svc.getInvoice(id, userId, role));
     }
 
-    // Called by review-svc (forwarding the caller's own token — checking
-    // your own purchase history isn't a privileged lookup) to decide whether
-    // a review earns the "Verified Purchase" badge. Deliberately scoped to
-    // the calling user's own orders only — there is no productId+userId
-    // variant for checking someone ELSE's purchase history, since nothing
-    // in this app has a legitimate reason to ask that question.
-    @GetMapping("/verified-purchase")
-    public ResponseEntity<VerifiedPurchaseResponse> verifiedPurchase(
-            @RequestAttribute("userId") Long userId,
-            @RequestParam Long productId
-    ) {
-        return ResponseEntity.ok(new VerifiedPurchaseResponse(svc.isVerifiedPurchase(userId, productId)));
-    }
 
     @PostMapping("/{id}/pay")
     public ResponseEntity<Map<String, Object>> pay(

@@ -30,13 +30,10 @@
 #     docker-compose setup already uses, and now also what the gateway
 #     container itself listens on (see gateway/nginx.conf's "listen 11000").
 #   - No autoscaling: HPA off, every service pinned to 1 replica. This is
-#     the main thing that makes footprint "fit" a laptop — 9 backend
-#     backend services + gateway + frontend + rabbitmq + postgres at 2 replicas
-#     each would ask for far more CPU/memory than most dev machines have
-#     free alongside everything else running on it.
-#   - No tracing: Tempo (and the OTLP env vars that pointed at it) has been
-#     removed entirely — see the app chart's global values and _helpers.tpl.
-#     Local dev never had a tracing backend of its own either way.
+#     the main thing that makes the footprint "fit" a laptop — 7 backend
+#     services + gateway + frontend + RabbitMQ + Postgres at 1 replica each
+#     still have a meaningful resource footprint alongside other dev tooling.
+#   - No tracing backend: local Helm does not deploy an in-cluster collector.
 
 global:
   cloudProvider: "local"
@@ -60,8 +57,8 @@ ingress:
   enabled: false
 
 hpa:
-  # Disables HPA for all 9 backend services AND frontend — the
-  # frontend-svc HPA block in templates/hpa.yaml is nested inside this same
+  # Disables HPA for all 7 backend services AND frontend — the
+  # frontend HPA block in templates/hpa.yaml is nested inside this same
   # top-level flag rather than having its own independent one like
   # gateway.hpa does below. Worth knowing if you ever want frontend
   # autoscaling on while the backend services' is off — today that's not
@@ -112,12 +109,6 @@ backendServices:
       repository: "catalogix_cart-svc"
       tag: "latest"
   
-  promotions-svc: 
-    replicaCount: 1
-    image:
-      repository: "catalogix_promotions-svc"
-      tag: "latest"
-  
   payment-svc: 
     replicaCount: 1
     image:
@@ -128,18 +119,6 @@ backendServices:
     replicaCount: 1
     image:
       repository: "catalogix_checkout-svc"
-      tag: "latest"
-  
-  notification-svc: 
-    replicaCount: 1
-    image:
-      repository: "catalogix_notification-svc"
-      tag: "latest"
-  
-  review-svc: 
-    replicaCount: 1
-    image:
-      repository: "catalogix_review-svc"
       tag: "latest"
 
 gateway:

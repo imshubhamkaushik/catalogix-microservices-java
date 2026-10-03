@@ -12,9 +12,9 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 
 /**
- * checkout-svc's only caller is ReturnSvc#approve, and only for CARD/UPI
+ * checkout-svc's only caller is order cancellation flow, and only for CARD/UPI
  * orders — a COD order never reaches this client at all, since there's no
- * captured payment to reverse (see ReturnSvc's Javadoc). Mints a system
+ * captured payment to reverse (see the cancellation flow's Javadoc). Mints a system
  * token the same way PaymentClient does, for the same reason: this is a
  * privileged, money-moving call that must not be reachable by a regular
  * user's own token.

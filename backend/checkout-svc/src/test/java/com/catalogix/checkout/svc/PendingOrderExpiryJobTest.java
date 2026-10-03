@@ -45,7 +45,7 @@ class PendingOrderExpiryJobTest {
     void oneFailingOrderDoesNotStopTheSweep() {
         when(orders.findIdsByStatusCreatedBefore(eq(OrderStatus.PENDING_PAYMENT), any(Instant.class), any(Pageable.class)))
                 .thenReturn(List.of(1L, 2L));
-        doThrow(new RuntimeException("promotions-svc down")).when(checkoutSvc).expireUnpaidOrder(1L);
+        doThrow(new RuntimeException("inventory-svc down")).when(checkoutSvc).expireUnpaidOrder(1L);
 
         job.sweep();
 

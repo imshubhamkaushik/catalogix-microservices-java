@@ -4,11 +4,8 @@
 # and SonarQube EC2 instances, following the approach already documented
 # (but not automated) in terraform/bootstrap-infra/key-pair.tf:
 #
-#   - Generated LOCALLY with ssh-keygen — Terraform never sees the private
-#     half. The old approach (tls_private_key + local_sensitive_file) put
-#     the private key into the Terraform state file in plaintext, readable
-#     by anyone with s3:GetObject on the state bucket — which today includes
-#     Jenkins's own IAM role. aws_key_pair only ever needs the PUBLIC key.
+#   - Generated LOCALLY with ssh-keygen — Terraform only receives the PUBLIC
+#     key through aws_key_pair, while the private key stays on the local host.
 #   - ed25519, not RSA — shorter, faster, and the modern default recommended
 #     by OpenSSH itself since 6.5 (2014). No real reason to default to RSA
 #     in 2026 unless something you connect to specifically requires it.

@@ -177,9 +177,9 @@ class PaymentControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
-    // Replaces the old processRejectsBlankMethod test — method is a real
-    // enum now, so "blank" isn't a meaningful case anymore; an unrecognized
-    // value is the equivalent failure mode, and exercises the
+    // An unrecognized payment method is the invalid-input case; payment
+    // methods are represented by a real enum, so a blank string is not a
+    // meaningful domain value. This exercises the
     // HttpMessageNotReadableException handler added alongside this feature.
     @Test
     void processRejectsAnUnrecognizedMethodValue() throws Exception {

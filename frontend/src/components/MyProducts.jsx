@@ -46,7 +46,7 @@ function StockEditor({ product, onSaved, onError }) {
   };
 
   return (
-    <form className="coupon-row" onSubmit={handleSubmit}>
+    <form className="stock-editor-row" onSubmit={handleSubmit}>
       <input
         className="qty-input"
         type="number"

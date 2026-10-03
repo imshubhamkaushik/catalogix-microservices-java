@@ -112,14 +112,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
-    @ExceptionHandler(CouponInvalidException.class)
-    public ResponseEntity<Map<String, Object>> handleCouponInvalid(CouponInvalidException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, Instant.now().toString());
-        body.put(STATUS, HttpStatus.BAD_REQUEST.value());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
-    }
 
     @ExceptionHandler(InvalidOrderStateException.class)
     public ResponseEntity<Map<String, Object>> handleInvalidOrderState(InvalidOrderStateException ex) {
@@ -130,25 +122,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
-    @ExceptionHandler(com.catalogix.checkout.exception.ReturnRequestNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleReturnNotFound(
-            com.catalogix.checkout.exception.ReturnRequestNotFoundException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, Instant.now().toString());
-        body.put(STATUS, HttpStatus.NOT_FOUND.value());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
-    }
-
-    @ExceptionHandler(com.catalogix.checkout.exception.InvalidReturnException.class)
-    public ResponseEntity<Map<String, Object>> handleInvalidReturn(
-            com.catalogix.checkout.exception.InvalidReturnException ex) {
-        Map<String, Object> body = new HashMap<>();
-        body.put(MESSAGE, ex.getMessage());
-        body.put(TIMESTAMP, Instant.now().toString());
-        body.put(STATUS, HttpStatus.CONFLICT.value());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
-    }
 
     @ExceptionHandler(com.catalogix.checkout.exception.RefundFailedException.class)
     public ResponseEntity<Map<String, Object>> handleRefundFailed(

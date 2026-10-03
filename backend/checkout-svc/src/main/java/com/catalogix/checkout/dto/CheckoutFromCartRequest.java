@@ -1,8 +1,6 @@
 package com.catalogix.checkout.dto;
 
-// POST /orders/checkout previously took no body at all. This is
-// intentionally optional (the endpoint still works with no body / a null
-// addressId, same as before) — see CreateOrderRequest.addressId for why.
+// The request body is optional; addressId may be omitted.
 public class CheckoutFromCartRequest {
 
     private Long addressId;

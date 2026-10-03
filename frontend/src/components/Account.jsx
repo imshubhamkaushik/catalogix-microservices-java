@@ -2,12 +2,32 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
-  updateProfile, resendVerification, logoutEverywhere,
-  getAddresses, createAddress, updateAddress, setDefaultAddress, deleteAddress,
-  getOrders, getSessions, revokeSession, updateNotificationPreferences, deleteUser, becomeSeller,
+  updateProfile,
+  resendVerification,
+  logoutEverywhere,
+  getAddresses,
+  createAddress,
+  updateAddress,
+  setDefaultAddress,
+  deleteAddress,
+  getOrders,
+  getSessions,
+  revokeSession,
+  updateNotificationPreferences,
+  deleteUser,
+  becomeSeller,
 } from "../api";
 
-const EMPTY_ADDRESS_FORM = { label: "", line1: "", line2: "", city: "", state: "", pincode: "", phone: "", makeDefault: false };
+const EMPTY_ADDRESS_FORM = {
+  label: "",
+  line1: "",
+  line2: "",
+  city: "",
+  state: "",
+  pincode: "",
+  phone: "",
+  makeDefault: false,
+};
 
 function formatDate(value) {
   return new Date(value).toLocaleString("en-IN", {
@@ -35,7 +55,8 @@ function describeUserAgent(userAgent) {
   if (userAgent.includes("Windows")) os = "Windows";
   else if (userAgent.includes("Mac OS")) os = "macOS";
   else if (userAgent.includes("Android")) os = "Android";
-  else if (userAgent.includes("iPhone") || userAgent.includes("iPad")) os = "iOS";
+  else if (userAgent.includes("iPhone") || userAgent.includes("iPad"))
+    os = "iOS";
   else if (userAgent.includes("Linux")) os = "Linux";
 
   return `${browser} on ${os}`;
@@ -53,7 +74,9 @@ export default function Account() {
     try {
       const updated = await becomeSeller();
       updateUser(updated);
-      setToast("Request sent — an admin will review it. You'll be able to list products once it is approved.");
+      setToast(
+        "Request sent — an admin will review it. You'll be able to list products once it is approved.",
+      );
     } catch {
       setError("Failed to send the request. Please try again.");
     } finally {
@@ -80,15 +103,18 @@ export default function Account() {
   }, []);
 
   // ---- Notification preferences ----
-  const [orderEmailsEnabled, setOrderEmailsEnabled] = useState(user?.orderEmailsEnabled ?? true);
-  const [promoEmailsEnabled, setPromoEmailsEnabled] = useState(user?.promoEmailsEnabled ?? true);
+  const [orderEmailsEnabled, setOrderEmailsEnabled] = useState(
+    user?.orderEmailsEnabled ?? true,
+  );
   const [prefsSubmitting, setPrefsSubmitting] = useState(false);
 
   const handleSavePreferences = async () => {
     setPrefsSubmitting(true);
     setError("");
     try {
-      const updated = await updateNotificationPreferences({ orderEmailsEnabled, promoEmailsEnabled });
+      const updated = await updateNotificationPreferences({
+        orderEmailsEnabled,
+      });
       updateUser(updated);
       setToast("Notification preferences saved.");
     } catch {
@@ -114,7 +140,9 @@ export default function Account() {
     }
   };
 
-  useEffect(() => { fetchSessions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void fetchSessions();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRevokeSession = async (id) => {
     setRevokingId(id);
@@ -132,13 +160,18 @@ export default function Account() {
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   const handleDeleteAccount = async () => {
-    if (!globalThis.confirm("Delete your account permanently? This cannot be undone.")) return;
+    if (
+      !globalThis.confirm(
+        "Delete your account permanently? This cannot be undone.",
+      )
+    )
+      return;
     setDeletingAccount(true);
     setError("");
     try {
       await deleteUser(user.id);
       await logout();
-      navigate("/login", { replace: true });
+      await navigate("/login", { replace: true });
     } catch {
       setError("Failed to delete your account. Please try again.");
       setDeletingAccount(false);
@@ -166,7 +199,9 @@ export default function Account() {
     }
   };
 
-  useEffect(() => { fetchAddresses(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void fetchAddresses();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openAddAddressForm = () => {
     setAddressForm(EMPTY_ADDRESS_FORM);
@@ -176,9 +211,14 @@ export default function Account() {
 
   const openEditAddressForm = (address) => {
     setAddressForm({
-      label: address.label, line1: address.line1, line2: address.line2 || "",
-      city: address.city, state: address.state, pincode: address.pincode,
-      phone: address.phone, makeDefault: false,
+      label: address.label,
+      line1: address.line1,
+      line2: address.line2 || "",
+      city: address.city,
+      state: address.state,
+      pincode: address.pincode,
+      phone: address.phone,
+      makeDefault: false,
     });
     setEditingAddressId(address.id);
     setShowAddressForm(true);
@@ -238,7 +278,8 @@ export default function Account() {
       const updates = { name };
       if (email.trim() !== user?.email) updates.email = email.trim();
       if (newPassword) updates.newPassword = newPassword;
-      if (updates.email || updates.newPassword) updates.currentPassword = currentPassword;
+      if (updates.email || updates.newPassword)
+        updates.currentPassword = currentPassword;
 
       const updated = await updateProfile(updates);
       updateUser(updated);
@@ -265,13 +306,26 @@ export default function Account() {
   };
 
   const handleLogoutEverywhere = async () => {
-    if (!globalThis.confirm("Log out of every device/session for this account?")) return;
+    if (
+      !globalThis.confirm("Log out of every device/session for this account?")
+    )
+      return;
     try {
       await logoutEverywhere();
     } finally {
       await logout();
     }
   };
+
+  let addressSubmitLabel = "Add address";
+
+  if (editingAddressId) {
+    addressSubmitLabel = "Update address";
+  }
+
+  if (addressSubmitting) {
+    addressSubmitLabel = "Saving…";
+  }
 
   return (
     <div className="page-wrapper">
@@ -283,7 +337,12 @@ export default function Account() {
       </div>
 
       <div className="page-content">
-        {toast && <div className="toast toast-success"><div className="toast-dot" />{toast}</div>}
+        {toast && (
+          <div className="toast toast-success">
+            <div className="toast-dot" />
+            {toast}
+          </div>
+        )}
         {error && <div className="toast toast-error">{error}</div>}
 
         {!user?.verified && (
@@ -303,20 +362,35 @@ export default function Account() {
         )}
 
         <div className="form-panel">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 12,
+            }}
+          >
             <div>
-              <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{user?.name}</p>
+              <p style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>
+                {user?.name}
+              </p>
               <p className="auth-help-text" style={{ margin: "2px 0 0" }}>
                 {user?.email}
-                {user?.createdAt ? ` · Member since ${formatDate(user.createdAt)}` : ""}
+                {user?.createdAt
+                  ? ` · Member since ${formatDate(user.createdAt)}`
+                  : ""}
               </p>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <span className={`badge ${user?.verified ? "badge-in-stock" : "badge-out-of-stock"}`}>
+              <span
+                className={`badge ${user?.verified ? "badge-in-stock" : "badge-out-of-stock"}`}
+              >
                 {user?.verified ? "Email verified" : "Email not verified"}
               </span>
               <span className="badge badge-category">
-                {orderCount === null ? "…" : orderCount} order{orderCount === 1 ? "" : "s"}
+                {orderCount === null ? "…" : orderCount} order
+                {orderCount === 1 ? "" : "s"}
               </span>
             </div>
           </div>
@@ -327,15 +401,16 @@ export default function Account() {
             <p className="form-panel-label">Sell on Catalogix</p>
             {user?.requestedRole === "SELLER" ? (
               <p className="auth-help-text">
-                Your seller request is pending — an admin will review it. Once it is
-                approved, sign in again (or wait for your session to refresh) and
-                "My Products" appears in the account menu.
+                Your seller request is pending — an admin will review it. Once
+                it is approved, sign in again (or wait for your session to
+                refresh) and "My Products" appears in the account menu.
               </p>
             ) : (
               <>
                 <p className="auth-help-text">
-                  Want to list your own products and manage their stock? Request seller
-                  access — an admin reviews every request before it is granted.
+                  Want to list your own products and manage their stock? Request
+                  seller access — an admin reviews every request before it is
+                  granted.
                 </p>
                 <button
                   className="btn-small"
@@ -352,106 +427,130 @@ export default function Account() {
 
         <div className="form-panel">
           <p className="form-panel-label">Profile</p>
-          <form className="auth-form" onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
+          <form
+            className="auth-form"
+            onSubmit={handleSubmit}
+            style={{ maxWidth: 420 }}
+          >
             <div className="field-wrap">
-              <label className="field-label" htmlFor="acct-name">Full name</label>
+              <label className="field-label" htmlFor="account-name">
+                Full name
+              </label>
               <input
-                id="acct-name"
+                id="account-name"
                 className="field-input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                disabled={submitting}
+                autoComplete="name"
               />
             </div>
+
             <div className="field-wrap">
-              <label className="field-label" htmlFor="acct-email">Email address</label>
+              <label className="field-label" htmlFor="account-email">
+                Email address
+              </label>
               <input
-                id="acct-email"
+                id="account-email"
                 className="field-input"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={submitting}
+                autoComplete="email"
               />
             </div>
+
             <div className="field-wrap">
-              <label className="field-label" htmlFor="acct-new-password">New password (optional)</label>
+              <label className="field-label" htmlFor="account-new-password">
+                New password
+              </label>
               <input
-                id="acct-new-password"
+                id="account-new-password"
                 className="field-input"
                 type="password"
-                placeholder="Leave blank to keep your current password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                disabled={submitting}
+                autoComplete="new-password"
+                placeholder="Leave blank to keep the current password"
               />
             </div>
+
             <div className="field-wrap">
-              <label className="field-label" htmlFor="acct-current-password">Current password</label>
+              <label className="field-label" htmlFor="account-current-password">
+                Current password
+              </label>
               <input
-                id="acct-current-password"
+                id="account-current-password"
                 className="field-input"
                 type="password"
-                placeholder="Required only if changing email or password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                disabled={submitting}
+                autoComplete="current-password"
+                placeholder="Required when changing email or password"
               />
             </div>
-            <button className="form-submit auth-submit" type="submit" disabled={submitting}>
+
+            <button className="btn-small" type="submit" disabled={submitting}>
               {submitting ? "Saving…" : "Save changes"}
             </button>
           </form>
         </div>
 
         <div className="form-panel">
-          <p className="form-panel-label">Addresses</p>
+          <p className="form-panel-label">Saved addresses</p>
 
           {addressesLoading && <p className="auth-help-text">Loading…</p>}
 
           {!addressesLoading && addresses.length === 0 && !showAddressForm && (
-            <p className="auth-help-text">
-              No saved addresses yet. Add one so checkout can ship straight to you.
-            </p>
+            <p className="auth-help-text">No saved addresses yet.</p>
           )}
 
           {!addressesLoading && addresses.length > 0 && (
             <div className="item-list" style={{ marginBottom: 12 }}>
-              {addresses.map((addr) => (
-                <div key={addr.id} className="item-row">
+              {addresses.map((address) => (
+                <div key={address.id} className="item-row">
                   <div className="item-meta">
                     <div className="item-name">
-                      {addr.label}
-                      {addr.default && <span className="badge badge-default">Default</span>}
+                      {address.label}
+                      {address.default && (
+                        <span className="badge badge-default">Default</span>
+                      )}
                     </div>
                     <div className="item-sub">
-                      {addr.line1}{addr.line2 ? `, ${addr.line2}` : ""}, {addr.city}, {addr.state} {addr.pincode} · {addr.phone}
+                      {address.line1}
+                      {address.line2 ? `, ${address.line2}` : ""}
+                      <br />
+                      {address.city}, {address.state} {address.pincode} ·{" "}
+                      {address.phone}
                     </div>
                   </div>
                   <div className="item-actions">
-                    {!addr.default && (
+                    {!address.default && (
                       <button
                         className="btn-small"
-                        onClick={() => handleSetDefaultAddress(addr.id)}
-                        disabled={addressBusyId === addr.id}
+                        onClick={() => handleSetDefaultAddress(address.id)}
+                        disabled={addressBusyId === address.id}
                         type="button"
                       >
-                        Set default
+                        {addressBusyId === address.id
+                          ? "Saving…"
+                          : "Set default"}
                       </button>
                     )}
-                    <button className="btn-small" onClick={() => openEditAddressForm(addr)} type="button">
+                    <button
+                      className="btn-small"
+                      onClick={() => openEditAddressForm(address)}
+                      disabled={addressBusyId === address.id}
+                      type="button"
+                    >
                       Edit
                     </button>
                     <button
-                      className="icon-btn"
-                      onClick={() => handleDeleteAddress(addr.id)}
-                      disabled={addressBusyId === addr.id}
-                      title="Delete address"
+                      className="btn-small"
+                      onClick={() => handleDeleteAddress(address.id)}
+                      disabled={addressBusyId === address.id}
                       type="button"
                     >
-                      <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
-                        <path d="M11 1.5v1h3.5a.5.5 0 010 1H13v9a1 1 0 01-1 1H4a1 1 0 01-1-1v-9H1.5a.5.5 0 010-1H5v-1A1.5 1.5 0 016.5 0h3A1.5 1.5 0 0111 1.5zm-5 0v1h4v-1a.5.5 0 00-.5-.5h-3a.5.5 0 00-.5.5zM5.5 5.5a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6zm2.5 0a.5.5 0 00-1 0v6a.5.5 0 001 0v-6z" />
-                      </svg>
+                      Delete
                     </button>
                   </div>
                 </div>
@@ -459,111 +558,215 @@ export default function Account() {
             </div>
           )}
 
-          {!showAddressForm && (
-            <button className="btn-small" onClick={openAddAddressForm} type="button">
-              + Add new address
-            </button>
-          )}
-
           {showAddressForm && (
-            <form className="auth-form" onSubmit={handleAddressSubmit} style={{ maxWidth: 420, marginTop: addresses.length ? 0 : 8 }}>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-label">Label</label>
-                <input id="addr-label" className="field-input" placeholder="Home, Office…"
-                  value={addressForm.label}
-                  onChange={(e) => setAddressForm({ ...addressForm, label: e.target.value })}
-                  disabled={addressSubmitting} required />
+            <form
+              className="auth-form"
+              onSubmit={handleAddressSubmit}
+              style={{ maxWidth: 640, marginTop: 12 }}
+            >
+              <div className="form-fields form-fields-4">
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-label">
+                    Label
+                  </label>
+                  <input
+                    id="address-label"
+                    className="field-input"
+                    value={addressForm.label}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        label: e.target.value,
+                      }))
+                    }
+                    placeholder="Home"
+                    required
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-line1">
+                    Address line 1
+                  </label>
+                  <input
+                    id="address-line1"
+                    className="field-input"
+                    value={addressForm.line1}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        line1: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-line2">
+                    Address line 2
+                  </label>
+                  <input
+                    id="address-line2"
+                    className="field-input"
+                    value={addressForm.line2}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        line2: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-city">
+                    City
+                  </label>
+                  <input
+                    id="address-city"
+                    className="field-input"
+                    value={addressForm.city}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        city: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-state">
+                    State
+                  </label>
+                  <input
+                    id="address-state"
+                    className="field-input"
+                    value={addressForm.state}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        state: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-pincode">
+                    Pincode
+                  </label>
+                  <input
+                    id="address-pincode"
+                    className="field-input"
+                    value={addressForm.pincode}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        pincode: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                <div className="field-wrap">
+                  <label className="field-label" htmlFor="address-phone">
+                    Phone
+                  </label>
+                  <input
+                    id="address-phone"
+                    className="field-input"
+                    value={addressForm.phone}
+                    onChange={(e) =>
+                      setAddressForm((current) => ({
+                        ...current,
+                        phone: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+                {!editingAddressId && (
+                  <label
+                    className="field-wrap"
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 7,
+                      alignSelf: "end",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={addressForm.makeDefault}
+                      onChange={(e) =>
+                        setAddressForm((current) => ({
+                          ...current,
+                          makeDefault: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span className="field-label">Make default</span>
+                  </label>
+                )}
               </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-line1">Address line 1</label>
-                <input id="addr-line1" className="field-input"
-                  value={addressForm.line1}
-                  onChange={(e) => setAddressForm({ ...addressForm, line1: e.target.value })}
-                  disabled={addressSubmitting} required />
-              </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-line2">Address line 2 (optional)</label>
-                <input id="addr-line2" className="field-input"
-                  value={addressForm.line2}
-                  onChange={(e) => setAddressForm({ ...addressForm, line2: e.target.value })}
-                  disabled={addressSubmitting} />
-              </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-city">City</label>
-                <input id="addr-city" className="field-input"
-                  value={addressForm.city}
-                  onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-                  disabled={addressSubmitting} required />
-              </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-state">State</label>
-                <input id="addr-state" className="field-input"
-                  value={addressForm.state}
-                  onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
-                  disabled={addressSubmitting} required />
-              </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-pincode">Pincode</label>
-                <input id="addr-pincode" className="field-input"
-                  value={addressForm.pincode}
-                  onChange={(e) => setAddressForm({ ...addressForm, pincode: e.target.value })}
-                  disabled={addressSubmitting} required />
-              </div>
-              <div className="field-wrap">
-                <label className="field-label" htmlFor="addr-phone">Phone</label>
-                <input id="addr-phone" className="field-input"
-                  value={addressForm.phone}
-                  onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
-                  disabled={addressSubmitting} required />
-              </div>
-              {!editingAddressId && (
-                <label className="field-wrap" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <input type="checkbox" checked={addressForm.makeDefault}
-                    onChange={(e) => setAddressForm({ ...addressForm, makeDefault: e.target.checked })}
-                    disabled={addressSubmitting} />
-                  <span className="field-label" style={{ margin: 0 }}>Make this my default address</span>
-                </label>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="form-submit auth-submit" type="submit" disabled={addressSubmitting}>
-                  {(() => {
-                    if (addressSubmitting) return "Saving…";
-                    if (editingAddressId) return "Save address";
-                    return "Add address";
-                  })()}
+
+              <div className="item-actions">
+                <button
+                  className="btn-small"
+                  type="submit"
+                  disabled={addressSubmitting}
+                >
+                  {addressSubmitLabel}
                 </button>
-                <button className="btn-outline" type="button" onClick={() => setShowAddressForm(false)} disabled={addressSubmitting}>
+                <button
+                  className="btn-small"
+                  type="button"
+                  onClick={() => {
+                    setShowAddressForm(false);
+                    setEditingAddressId(null);
+                    setAddressForm(EMPTY_ADDRESS_FORM);
+                  }}
+                  disabled={addressSubmitting}
+                >
                   Cancel
                 </button>
               </div>
             </form>
           )}
+
+          {!showAddressForm && (
+            <button
+              className="btn-small"
+              onClick={openAddAddressForm}
+              type="button"
+            >
+              Add new address
+            </button>
+          )}
         </div>
 
         <div className="form-panel">
-          <p className="form-panel-label">Notification preferences</p>
-          <label className="field-wrap" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <p className="form-panel-label">Notifications</p>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              cursor: "pointer",
+            }}
+          >
             <input
               type="checkbox"
               checked={orderEmailsEnabled}
               onChange={(e) => setOrderEmailsEnabled(e.target.checked)}
-              disabled={prefsSubmitting}
             />
-            <span className="field-label" style={{ margin: 0 }}>
-              Order status emails (confirmation, shipped, delivered, cancelled)
-            </span>
+            <span>Order status emails</span>
           </label>
-          <label className="field-wrap" style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
-            <input
-              type="checkbox"
-              checked={promoEmailsEnabled}
-              onChange={(e) => setPromoEmailsEnabled(e.target.checked)}
-              disabled={prefsSubmitting}
-            />
-            <span className="field-label" style={{ margin: 0 }}>
-              Promotional emails and offers
-            </span>
-          </label>
+          <p
+            className="auth-help-text"
+            style={{ marginTop: 8, marginBottom: 0 }}
+          >
+            Receive email updates when your orders change status.
+          </p>
           <button
             className="btn-small"
             style={{ marginTop: 10 }}
@@ -591,10 +794,15 @@ export default function Account() {
                   <div className="item-meta">
                     <div className="item-name">
                       {describeUserAgent(s.userAgent)}
-                      {s.current && <span className="badge badge-in-stock">This device</span>}
+                      {s.current && (
+                        <span className="badge badge-in-stock">
+                          This device
+                        </span>
+                      )}
                     </div>
                     <div className="item-sub">
-                      Last active {formatDate(s.lastUsedAt)} · Signed in {formatDate(s.createdAt)}
+                      Last active {formatDate(s.lastUsedAt)} · Signed in{" "}
+                      {formatDate(s.createdAt)}
                     </div>
                   </div>
                   <div className="item-actions">
@@ -615,16 +823,22 @@ export default function Account() {
           )}
 
           <p className="auth-help-text">
-            If you think another device might have access to your account,
-            you can sign out everywhere at once.
+            If you think another device might have access to your account, you
+            can sign out everywhere at once.
           </p>
-          <button className="btn-small" onClick={handleLogoutEverywhere} type="button">
+          <button
+            className="btn-small"
+            onClick={handleLogoutEverywhere}
+            type="button"
+          >
             Log out of all devices
           </button>
         </div>
 
         <div className="form-panel" style={{ borderColor: "var(--red-200)" }}>
-          <p className="form-panel-label" style={{ color: "var(--red-600)" }}>Danger zone</p>
+          <p className="form-panel-label" style={{ color: "var(--red-600)" }}>
+            Danger zone
+          </p>
           <p className="auth-help-text">
             Deleting your account is permanent and cannot be undone. Your saved
             addresses and sessions are removed immediately.

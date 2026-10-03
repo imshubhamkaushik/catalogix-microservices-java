@@ -5,8 +5,7 @@ global:
   targetNamespace: catalogix
   # Set via --set at deploy time: --set global.alertingSecretName=<cluster-name>/alerting-secrets
   # Deterministic string Jenkins already knows (CLUSTER_NAME env var) —
-  # unlike the Loki bucket name, this doesn't need an SSM round-trip
-  # since it's not a Terraform-generated value, just a naming convention.
+  # This is not Terraform-generated; Jenkins passes the cluster-specific name directly.
   alertingSecretName: ""
 
   # Set via --set at deploy time: --set global.operatorSecretName=<cluster-name>/operator-credentials
@@ -163,13 +162,11 @@ kube-prometheus-stack:
         - name: "critical-receiver"
           email_configs:
             # Empty placeholders — Alertmanager's config file does NOT
-            # support ${VAR}-style shell interpolation (a first draft of
-            # this used that and it would have silently rendered as a
-            # literal string, not a real value). Real values come from
+            # support ${VAR}-style shell interpolation. Real values come from
             # Jenkinsfile.platform-infra's --set flags at deploy time,
             # same convention as every other Terraform-generated or
-            # environment-specific value in this project (database.host,
-            # the Loki bucket name, etc.) — none of it lives in a
+            # environment-specific value in this project (database.host, etc.) — none
+            # of it lives in a
             # committed values.yaml.
             - to: ""            # --set 'kube-prometheus-stack.alertmanager.config.receivers[1].email_configs[0].to=ops@example.com'
               from: "alertmanager@catalogix.local"
@@ -286,7 +283,7 @@ kube-prometheus-stack:
             - alert: OutboxDeadLetterBacklog
               # checkout_outbox_dead_letter_count comes from
               # backend/checkout-svc's OutboxMetrics — a stuck refund,
-              # stock-release, or coupon-restore that exhausted its
+              # stock-release that exhausted its
               # retries and needs a human. This metric doesn't self-heal;
               # it only drops when someone manually resolves the row, so
               # any nonzero value sitting for 10+ minutes is worth paging on.
@@ -297,7 +294,7 @@ kube-prometheus-stack:
                 severity: critical
               annotations:
                 summary: "checkout-svc has dead-lettered compensation entries"
-                description: "{{ $value }} outbox entries in DEAD_LETTER — failed refunds/stock-releases/coupon-restores needing manual review. See GET /admin/outbox on checkout-svc."
+                description: "{{ $value }} outbox entries in DEAD_LETTER — failed stock-releases needing manual review. See GET /admin/outbox on checkout-svc."
 
         - name: rabbitmq
           rules:
@@ -351,93 +348,3 @@ kube-prometheus-stack:
                 summary: "Queue {{ $labels.queue }} has messages but no consumers"
                 description: "{{ $labels.queue }} has had 0 consumers for 5+ minutes while messages are waiting — nothing is processing this queue."
 
-# ─── Loki — log aggregation ───────────────────────────────────────────────
-# Single-binary mode: one Loki process handles ingestion, storage, and
-# queries. This is the right choice at this scale — the distributed
-# multi-component mode exists for much higher log volume than a 9-service
-# fresher project generates, and would just be more moving parts to operate
-# for no real benefit yet. Storage is a local PVC (filesystem backend): no
-# object storage needed until this needs multi-replica HA.
-loki:
-  deploymentMode: SingleBinary
-  # Bucket name, region, and the IRSA role ARN come from Terraform
-  # (modules/observability-storage) via SSM, injected by
-  # Jenkinsfile.platform-infra's "Deploy Monitoring Stack" stage as --set
-  # flags: --set loki.loki.storage.bucketNames.chunks=<bucket>
-  #        --set loki.loki.storage.s3.region=<region>
-  #        --set loki.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"=<arn>
-  # Empty-string placeholders here are never meant to deploy as-is — same
-  # pattern as database.host in helm/catalogix-hc/values-dev.yaml.
-  serviceAccount:
-    create: true
-    # MUST exactly match the sub condition in
-    # modules/observability-storage's loki IRSA trust policy
-    # ("system:serviceaccount:monitoring:loki-sa") — this is set explicitly
-    # rather than left to the chart's own default naming specifically so
-    # the two can't silently drift apart on a chart version bump.
-    name: "loki-sa"
-    annotations: {}   # role-arn annotation injected via --set at deploy time
-  loki:
-    auth_enabled: false
-    commonConfig:
-      replication_factor: 1
-    storage:
-      type: s3
-      bucketNames:
-        chunks: ""   # --set at deploy time
-        ruler: ""
-        admin: ""
-      s3:
-        region: ""   # --set at deploy time
-    schemaConfig:
-      configs:
-        - from: "2024-01-01"
-          store: tsdb
-          object_store: s3
-          schema: v13
-          index:
-            prefix: loki_index_
-            period: 24h
-  singleBinary:
-    replicas: 1
-    # Even with S3 for chunk storage, Loki still needs local disk for the
-    # WAL and in-progress TSDB index before it's shipped to S3 — this PVC
-    # is much smaller now than the old all-local-storage version (10Gi -> 5Gi)
-    # since it's no longer holding the actual log data, just the working set.
-    persistence:
-      enabled: true
-      storageClass: "gp3-sc"
-      size: 5Gi
-    resources:
-      requests: { cpu: "100m", memory: "256Mi" }
-      limits: { cpu: "500m", memory: "1Gi"}
-  # These subcomponents are for the distributed mode only — explicitly
-  # zeroed out so SingleBinary mode doesn't also try to deploy them.
-  backend: { replicas: 0 }
-  read: { replicas: 0 }
-  write: { replicas: 0 }
-  gateway: { enabled: false }
-  chunksCache: { enabled: false }
-  resultsCache: { enabled: false }
-  monitoring:
-    serviceMonitor: { enabled: false }  # enable once RabbitMQ-style ServiceMonitor wiring is added for Loki itself
-    selfMonitoring: { enabled: false }
-    lokiCanary: { enabled: false }
-  test: { enabled: false }
-
-# Promtail — log shipper. Runs as a DaemonSet, auto-discovers every pod's
-# stdout/stderr via the K8s API (no per-service config needed — a new
-# service's logs are picked up automatically, same principle as the
-# ServiceMonitor discovery pattern above).
-promtail:
-  config:
-    clients:
-      # This chart is always installed as `helm install monitoring ...` (see
-      # ingress.yaml, which hardcodes the same "monitoring-" prefix for
-      # Grafana/Prometheus/Alertmanager service names) — matching that
-      # convention rather than introducing templating that values.yaml files
-      # don't actually support (only templates/*.yaml are Go-templated).
-      - url: http://monitoring-loki:3100/loki/api/v1/push
-  resources:
-    requests: { cpu: "50m", memory: "64Mi" }
-    limits: { cpu: "200m", memory: "128Mi" }

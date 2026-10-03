@@ -140,16 +140,9 @@ data "aws_eks_cluster_auth" "this" {
 # No separate ECR module needed for staging.
 
 # ALB Controller
-#
-# FIX: this block previously passed vpc_id/region (not declared by
-# modules/alb/variables.tf — only cluster_name, oidc_provider,
-# oidc_provider_arn, and permissions_boundary_arn exist) and a
-# providers = { kubernetes, helm } passthrough map (the module's
-# required_providers only declares aws; kubernetes/helm are commented out
-# in modules/alb/main.tf). Both failed `terraform validate` outright —
-# "An argument named X is not expected here" / a provider-passthrough
-# error — before staging could ever be planned, let alone applied.
-# Matches env/dev/main.tf's module "alb" call exactly now.
+# The module accepts the cluster/OIDC inputs below; Kubernetes and Helm provider
+# configuration stays outside the module because staging does not need to pass it in.
+module "alb" call exactly now.
 module "alb" {
   source = "../../modules/alb"
 
@@ -207,11 +200,9 @@ module "db_roles" {
     "catalog-svc"      = "catalogix-catalog"
     "inventory-svc"    = "catalogix-inventory"
     "cart-svc"         = "catalogix-cart"
-    "promotions-svc"   = "catalogix-promotions"
     "payment-svc"      = "catalogix-payment"
     "checkout-svc"     = "catalogix-checkout"
     "notification-svc" = "catalogix-notification"
-    "review-svc"       = "catalogix-reviews"
   }
 
   depends_on = [module.rds]
@@ -276,17 +267,7 @@ module "eso" {
   depends_on = [module.eks, module.alb, module.sg]
 }
 
-module "observability_storage" {
-  source = "../../modules/observability-storage"
 
-  cluster_name             = local.env_prefix
-  oidc_provider_arn        = module.eks.oidc_provider_arn
-  oidc_provider            = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
-  permissions_boundary_arn = local.permissions_boundary_arn
-  retention_days           = 14
-
-  depends_on = [module.eks]
-}
 
 # gp3 StorageClass — same reasoning as dev env.
 # Kept in root module (not inside module.eks) so the kubernetes provider

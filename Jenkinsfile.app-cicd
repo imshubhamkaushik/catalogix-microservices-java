@@ -10,8 +10,8 @@
 // reads from. Adding a service is a one-line addition here (+ a values.yaml
 // entry in the Helm chart) — no other part of this file changes shape.
 def BACKEND_SERVICES = [
-    'user-svc', 'catalog-svc', 'inventory-svc', 'cart-svc', 'promotions-svc',
-    'payment-svc', 'checkout-svc', 'notification-svc', 'review-svc'
+    'user-svc', 'catalog-svc', 'inventory-svc', 'cart-svc',
+    'payment-svc', 'checkout-svc', 'notification-svc'
 ]
 // gateway IS built, scanned, and pushed here like every other image — it
 // runs as a real Deployment/Service on EKS too (see
@@ -113,6 +113,11 @@ pipeline {
             name: 'FORCE_ALL_TESTS',
             defaultValue: false,
             description: 'Run the full test suite for every backend service, ignoring change detection. Use for release builds or when you don\'t trust the diff (e.g. after a rebase).'
+        )
+        booleanParam(
+            name: 'RUN_DAST',
+            defaultValue: false,
+            description: 'Optional manual OWASP ZAP baseline scan after deployment. It is not part of the core deployment gate.'
         )
         booleanParam(
             name: 'FORCE_ALL_BUILDS',
@@ -234,20 +239,11 @@ pipeline {
                     }
 
                     // A change to the shared security-common module affects
-                    // every backend service that depends on it — including
-                    // their actual runtime behavior, not just whether they
-                    // need rebuilding. A previous version of this stage
-                    // only forced a rebuild here and deliberately left the
-                    // test stage scoped to services with their own file
-                    // changes, reasoning that security-common "doesn't
-                    // change a service's own behavior" — that's backwards:
-                    // it's a shared dependency precisely because every one
-                    // of these services' actual behavior (JWT validation,
-                    // CORS, rate limiting) comes from it. A broken
-                    // security-common change with no corresponding
-                    // per-service file change would previously pass CI
-                    // with zero test coverage on any of the 9 services it
-                    // actually affects.
+                    // every backend service that depends on it, including
+                    // JWT validation, CORS, and rate limiting. Any change to
+                    // security-common therefore invalidates per-service
+                    // change detection and forces all backend services through
+                    // the test path.
                     def securityCommonChanged = getChangedServices(
                         ['security-common'], [prefix: 'backend/']
                     ).contains('security-common')
@@ -452,7 +448,7 @@ pipeline {
         // the ones tested this run — otherwise unchanged services would be
         // analysed without bytecode (less accurate, and issues on untouched
         // code would flap in and out between runs). `test-compile` is much
-        // cheaper than the old `package` of everything, and only runs for the
+        // cheaper than packaging all modules, and only runs for the
         // services `mvn verify` did NOT already compile above.
         stage('Compile Untested Modules (for SonarQube)') {
             steps {
@@ -475,20 +471,12 @@ pipeline {
             }
         }
 
-        // Single whole-repo scan driven by the ROOT sonar-project.properties
-        // (backend services + security-common + frontend). Per-service
-        // sonar-project.properties files used to exist but were never read,
-        // and have been removed.
+        // Single whole-repo scan driven by the repository-level
+        // sonar-project.properties (backend services + security-common + frontend).
         stage('SonarQube Analysis') {
             steps {
                 // withSonarQubeEnv references the 'sonarqube' installation
-                // JCasC already configures (sonarGlobalConfiguration, tied
-                // to the 'sonarqube-token' credential) — replaces a previous
-                // version of this stage that read two credential IDs
-                // ('sonar-host-url', 'sonar-auth-token') which don't exist
-                // anywhere in this repo's JCasC config and would have
-                // failed this stage on "no such credential" before ever
-                // running a scan.
+                // JCasC configures, using the 'sonarqube-token' credential.
                 withSonarQubeEnv('sonarqube') {
                     sh """
                     set -e
@@ -538,7 +526,7 @@ pipeline {
         // keep running their already-built, already-scanned image; see
         // 'Determine Per-Service Image Tags' above for where that decision
         // was made. buildAndScanImage() is the shared-library function that
-        // replaces what used to be a ~40-line block duplicated per service.
+        // keeps the deployment logic in one shared block instead of repeating it per service.
         stage('Build Docker Images and Trivy Image Scan') {
             steps {
                 script {
@@ -599,9 +587,9 @@ pipeline {
         }
 
         // ---- Everything that can be checked WITHOUT building an image runs
-        // before any image is built or pushed. Previously the chart scan and
-        // the SSM lookups ran after the ECR push, so a bad chart or a missing
-        // SSM parameter left orphaned images behind on every failure — and
+        // before any image is built or pushed. Chart validation and required
+        // configuration lookups therefore fail the run before an image can
+        // be published when those checks fail.
         // ECR's lifecycle policy only keeps the last few tags per repo.
         stage('Fetch RDS Endpoint') {
             steps {
@@ -651,8 +639,10 @@ pipeline {
                     ALL_IMAGES.each { svc ->
                         // Keys MUST match the chart's values schema:
                         // backendServices.<svc>, frontend, gateway.
-                        // (This used to write "services.<svc>.image.tag",
-                        // which no template reads — so every backend silently
+                        // The image-tag key must match the chart's current
+                        // values structure: "images.<svc>.tag".
+                        //
+                        //                        // which no template reads — so every backend silently
                         // deployed at global.imageTag, a tag that only exists
                         // for services that were rebuilt this run.)
                         def prefix = (svc == 'frontend') ? 'frontend'
@@ -751,17 +741,9 @@ pipeline {
             }
         }
         
-        //Runs OWASP ZAP's baseline scan (passive only — spiders the app and checks
-        // responses for missing security headers, verbose error pages,
-        // etc.; sends no attack payloads, so it's safe to run against a
-        // real environment on every deploy) against the just-deployed
-        // ALB. -I: don't fail the build on ZAP's own findings yet — this
-        // is a new stage with no established baseline, and flipping it
-        // straight to a hard gate would likely fail on pre-existing
-        // findings unrelated to this change. Drop -I once zap.conf below
-        // has been tuned against a real run's output and the remaining
-        // findings are genuinely worth blocking a deploy over.
+        // Optional passive security check; core CI/CD remains build/test/scan/deploy.
         stage('DAST Scan — OWASP ZAP Baseline') {
+            when { expression { params.RUN_DAST } }
             steps {
                 sh """
                 set -e

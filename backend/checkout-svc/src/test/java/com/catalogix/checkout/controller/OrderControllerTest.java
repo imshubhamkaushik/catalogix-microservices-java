@@ -76,7 +76,6 @@ class OrderControllerTest {
                 1L, "Phone", 2, new BigDecimal("100.00"), new BigDecimal("200.00"));
         OrderResponse response = new OrderResponse(
                 1L, 42L, status, new BigDecimal("200.00"), Instant.now(), List.of(item));
-        response.setDiscountAmount(BigDecimal.ZERO);
         return response;
     }
 
@@ -320,34 +319,6 @@ class OrderControllerTest {
     }
 
     // ---- GET /orders/verified-purchase ----
-
-    @Test
-    void verifiedPurchaseReturnsTrueWhenTheUserHasADeliveredOrder() throws Exception {
-        when(svc.isVerifiedPurchase(42L, 1L)).thenReturn(true);
-
-        mvc.perform(get("/orders/verified-purchase")
-                        .param("productId", "1")
-                        .requestAttr("userId", 42L).requestAttr("userRole", "USER"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified").value(true));
-    }
-
-    @Test
-    void verifiedPurchaseReturnsFalseWhenThereIsNone() throws Exception {
-        when(svc.isVerifiedPurchase(42L, 99L)).thenReturn(false);
-
-        mvc.perform(get("/orders/verified-purchase")
-                        .param("productId", "99")
-                        .requestAttr("userId", 42L).requestAttr("userRole", "USER"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.verified").value(false));
-    }
-
-    @Test
-    void verifiedPurchaseRejectsAMissingProductId() throws Exception {
-        mvc.perform(get("/orders/verified-purchase").requestAttr("userId", 42L).requestAttr("userRole", "USER"))
-                .andExpect(status().isBadRequest());
-    }
 
     // ---- POST /orders/{id}/pay ----
 

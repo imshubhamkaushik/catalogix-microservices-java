@@ -75,7 +75,7 @@ resource "terraform_data" "operator_credentials_check" {
   }
 }
 
-# JWT signing key, shared across all 9 backend services (they all validate
+# JWT signing key, shared across all 7 backend services (they all validate
 # tokens issued by user-svc). Same keepers pattern as the DB password —
 # only rotates if the cluster name changes, never on an incidental
 # terraform refresh, since rotating this invalidates every live session.
@@ -186,8 +186,8 @@ data "aws_eks_cluster" "this" {
 module "ecr" {
   source = "../../modules/ecr"
   repositories = [
-    "catalogix-user-svc", "catalogix-catalog-svc", "catalogix-inventory-svc", "catalogix-cart-svc", "catalogix-promotions-svc",
-    "catalogix-payment-svc", "catalogix-checkout-svc", "catalogix-notification-svc", "catalogix-review-svc",
+    "catalogix-user-svc", "catalogix-catalog-svc", "catalogix-inventory-svc", "catalogix-cart-svc", 
+    "catalogix-payment-svc", "catalogix-checkout-svc", "catalogix-notification-svc",
     "catalogix-frontend", "catalogix-gateway"
   ]
 }
@@ -210,7 +210,7 @@ module "rds" {
 
   project_name = "${local.env_prefix}-db"
   # RDS requires SOME initial database name at instance creation — this one
-  # is never used by any service. The 9 real per-service databases
+  # is never used by any service. The 7 real per-service databases
   # (catalogix-<service>, etc.) are created by
   # module.db_roles below, matching postgres-init/01-create-databases.sh's
   # local-dev naming exactly.
@@ -245,11 +245,9 @@ module "db_roles" {
     "catalog-svc"      = "catalogix-catalog"
     "inventory-svc"    = "catalogix-inventory"
     "cart-svc"         = "catalogix-cart"
-    "promotions-svc"   = "catalogix-promotions"
     "payment-svc"      = "catalogix-payment"
     "checkout-svc"     = "catalogix-checkout"
     "notification-svc" = "catalogix-notification"
-    "review-svc"       = "catalogix-reviews"
   }
 
   # Optional human read-only login (off unless both keys are in the operator secret) —
@@ -290,9 +288,8 @@ module "app_secrets" {
   secret_name = "${local.env_prefix}/app-secrets"
 
   # Single merged map — one Terraform resource owns this secret's version,
-  # deliberately not split across two resources that would fight over
-  # ownership (see modules/db-roles/main.tf's header comment for why that
-  # was the first draft and got reverted).
+  # deliberately kept in one resource so a single Terraform resource owns
+  # the complete secret version.
   secret_values = merge(
     {
       # Machine secrets only. The passwords a human chooses (RabbitMQ, the bootstrap admin,
@@ -347,23 +344,6 @@ module "eso" {
 
 }
 
-# S3 + IRSA for Loki — see modules/observability-storage/main.tf for
-# why this is a separate module (and separate IAM roles) from ESO above,
-# not folded into it. Bucket names and role ARNs are published to SSM;
-# Jenkinsfile.platform-infra's "Deploy Monitoring Stack" stage reads them
-# and passes them to `helm upgrade` via --set, same pattern already used
-# for the RDS endpoint.
-module "observability_storage" {
-  source = "../../modules/observability-storage"
-
-  cluster_name             = local.env_prefix
-  oidc_provider_arn        = module.eks.oidc_provider_arn
-  oidc_provider            = trimprefix(module.eks.oidc_provider_arn, "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/")
-  permissions_boundary_arn = local.permissions_boundary_arn
-  retention_days           = 14
-
-  depends_on = [module.eks]
-}
 
 # gp3 StorageClass — used by Prometheus and Grafana — moved here from modules/eks/main.tf.
 #
@@ -450,7 +430,7 @@ resource "helm_release" "alb_controller" {
 # This is consistent with how every other Kubernetes resource is managed in this root module.
 #
 # replace_on_change = [module.eks.node_role_arn, module.eks.cluster_name]
-# mirrors the triggers_replace on the old terraform_data: if the node role or cluster is replaced, the ConfigMap is re-applied automatically.
+# Re-apply the ConfigMap automatically when the node role or cluster changes.
 resource "kubectl_manifest" "aws_auth" {
   provider = kubectl.after_eks
 

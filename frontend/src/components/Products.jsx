@@ -2,10 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
 import {
   getProducts, createProduct, deleteProduct, addCartItem,
-  getWishlist, addWishlistItem, removeWishlistItem,
 } from "../api";
 import { useAuth } from "../context/AuthContext";
-import RatingStars from "./RatingStars";
 import ProductDetail from "./ProductDetail";
 
 const PAGE_SIZE = 10;
@@ -64,46 +62,6 @@ StockBadge.propTypes = {
   quantity: PropTypes.number,
 };
 
-const HeartIcon = ({ filled }) => (
-  <svg viewBox="0 0 16 16" width="13" height="13" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.3">
-    <path d="M8 13.5s-5.5-3.42-5.5-7.2C2.5 4.2 4.1 2.7 6 2.7c1 0 1.9.5 2 1.4.1-.9 1-1.4 2-1.4 1.9 0 3.5 1.5 3.5 3.6 0 3.78-5.5 7.2-5.5 7.2z" />
-  </svg>
-);
-HeartIcon.propTypes = { filled: PropTypes.bool };
-
-// Toggles a product in/out of the current user's wishlist. saved/onToggle
-// are lifted to the parent (Products) rather than owning their own fetch,
-// so the whole page shares one wishlist snapshot instead of each row
-// re-fetching it independently.
-function WishlistButton({ saved, onToggle }) {
-  const [busy, setBusy] = useState(false);
-
-  const handleClick = async () => {
-    setBusy(true);
-    try {
-      await onToggle();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <button
-      className={`wishlist-btn${saved ? " wishlist-btn-active" : ""}`}
-      onClick={handleClick}
-      disabled={busy}
-      title={saved ? "Remove from wishlist" : "Save to wishlist"}
-      type="button"
-    >
-      <HeartIcon filled={saved} />
-    </button>
-  );
-}
-
-WishlistButton.propTypes = {
-  saved: PropTypes.bool.isRequired,
-  onToggle: PropTypes.func.isRequired,
-};
 
 // Per-row quantity + add-to-cart control. Checkout (and the mock payment
 // step) happens on the Orders page now that orders go through a proper
@@ -187,36 +145,9 @@ export default function Products() {
   const [totalElements, setTotalElements] = useState(0);
   const debounceRef = useRef(null);
 
-  // Which product ids are currently on the signed-in user's wishlist —
-  // fetched once on mount so every row's heart can render its saved state
-  // without each row making its own request.
-  const [wishlistIds, setWishlistIds] = useState(new Set());
+
   const [activeProduct, setActiveProduct] = useState(null);
 
-  useEffect(() => {
-    getWishlist()
-      .then((items) => setWishlistIds(new Set(items.map((i) => i.productId))))
-      .catch(() => {}); // non-critical — hearts just default to "not saved" if this fails
-  }, []);
-
-  const toggleWishlist = async (product) => {
-    const isSaved = wishlistIds.has(product.id);
-    try {
-      if (isSaved) {
-        await removeWishlistItem(product.id);
-        setWishlistIds((prev) => {
-          const next = new Set(prev);
-          next.delete(product.id);
-          return next;
-        });
-      } else {
-        await addWishlistItem(product.id);
-        setWishlistIds((prev) => new Set(prev).add(product.id));
-      }
-    } catch {
-      setError(isSaved ? "Failed to remove from wishlist." : "Failed to save to wishlist.");
-    }
-  };
 
   const fetchProducts = useCallback(async (opts = {}) => {
     setLoading(true);
@@ -525,12 +456,6 @@ export default function Products() {
                       >
                         <ProductIcon />
                       </div>
-                      <div className="product-card-wishlist">
-                        <WishlistButton
-                          saved={wishlistIds.has(product.id)}
-                          onToggle={() => toggleWishlist(product)}
-                        />
-                      </div>
                     </div>
 
                     <div className="product-card-body">
@@ -542,8 +467,8 @@ export default function Products() {
                         className="product-card-name"
                         type="button"
                         onClick={() => setActiveProduct(product)}
-                        title="View details and reviews"
-                        aria-label={`View details and reviews for ${product.name}`}
+                        title="View product details"
+                        aria-label={`View details for ${product.name}`}
                       >
                         {product.name}
                       </button>
@@ -552,10 +477,6 @@ export default function Products() {
                         {product.description || `ID #${product.id}`}
                       </div>
 
-                      <RatingStars
-                        averageRating={product.averageRating}
-                        reviewCount={product.reviewCount}
-                      />
 
                       <div className="product-card-footer">
                         <div className="product-card-price-row">

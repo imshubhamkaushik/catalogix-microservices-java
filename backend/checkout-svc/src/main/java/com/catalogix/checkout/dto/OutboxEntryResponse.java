@@ -11,7 +11,6 @@ public class OutboxEntryResponse {
     private CompensationType type;
     private Long productId;
     private Integer delta;
-    private String couponCode;
     private String reason;
     private OutboxStatus status;
     private int attempts;
@@ -58,13 +57,6 @@ public class OutboxEntryResponse {
         this.delta = delta;
     }
 
-    public String getCouponCode() {
-        return couponCode;
-    }
-
-    public void setCouponCode(String couponCode) {
-        this.couponCode = couponCode;
-    }
 
     public String getReason() {
         return reason;

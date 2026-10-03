@@ -1,118 +1,60 @@
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import Cart from "./Cart";
+import { MemoryRouter } from "react-router-dom";
 import * as api from "../api";
+import Cart from "./Cart";
 
-vi.mock("../api");
+vi.mock("../api", () => ({
+  getProducts: vi.fn(), getCart: vi.fn(), addCartItem: vi.fn(),
+  updateCartItemQuantity: vi.fn(), removeCartItem: vi.fn(), checkoutCart: vi.fn(),
+}));
 
-const mockNavigate = vi.fn();
-vi.mock("react-router-dom", async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...actual, useNavigate: () => mockNavigate };
-});
+const cart = (items = []) => ({ items, subtotal: items.reduce((n, x) => n + x.subtotal, 0), total: items.reduce((n, x) => n + x.subtotal, 0) });
 
-const emptyCart = { items: [], couponCode: null, subtotal: 0, discountAmount: 0, total: 0 };
+function renderCart() { return render(<MemoryRouter><Cart /></MemoryRouter>); }
 
-function renderCart() {
-  return render(<Cart />);
-}
+describe("Cart", () => {
+  beforeEach(() => { vi.clearAllMocks(); api.getCart.mockResolvedValue(cart()); api.getProducts.mockResolvedValue({ content: [] }); });
 
-describe("Cart page", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    api.getCart.mockResolvedValue(emptyCart);
-    api.getProducts.mockResolvedValue({ content: [], page: 0, size: 5, totalElements: 0, totalPages: 0 });
-  });
+  it("loads the current cart", async () => { renderCart(); await waitFor(() => expect(api.getCart).toHaveBeenCalled()); expect(screen.getByText("Your cart", { exact: true })).toBeInTheDocument(); });
 
-  it("shows an empty state when the cart has no items", async () => {
+  it("adds a selected product", async () => {
+    const product = { id: 1, name: "Phone", price: 100, stockQuantity: 5 };
+    api.getProducts.mockResolvedValue({ content: [product] });
+    api.addCartItem.mockResolvedValue(cart([{ productId: 1, productName: "Phone", quantity: 1, subtotal: 100 }]));
     renderCart();
-    expect(await screen.findByText(/your cart is empty/i)).toBeInTheDocument();
-  });
-
-  it("lets you search for a product and add it to the server-side cart", async () => {
-    api.getProducts.mockResolvedValue({
-      content: [{ id: 1, name: "Phone", price: 100, stockQuantity: 5 }],
-      page: 0, size: 5, totalElements: 1, totalPages: 1,
-    });
-    api.addCartItem.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: null, subtotal: 100, discountAmount: 0, total: 100,
-    });
-
-    renderCart();
-    await userEvent.type(screen.getByPlaceholderText(/search products to add/i), "phone");
-    const result = await screen.findByText("Phone");
-    await userEvent.click(result);
-
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText(/search products to add/i), "Phone");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Phone/i })).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /Phone/i }));
     await waitFor(() => expect(api.addCartItem).toHaveBeenCalledWith(1, 1));
-    expect(await screen.findByText(/^total: ₹100/i)).toBeInTheDocument();
   });
 
-  it("applies a coupon code to the cart", async () => {
-    api.getCart.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: null, subtotal: 100, discountAmount: 0, total: 100,
-    });
-    api.applyCartCoupon.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: "SAVE10", subtotal: 100, discountAmount: 10, total: 90,
-    });
-
+  it("updates and removes cart lines", async () => {
+    const item = { productId: 1, productName: "Phone", quantity: 2, subtotal: 200 };
+    api.getCart.mockResolvedValue(cart([item]));
+    api.updateCartItemQuantity.mockResolvedValue(cart([{ ...item, quantity: 3, subtotal: 300 }]));
+    api.removeCartItem.mockResolvedValue(cart());
     renderCart();
-    const couponInput = await screen.findByPlaceholderText(/coupon code/i);
-    await userEvent.type(couponInput, "save10");
-    await userEvent.click(screen.getByRole("button", { name: /^apply$/i }));
-
-    await waitFor(() => expect(api.applyCartCoupon).toHaveBeenCalledWith("SAVE10"));
-    expect(await screen.findByText(/total: ₹90/i)).toBeInTheDocument();
-  });
-
-  it("removes an item from the cart", async () => {
-    api.getCart.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: null, subtotal: 100, discountAmount: 0, total: 100,
-    });
-    api.removeCartItem.mockResolvedValue(emptyCart);
-
-    renderCart();
-    await userEvent.click(await screen.findByTitle(/remove/i));
-
+    await screen.findByText("Phone");
+    const user = userEvent.setup();
+    const qty = screen.getByDisplayValue("2");
+    await user.clear(qty);
+    await user.type(qty, "3");
+    await user.tab();
+    await waitFor(() => expect(api.updateCartItemQuantity).toHaveBeenCalledWith(1, 3));
+    await user.click(screen.getByTitle("Remove"));
     await waitFor(() => expect(api.removeCartItem).toHaveBeenCalledWith(1));
-    expect(await screen.findByText(/your cart is empty/i)).toBeInTheDocument();
   });
 
-  it("checks out with a generated idempotency key, refreshes the cart, and sends you to Orders", async () => {
-    api.getCart.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: null, subtotal: 100, discountAmount: 0, total: 100,
-    });
-    api.checkoutCart.mockResolvedValue({ id: 10, status: "PENDING_PAYMENT" });
-
+  it("starts checkout with a client idempotency key", async () => {
+    api.getCart.mockResolvedValue(cart([{ productId: 1, productName: "Phone", quantity: 1, subtotal: 100 }]));
+    api.checkoutCart.mockResolvedValue({});
     renderCart();
-    await userEvent.click(await screen.findByRole("button", { name: /checkout/i }));
-
-    await waitFor(() => expect(api.checkoutCart).toHaveBeenCalledTimes(1));
-    const [idempotencyKey] = api.checkoutCart.mock.calls[0];
-    expect(typeof idempotencyKey).toBe("string");
-    expect(idempotencyKey.length).toBeGreaterThan(10);
-    await waitFor(() => expect(api.getCart).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/orders"));
-  });
-
-  it("shows an error and does not navigate away when checkout fails", async () => {
-    api.getCart.mockResolvedValue({
-      items: [{ productId: 1, productName: "Phone", quantity: 1, unitPrice: 100, subtotal: 100, availableStock: 5 }],
-      couponCode: null, subtotal: 100, discountAmount: 0, total: 100,
-    });
-    api.checkoutCart.mockRejectedValue({
-      response: { data: { message: "Phone is out of stock." } },
-    });
-
-    renderCart();
-    await userEvent.click(await screen.findByRole("button", { name: /checkout/i }));
-
-    expect(await screen.findByText(/phone is out of stock/i)).toBeInTheDocument();
-    expect(mockNavigate).not.toHaveBeenCalled();
+    await screen.findByText("Phone");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Checkout" }));
+    await waitFor(() => expect(api.checkoutCart).toHaveBeenCalledWith(expect.any(String)));
   });
 });

@@ -8,18 +8,20 @@ package com.catalogix.user.dto;
 public class NotificationPreferencesResponse {
 
     private boolean orderEmailsEnabled;
-    private boolean promoEmailsEnabled;
 
-    public NotificationPreferencesResponse() {}
-
-    public NotificationPreferencesResponse(boolean orderEmailsEnabled, boolean promoEmailsEnabled) {
-        this.orderEmailsEnabled = orderEmailsEnabled;
-        this.promoEmailsEnabled = promoEmailsEnabled;
+    public NotificationPreferencesResponse() {
     }
 
-    public boolean isOrderEmailsEnabled() { return orderEmailsEnabled; }
-    public void setOrderEmailsEnabled(boolean orderEmailsEnabled) { this.orderEmailsEnabled = orderEmailsEnabled; }
+    public NotificationPreferencesResponse(boolean orderEmailsEnabled) {
+        this.orderEmailsEnabled = orderEmailsEnabled;
+    }
 
-    public boolean isPromoEmailsEnabled() { return promoEmailsEnabled; }
-    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) { this.promoEmailsEnabled = promoEmailsEnabled; }
+    public boolean isOrderEmailsEnabled() {
+        return orderEmailsEnabled;
+    }
+
+    public void setOrderEmailsEnabled(boolean orderEmailsEnabled) {
+        this.orderEmailsEnabled = orderEmailsEnabled;
+    }
+
 }

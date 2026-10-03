@@ -13,7 +13,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 //
 // @EnableAsync / @EnableScheduling are what actually switch the annotations on. Neither was
 // declared anywhere, so @Async publishers ran on the request thread and — more importantly —
-// CompensationOutboxProcessor's @Scheduled retry loop NEVER RAN: queued stock/coupon releases
+// CompensationOutboxProcessor's @Scheduled retry loop NEVER RAN: queued stock releases
 // were written to the outbox and then sat there forever. (This also enables
 // PendingOrderExpiryJob.)
 @Configuration

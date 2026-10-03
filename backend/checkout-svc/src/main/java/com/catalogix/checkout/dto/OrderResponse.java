@@ -14,8 +14,6 @@ public class OrderResponse {
     private BigDecimal totalAmount;
     private Instant createdAt;
     private List<OrderItemResponse> items;
-    private String appliedCouponCode;
-    private BigDecimal discountAmount;
     private ShippingAddressSummary shippingAddress;
 
     public OrderResponse() {
@@ -38,7 +36,6 @@ public class OrderResponse {
         this.totalAmount = totalAmount;
         this.createdAt = createdAt;
         this.items = items;
-        this.discountAmount = BigDecimal.ZERO;
     }
 
     public Long getId() {
@@ -89,21 +86,7 @@ public class OrderResponse {
         this.items = items;
     }
 
-    public String getAppliedCouponCode() {
-        return appliedCouponCode;
-    }
 
-    public void setAppliedCouponCode(String appliedCouponCode) {
-        this.appliedCouponCode = appliedCouponCode;
-    }
-
-    public BigDecimal getDiscountAmount() {
-        return discountAmount;
-    }
-
-    public void setDiscountAmount(BigDecimal discountAmount) {
-        this.discountAmount = discountAmount;
-    }
 
     public ShippingAddressSummary getShippingAddress() {
         return shippingAddress;

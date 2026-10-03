@@ -1,20 +1,17 @@
 package com.catalogix.catalog.svc;
 
 import com.catalogix.catalog.client.InventoryClient;
-import com.catalogix.catalog.client.ReviewClient;
 import com.catalogix.catalog.dto.CreateProductRequest;
 import com.catalogix.catalog.dto.PagedResponse;
 import com.catalogix.catalog.dto.ProductResponse;
 import com.catalogix.catalog.dto.ProductSortOption;
-import com.catalogix.catalog.event.ProductDomainEvent;
 import com.catalogix.catalog.exception.ForbiddenException;
 import com.catalogix.catalog.exception.ProductNotFoundException;
 import com.catalogix.catalog.model.Product;
 import com.catalogix.catalog.model.Product.ModerationStatus;
 import com.catalogix.catalog.repository.ProductRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+
 import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -32,25 +29,16 @@ public class ProductSvc {
 
         private final ProductRepository repo;
         private final InventoryClient inventoryClient;
-        private final ReviewClient reviewClient;
         private final ProductCacheSvc productCacheSvc;
-
-        private ApplicationEventPublisher eventPublisher;
 
         public ProductSvc(
                         ProductRepository repo,
                         InventoryClient inventoryClient,
-                        ReviewClient reviewClient,
                         ProductCacheSvc productCacheSvc) {
+
                 this.repo = repo;
                 this.inventoryClient = inventoryClient;
-                this.reviewClient = reviewClient;
                 this.productCacheSvc = productCacheSvc;
-        }
-
-        @Autowired
-        public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
-                this.eventPublisher = eventPublisher;
         }
 
         /**
@@ -164,8 +152,8 @@ public class ProductSvc {
 
                 /*
                  * Known limitation:
-                 * stock and rating are fetched per product. A production-scale
-                 * implementation would ideally batch inventory and review lookups.
+                 * stock is fetched per product. A production-scale
+                 * implementation would ideally batch inventory lookups.
                  */
                 return PagedResponse.from(
                                 page,
@@ -246,19 +234,6 @@ public class ProductSvc {
                                 saved.getId(),
                                 initialStock);
 
-                publish(
-                                new ProductDomainEvent(
-                                                saved.getId(),
-                                                saved.getName(),
-                                                saved.getDescription(),
-                                                saved.getPrice(),
-                                                saved.getCategory(),
-                                                saved.getOwnerId(),
-                                                saved.getImageUrl(),
-                                                saved.getModerationStatus().name(),
-                                                false,
-                                                java.time.Instant.now()));
-
                 ProductResponse response = new ProductResponse(
                                 saved.getId(),
                                 saved.getName(),
@@ -305,16 +280,6 @@ public class ProductSvc {
                         response.setCreatedAt(core.createdAt());
                         response.setModerationStatus(core.moderationStatus());
 
-                        ReviewClient.Summary rating = reviewClient.fetchSummary(
-                                        id,
-                                        bearerToken);
-
-                        response.setAverageRating(
-                                        rating.averageRating());
-
-                        response.setReviewCount(
-                                        rating.reviewCount());
-
                         return response;
                 });
         }
@@ -346,19 +311,6 @@ public class ProductSvc {
 
                 repo.deleteById(id);
 
-                publish(
-                                new ProductDomainEvent(
-                                                id,
-                                                product.getName(),
-                                                product.getDescription(),
-                                                product.getPrice(),
-                                                product.getCategory(),
-                                                product.getOwnerId(),
-                                                product.getImageUrl(),
-                                                product.getModerationStatus().name(),
-                                                true,
-                                                java.time.Instant.now()));
-
                 return true;
         }
 
@@ -373,19 +325,6 @@ public class ProductSvc {
                 product.setModerationStatus(status);
 
                 Product saved = repo.save(product);
-
-                publish(
-                                new ProductDomainEvent(
-                                                saved.getId(),
-                                                saved.getName(),
-                                                saved.getDescription(),
-                                                saved.getPrice(),
-                                                saved.getCategory(),
-                                                saved.getOwnerId(),
-                                                saved.getImageUrl(),
-                                                saved.getModerationStatus().name(),
-                                                false,
-                                                java.time.Instant.now()));
 
                 ProductResponse response = new ProductResponse(
                                 saved.getId(),
@@ -447,16 +386,6 @@ public class ProductSvc {
                 response.setCreatedAt(product.getCreatedAt());
                 response.setModerationStatus(product.getModerationStatus());
 
-                ReviewClient.Summary rating = reviewClient.fetchSummary(
-                                id,
-                                bearerToken);
-
-                response.setAverageRating(
-                                rating.averageRating());
-
-                response.setReviewCount(
-                                rating.reviewCount());
-
                 return response;
         }
 
@@ -481,22 +410,6 @@ public class ProductSvc {
                 response.setCreatedAt(product.getCreatedAt());
                 response.setModerationStatus(product.getModerationStatus());
 
-                ReviewClient.Summary rating = reviewClient.fetchSummary(
-                                product.getId(),
-                                bearerToken);
-
-                response.setAverageRating(
-                                rating.averageRating());
-
-                response.setReviewCount(
-                                rating.reviewCount());
-
                 return response;
-        }
-
-        private void publish(ProductDomainEvent event) {
-                if (eventPublisher != null) {
-                        eventPublisher.publishEvent(event);
-                }
         }
 }

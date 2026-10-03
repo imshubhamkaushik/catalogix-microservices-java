@@ -13,12 +13,9 @@ import { getCart } from "./api";
 import HomePage from "./components/HomePage";
 import Users from "./components/Users";
 import Products from "./components/Products";
-import Wishlist from "./components/Wishlist";
 import Cart from "./components/Cart";
 import Orders from "./components/Orders";
 import MyProducts from "./components/MyProducts";
-import Returns from "./components/Returns";
-import Coupons from "./components/Coupons";
 import Login from "./components/Login";
 import ForgotPassword from "./components/ForgotPassword";
 import ResetPassword from "./components/ResetPassword";
@@ -50,16 +47,6 @@ const OrdersIcon = () => (
     <path d="M1 2.5A.5.5 0 011.5 2H3a.5.5 0 01.485.379L3.89 4H14.5a.5.5 0 01.491.592l-1 5A.5.5 0 0113.5 10H5a.5.5 0 01-.491-.408L3.01 4.607 2.61 3H1.5a.5.5 0 01-.5-.5zM5 12a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm7 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" />
   </svg>
 );
-const WishlistIcon = () => (
-  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
-    <path d="M8 14.5s-6.5-4-6.5-8.5C1.5 3.3 3.4 1.5 5.7 1.5c1.2 0 2.3.6 2.3 1.7 0-1.1 1.1-1.7 2.3-1.7 2.3 0 4.2 1.8 4.2 4.5 0 4.5-6.5 8.5-6.5 8.5z" />
-  </svg>
-);
-const ReturnsIcon = () => (
-  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
-    <path d="M8 1a.5.5 0 01.5.5v1.55A5.5 5.5 0 1113.95 8.5.5.5 0 1113 8.4 4.5 4.5 0 108.5 3.55V5a.5.5 0 01-1 0V1.5A.5.5 0 018 1zM3.5 9.5a.5.5 0 01.5.5v1a1 1 0 001 1h6a1 1 0 001-1v-1a.5.5 0 011 0v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1a.5.5 0 01.5-.5z" />
-  </svg>
-);
 const LogoutIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14">
     <path d="M6 12.5a.5.5 0 00.5.5h2a.5.5 0 000-1h-2a.5.5 0 00-.5.5zM6 3a.5.5 0 01.5-.5h2a.5.5 0 010 1h-2A.5.5 0 016 3z" />
@@ -70,11 +57,6 @@ const LogoutIcon = () => (
 const AccountIcon = () => (
   <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
     <path d="M8 8a3 3 0 100-6 3 3 0 000 6zM3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3z" />
-  </svg>
-);
-const CouponsIcon = () => (
-  <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
-    <path d="M1.5 4.5A1.5 1.5 0 013 3h10a1.5 1.5 0 011.5 1.5v1a.5.5 0 01-.5.5 1.5 1.5 0 000 3 .5.5 0 01.5.5v1A1.5 1.5 0 0113 12.5H3A1.5 1.5 0 011.5 11v-1a.5.5 0 01.5-.5 1.5 1.5 0 000-3 .5.5 0 01-.5-.5v-1zM6 5v1h1V5H6zm0 2.5v1h1v-1H6zM6 10v1h1v-1H6z" />
   </svg>
 );
 const OutboxIcon = () => (
@@ -111,13 +93,7 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-function UserMenu({
-  user,
-  isAdmin,
-  isSeller,
-  isEmailVerified,
-  onLogout,
-}) {
+function UserMenu({ user, isAdmin, isSeller, isEmailVerified, onLogout }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -197,15 +173,6 @@ function UserMenu({
                 onClick={() => setOpen(false)}
               >
                 <UsersIcon /> Users
-              </NavLink>
-              <NavLink
-                to="/coupons"
-                className={({ isActive }) =>
-                  `user-menu-item${isActive ? " active" : ""}`
-                }
-                onClick={() => setOpen(false)}
-              >
-                <CouponsIcon /> Coupons
               </NavLink>
               <NavLink
                 to="/admin/moderation"
@@ -310,22 +277,10 @@ function Layout() {
             <ProductsIcon /> <span className="nav-label">Products</span>
           </NavLink>
           <NavLink
-            to="/wishlist"
-            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-          >
-            <WishlistIcon /> <span className="nav-label">Wishlist</span>
-          </NavLink>
-          <NavLink
             to="/orders"
             className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
           >
             <OrdersIcon /> <span className="nav-label">Orders</span>
-          </NavLink>
-          <NavLink
-            to="/returns"
-            className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-          >
-            <ReturnsIcon /> <span className="nav-label">Returns</span>
           </NavLink>
         </nav>
 
@@ -360,16 +315,13 @@ function Layout() {
         <Routes>
           <Route index element={<HomePage />} />
           <Route path="products" element={<Products />} />
-          <Route path="wishlist" element={<Wishlist />} />
           <Route path="cart" element={<Cart />} />
           <Route path="orders" element={<Orders />} />
           {(isSeller || isAdmin) && (
             <Route path="my-products" element={<MyProducts />} />
           )}
-          <Route path="returns" element={<Returns />} />
           <Route path="account" element={<Account />} />
           {isAdmin && <Route path="users" element={<Users />} />}
-          {isAdmin && <Route path="coupons" element={<Coupons />} />}
           {isAdmin && (
             <Route path="admin/moderation" element={<Moderation />} />
           )}

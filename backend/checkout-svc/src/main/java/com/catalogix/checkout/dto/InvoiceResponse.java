@@ -24,7 +24,6 @@ public class InvoiceResponse {
     private ShippingAddressSummary billingAddress;
     private List<InvoiceLineResponse> items;
     private BigDecimal itemsSubtotal;
-    private BigDecimal discountAmount;
     private BigDecimal taxableValue;
     private BigDecimal taxRatePercent;
     private BigDecimal taxAmount;
@@ -54,8 +53,6 @@ public class InvoiceResponse {
     public void setItems(List<InvoiceLineResponse> items) { this.items = items; }
     public BigDecimal getItemsSubtotal() { return itemsSubtotal; }
     public void setItemsSubtotal(BigDecimal itemsSubtotal) { this.itemsSubtotal = itemsSubtotal; }
-    public BigDecimal getDiscountAmount() { return discountAmount; }
-    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     public BigDecimal getTaxableValue() { return taxableValue; }
     public void setTaxableValue(BigDecimal taxableValue) { this.taxableValue = taxableValue; }
     public BigDecimal getTaxRatePercent() { return taxRatePercent; }

@@ -1,6 +1,6 @@
 {
-  "name": "catalogix-frontend-svc",
-  "version": "2.0.0",
+  "name": "catalogix-frontend",
+  "version": "2.0",
   "private": true,
   "dependencies": {
     "axios": "^1.16.1",

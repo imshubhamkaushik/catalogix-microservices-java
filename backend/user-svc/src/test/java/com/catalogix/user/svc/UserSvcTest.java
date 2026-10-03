@@ -488,64 +488,6 @@ class UserSvcTest {
 
     // ---- register/login user-agent threading ----
 
-    @Test
-    void registerPassesUserAgentThroughToRefreshTokenService() {
-        CreateUserRequest req = new CreateUserRequest();
-        req.setName("Name");
-        req.setEmail("name@example.com");
-        req.setPassword(VALID_SECRET);
-
-        when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
-        when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
-        when(repo.save(any(User.class))).thenAnswer(inv -> {
-            User u = inv.getArgument(0);
-            u.setId(1L);
-            return u;
-        });
-
-        svc.register(req, "Mozilla/5.0 Chrome/120");
-
-        verify(refreshTokenService).issue(1L, "Mozilla/5.0 Chrome/120");
-    }
-
-    @Test
-    void registerWithoutUserAgentPassesNull() {
-        CreateUserRequest req = new CreateUserRequest();
-        req.setName("Name");
-        req.setEmail("name@example.com");
-        req.setPassword(VALID_SECRET);
-
-        when(repo.findByEmail(req.getEmail())).thenReturn(Optional.empty());
-        when(encoder.encode(req.getPassword())).thenReturn(HASHED_SECRET);
-        when(repo.save(any(User.class))).thenAnswer(inv -> {
-            User u = inv.getArgument(0);
-            u.setId(1L);
-            return u;
-        });
-
-        // The original 1-arg register(req) — kept for any caller that
-        // doesn't have a User-Agent to offer — should still work end to end.
-        AuthResponse resp = svc.register(req);
-
-        assertEquals(FAKE_REFRESH_TOKEN, resp.getRefreshToken());
-        verify(refreshTokenService).issue(1L, null);
-    }
-
-    @Test
-    void loginPassesUserAgentThroughToRefreshTokenService() {
-        User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
-        when(repo.findByEmail(TEST_EMAIL)).thenReturn(Optional.of(u));
-        when(encoder.matches(VALID_SECRET, HASHED_SECRET)).thenReturn(true);
-
-        LoginRequest req = new LoginRequest();
-        req.setEmail(TEST_EMAIL);
-        req.setPassword(VALID_SECRET);
-
-        svc.login(req, "Mozilla/5.0 Safari/17");
-
-        verify(refreshTokenService).issue(1L, "Mozilla/5.0 Safari/17");
-    }
-
     // ---- sessions ----
 
     @Test
@@ -590,12 +532,10 @@ class UserSvcTest {
 
         NotificationPreferencesRequest req = new NotificationPreferencesRequest();
         req.setOrderEmailsEnabled(false);
-        req.setPromoEmailsEnabled(true);
 
         UserResponse resp = svc.updateNotificationPreferences(1L, req);
 
         assertFalse(resp.isOrderEmailsEnabled());
-        assertTrue(resp.isPromoEmailsEnabled());
     }
 
     @Test
@@ -610,13 +550,11 @@ class UserSvcTest {
     void getNotificationPreferencesReturnsStoredValues() {
         User u = sampleUser(1L, TEST_EMAIL, HASHED_SECRET);
         u.setOrderEmailsEnabled(false);
-        u.setPromoEmailsEnabled(true);
         when(repo.findById(1L)).thenReturn(Optional.of(u));
 
         var prefs = svc.getNotificationPreferences(1L);
 
         assertFalse(prefs.isOrderEmailsEnabled());
-        assertTrue(prefs.isPromoEmailsEnabled());
     }
 
     @Test
@@ -627,7 +565,6 @@ class UserSvcTest {
         var prefs = svc.getNotificationPreferences(99L);
 
         assertTrue(prefs.isOrderEmailsEnabled());
-        assertTrue(prefs.isPromoEmailsEnabled());
     }
 
     // ---- becomeSeller (a REQUEST — an admin decides) ----

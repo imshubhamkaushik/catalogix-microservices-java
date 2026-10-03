@@ -12,7 +12,7 @@ import java.time.Instant;
  * overloading Payment.status with a meaning ("this row is money coming
  * back, not going out") the rest of that entity was never designed to carry.
  *
- * COD orders never reach here: see checkout-svc's ReturnSvc, which skips
+ * COD orders never reach here: see checkout-svc's cancellation/refund flow, which skips
  * calling this endpoint entirely for a COD order (nothing was ever
  * captured, so there's nothing to reverse).
  */

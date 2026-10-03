@@ -1,12 +1,6 @@
-# Catalogix architecture (post-split)
+# Catalogix architecture
 
-This document replaces the architecture section of the original README, which
-described the earlier 4-service design (user-svc / product-svc / order-svc /
-notification-svc). That design is still a completely reasonable way to build
-this app — see the note at the bottom of this file on when a split like this
-one is actually worth it. This document describes what it became after
-splitting cart, coupons, payment, and inventory out into their own services,
-and turning order-svc into a proper saga orchestrator.
+Catalogix is a seven-service Spring Boot backend behind an Nginx gateway, with React as the frontend, RabbitMQ for asynchronous notifications, and PostgreSQL database-per-service separation on a shared instance. The current service set intentionally excludes the old promotions, reviews, returns, and wishlist features.
 
 ## Service map
 
@@ -24,109 +18,88 @@ and turning order-svc into a proper saga orchestrator.
                            ┌──────────────┼──────────────┐
                            │              │              │
                            ▼              ▼              ▼
-                    /api/users/*   /api/products/*   /api/orders/* ...
+                    /api/users/*   /api/products/*   /api/orders/*
                            │              │              │
                       user-svc       catalog-svc     checkout-svc
                        :11010          :11002           :11007
+                           │              │              │
+                           │              ▼              ├──▶ cart-svc
+                           │        inventory-svc        ├──▶ inventory-svc
+                           │           :11003            └──▶ payment-svc
+                           │
+                           └──────────────┬─────────────────────────┐
+                                          │ RabbitMQ                  │
+                                          ▼                           ▼
+                                   notification-svc              frontend
+                                      :11008                         :11001
 
-                                          │
-                                  everything else
-                                          ▼
-                                   frontend
-                                      :11001
-
-      Gateway routes also include /api/cart, /api/wishlist, /api/coupons,
-      /api/notifications, /api/reviews and /api/admin. inventory-svc (:11003)
-      and payment-svc (:11006) remain internal-only and have no gateway route.
-
-      checkout-svc calls catalog/inventory/promotions/payment/cart/user over
-      the internal service network; catalog-svc calls inventory/review;
-      review-svc calls checkout-svc. RabbitMQ carries user/checkout events to
-      notification-svc. Every service exports traces via OTLP to the monitoring
-      stack, and each service has its own logical Postgres database.
+Gateway also routes `/api/cart` and the admin notification/outbox APIs.
+`inventory-svc` and `payment-svc` are internal-only application services.
+RabbitMQ carries user and checkout events to notification-svc; notification-svc
+sends email and records an audit log.
 ```
 
-The `/api` prefix is intentional: the React application has client-side routes
-like `/products`, `/orders`, `/users`, `/coupons` and `/reviews`. Keeping APIs
-under `/api/*` means a browser refresh can unambiguously reach the SPA while
-AJAX requests are routed to the correct backend service.
+The `/api` prefix keeps backend routes separate from React client-side routes. The gateway owns routing and request rate limiting; it does not aggregate business data.
 
-## What owns what
+## Service responsibilities
 
-| Service | Owns | Notably does NOT own |
+| Service | Owns | Key dependencies |
 |---|---|---|
-| **user-svc** | accounts, sessions/tokens, profiles | anything about products or orders |
-| **catalog-svc** | product name/description/price/category | **stock** (moved to inventory-svc) |
-| **inventory-svc** | stock levels, reserve/release (row-locked) | pricing, product metadata |
-| **cart-svc** | a user's in-progress cart | reserving stock — carts are non-binding until checkout |
-| **promotions-svc** | coupons, atomic redeem/release (row-locked) | discount *display* during cart browsing (that's a read-only preview call, not a redemption) |
-| **payment-svc** | mock payment attempts | knowledge of orders beyond an opaque `orderId` |
-| **checkout-svc** | orders, order items, the saga that creates/pays/cancels them | any of the above — it *calls* all five other services above to place one order |
-| **notification-svc** | sending email, driven entirely by RabbitMQ events | nothing calls it synchronously anymore |
+| **user-svc** | accounts, authentication, refresh sessions, profiles, addresses, seller requests | RabbitMQ for email-verification/password-reset events |
+| **catalog-svc** | product metadata, ownership, moderation state | inventory-svc for live stock values |
+| **inventory-svc** | stock quantities and idempotent reserve/release operations | none at runtime |
+| **cart-svc** | user cart contents and totals | catalog-svc, inventory-svc |
+| **payment-svc** | mock card/UPI/COD payments and refunds | none at runtime |
+| **checkout-svc** | orders, order state machine, payment flow, stock compensation outbox | cart/catalog/inventory/payment services; RabbitMQ for order events |
+| **notification-svc** | email delivery and notification audit log | RabbitMQ, user-svc preference lookup, SMTP/Mailpit |
 
-## The saga: placing an order
+## Order flow
 
-`checkout-svc`'s `CheckoutSvc.placeOrder()` is the orchestrator. Steps 1–2 are
-compensable; if anything fails at any point up through the DB save in step 3,
-everything already committed gets unwound:
+`checkout-svc` is the order saga/orchestrator.
 
-1. **Reserve.** For each item: fetch price (catalog-svc), reserve stock
-   (inventory-svc, row-locked).
-2. **Redeem.** If a coupon code is present, atomically re-validate and
-   redeem it (promotions-svc, row-locked) — this is the one moment a coupon
-   actually gets used; browsing/cart-applying a coupon only ever calls the
-   read-only `/preview` endpoint.
-3. **Persist.** Save the order locally.
+1. **Read and reserve.** For each cart item, checkout gets the product price from catalog-svc and reserves stock through inventory-svc.
+2. **Persist.** The order is written with an idempotency key. If the database write fails, any already-created stock reservations are released.
+3. **Pay.** A payment attempt is sent to payment-svc outside the checkout database transaction. Confirmed, declined, and unknown outcomes are handled explicitly.
+4. **Compensate when needed.** Failed stock releases are recorded in `compensation_outbox` and retried by `CompensationOutboxProcessor` using row locking so multiple checkout replicas can work safely.
+5. **Publish events.** Successful confirmation and cancellation publish RabbitMQ events; notification-svc consumes them and sends the corresponding email when the user has opted in.
 
-If step 3 fails — including the idempotency-key race two concurrent
-checkouts can hit — steps 1 and 2 are compensated: stock is released,
-the coupon redemption is released. Compensation is attempted live first;
-if the downstream service is unreachable, it's queued to
-`compensation_outbox` and retried by `CompensationOutboxProcessor`
-(`FOR UPDATE SKIP LOCKED`, safe under multiple replicas).
+The compensation outbox is deliberately narrower than the old design: it now handles stock-release compensation only.
 
-Paying for or cancelling an order later follows the same compensate-on-failure
-shape (see `payOrder()` / `cancelOrder()` in `CheckoutSvc`).
+## Notification flow
 
-## Deliberately NOT split further
+User password-reset and email-verification requests are published by user-svc to RabbitMQ. Checkout publishes order-confirmed and order-cancelled events. notification-svc consumes those events, checks notification preferences when needed, sends mail through the configured SMTP provider, and writes an audit record to `notification_log`.
 
-- **Cart stays adjacent to checkout, not merged into it** — it's still its
-  own service so it can be read/written independently of order placement,
-  but nothing about it needed choreography or events; it's a thin service.
-- **No API gateway logic beyond routing/rate limiting** — no BFF-style aggregation beyond
-  catalog-svc composing its own stock reads from inventory-svc for external
-  API-shape compatibility.
-- **No service discovery / config server** — docker-compose's DNS-by-container-name
-  is doing that job. Fine at this scale; Eureka/Consul (or Kubernetes' own
-  DNS) is the natural replacement if this ever runs across multiple hosts.
+In local development, Mailpit provides the SMTP endpoint. The gateway exposes only the admin notification-log read API; normal password-reset and order-email flows remain asynchronous through RabbitMQ.
 
-## Honest scope notes from this pass
+## Data layout
 
-- **Database-per-service here means separate logical databases on one
-  shared Postgres instance**, not separate managed instances. Per-service
-  DB ROLES now exist too (`terraform/platform-infra/modules/db-roles`) —
-  each service authenticates with its own role, not a shared master
-  credential. This is role-level isolation on a shared instance, not
-  instance-level isolation, stated honestly: the RDS instance itself being
-  down or under heavy load still affects every service regardless.
-- **Test coverage is real and service-focused.** Backend services have unit/controller tests around their current business logic and HTTP behavior, with the frontend covered by Vitest/Testing Library. Integration-style tests should be added selectively where a real external dependency is important; the project does not require a separate contract-testing platform for the current scope.
-- **Static analysis and, where possible, real execution — not uniformly
-  either.** Terraform/Helm/most Java has been cross-referenced and traced
-  by hand (this caught real bugs — a `relativePath` bug affecting all 9
-  services' parent POM resolution, a staging environment with a wrong
-  Terraform variable name and 2 missing required arguments, and other integration/configuration issues). The frontend 
-  instance is the only genuine exception: actually installed,
-  built, and run for real that static review never would have
-  surfaced. Expect a first pass with `mvn compile`/`terraform plan`/`helm
-  template` to turn up things neither method caught.
+Each backend service has a logical PostgreSQL database of its own on the shared PostgreSQL/RDS instance:
 
-## When was this split actually worth it?
+```text
+catalogix-users
+catalogix-catalog
+catalogix-inventory
+catalogix-cart
+catalogix-payment
+catalogix-checkout
+catalogix-notification
+```
 
-Worth repeating from the conversation that led here: the pressures that
-justify this kind of split in a real e-commerce platform are team scale
-(independent deploys), wildly different traffic/scaling profiles between
-components, a genuine compliance boundary (payment/PCI), and blast-radius
-isolation at a size where that matters. A single-contributor project at
-this traffic level has none of those pressures yet — this split is worth
-having as the *exercise* of building the pattern, which is what this pass
-was explicitly for, not because the original 4-service design was wrong.
+Terraform creates a dedicated PostgreSQL role and database for each service. This is role-level isolation on one shared instance, not seven independent managed database instances.
+
+## Platform and observability
+
+- **EKS + Helm:** application services, gateway, frontend, and RabbitMQ run in the `catalogix` namespace.
+- **External Secrets Operator:** application and monitoring secrets are synchronized from AWS Secrets Manager.
+- **Prometheus / Grafana / Alertmanager:** metrics, dashboards, and alert delivery run in the `monitoring` namespace.
+- **Gitleaks / SonarQube / Trivy:** secret scanning, static analysis, quality-gate enforcement, and container/Kubernetes scanning are handled in the main application pipeline.
+- **OWASP ZAP:** retained as an optional manual DAST stage rather than a core deployment gate.
+
+
+## Scope decisions
+
+The current architecture keeps notification-svc and RabbitMQ because asynchronous email is a useful real integration boundary: password reset, email verification, order confirmation, and cancellation can all be delivered without coupling the request path directly to SMTP.
+
+The deleted promotions, review, returns, and wishlist capabilities are no longer part of the application API or deployment topology. Historical Flyway migration files that created their old tables remain immutable so existing databases can migrate forward safely; cleanup migrations remove those legacy schema objects from current deployments.
+
+The project is intentionally not split further into service discovery/config-server/BFF layers. Kubernetes service DNS and the gateway are sufficient for the current scale and make the deployment easier to operate and explain.

@@ -7,8 +7,6 @@ import {
   addCartItem,
   updateCartItemQuantity,
   removeCartItem,
-  applyCartCoupon,
-  removeCartCoupon,
   checkoutCart,
 } from "../api";
 import Toast from "./Toast";
@@ -139,11 +137,10 @@ export default function Cart() {
   const navigate = useNavigate();
 
   const [cart, setCart] = useState(null);
-  const [couponInput, setCouponInput] = useState("");
-  const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState(null);
+  const [draftQuantities, setDraftQuantities] = useState({});
 
   const fetchCart = useCallback(async () => {
     try {
@@ -154,7 +151,7 @@ export default function Cart() {
   }, []);
 
   useEffect(() => {
-    fetchCart();
+    void fetchCart();
   }, [fetchCart]);
 
   const handleAddToCart = async (product) => {
@@ -170,6 +167,12 @@ export default function Cart() {
   const updateQty = async (productId, quantity) => {
     try {
       setCart(await updateCartItemQuantity(productId, Math.max(1, quantity)));
+      setDraftQuantities((current) => {
+        if (!(productId in current)) return current;
+        const next = { ...current };
+        delete next[productId];
+        return next;
+      });
     } catch (requestError) {
       setError(
         requestError.response?.data?.message || "Failed to update quantity.",
@@ -177,7 +180,34 @@ export default function Cart() {
     }
   };
 
+  const handleQuantityChange = (productId, rawValue) => {
+    setDraftQuantities((current) => ({ ...current, [productId]: rawValue }));
+  };
+
+  const commitQuantityChange = (productId, fallbackQuantity) => {
+    if (!(productId in draftQuantities)) return;
+
+    const quantity = Number.parseInt(draftQuantities[productId], 10);
+
+    if (Number.isNaN(quantity) || quantity < 1) {
+      setDraftQuantities((current) => ({
+        ...current,
+        [productId]: String(fallbackQuantity),
+      }));
+      return;
+    }
+
+    void updateQty(productId, quantity);
+  };
+
   const removeFromCart = async (productId) => {
+    setDraftQuantities((current) => {
+      if (!(productId in current)) return current;
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
+
     try {
       setCart(await removeCartItem(productId));
     } catch {
@@ -185,39 +215,6 @@ export default function Cart() {
     }
   };
 
-  const handleApplyCoupon = async (event) => {
-    event.preventDefault();
-
-    if (!couponInput.trim()) {
-      return;
-    }
-
-    setApplyingCoupon(true);
-    setError("");
-
-    try {
-      setCart(await applyCartCoupon(couponInput.trim().toUpperCase()));
-
-      setToast({
-        message: "Coupon applied.",
-        type: "success",
-      });
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.message || "That coupon code isn't valid.",
-      );
-    } finally {
-      setApplyingCoupon(false);
-    }
-  };
-
-  const handleRemoveCoupon = async () => {
-    try {
-      setCart(await removeCartCoupon());
-    } catch {
-      setError("Failed to remove coupon.");
-    }
-  };
 
   const handleCheckout = async () => {
     if (!cart || cart.items.length === 0) {
@@ -230,13 +227,12 @@ export default function Cart() {
     try {
       await checkoutCart(crypto.randomUUID());
 
-      setCouponInput("");
       await fetchCart();
 
       // Order + payment live on the Orders page now that Cart is its own
       // route — send the shopper straight there to finish paying instead
       // of leaving them on an now-empty cart with nothing left to do.
-      navigate("/orders");
+      void navigate("/orders");
     } catch (requestError) {
       setError(
         requestError.response?.data?.message ||
@@ -282,13 +278,13 @@ export default function Cart() {
                     className="qty-input"
                     type="number"
                     min="1"
-                    value={line.quantity}
-                    onChange={(event) => {
-                      updateQty(
-                        line.productId,
-                        Number.parseInt(event.target.value, 10) || 1,
-                      );
-                    }}
+                    value={draftQuantities[line.productId] ?? line.quantity}
+                    onChange={(event) =>
+                      handleQuantityChange(line.productId, event.target.value)
+                    }
+                    onBlur={() =>
+                      commitQuantityChange(line.productId, line.quantity)
+                    }
                   />
 
                   <span className="cart-line-subtotal">
@@ -313,56 +309,11 @@ export default function Cart() {
                 </div>
               ))}
 
-              <form className="coupon-row" onSubmit={handleApplyCoupon}>
-                {cart.couponCode ? (
-                  <>
-                    <span className="badge badge-in-stock">
-                      Coupon: {cart.couponCode}
-                    </span>
-
-                    <button
-                      className="btn-small"
-                      type="button"
-                      onClick={handleRemoveCoupon}
-                    >
-                      Remove
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      className="field-input"
-                      style={{ maxWidth: 160 }}
-                      placeholder="Coupon code"
-                      value={couponInput}
-                      onChange={(event) => {
-                        setCouponInput(event.target.value);
-                      }}
-                      disabled={applyingCoupon}
-                    />
-
-                    <button
-                      className="btn-small"
-                      type="submit"
-                      disabled={applyingCoupon}
-                    >
-                      {applyingCoupon ? "Applying…" : "Apply"}
-                    </button>
-                  </>
-                )}
-              </form>
-
               <div className="cart-footer">
                 <div>
                   <div className="auth-help-text" style={{ margin: 0 }}>
                     Subtotal: {formatPrice(cart.subtotal)}
                   </div>
-
-                  {cart.discountAmount > 0 && (
-                    <div className="auth-help-text" style={{ margin: 0 }}>
-                      Discount: -{formatPrice(cart.discountAmount)}
-                    </div>
-                  )}
 
                   <span className="cart-total">
                     Total: {formatPrice(cart.total)}

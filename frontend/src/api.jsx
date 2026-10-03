@@ -208,7 +208,7 @@ export const getProducts = async (params = {}) => {
 
 export const getProduct = async (id) => {
   const res = await http.get(`${PRODUCT_API_BASE}/${id}`);
-  return res.data; // includes averageRating (nullable) + reviewCount
+  return res.data;
 };
 
 export const createProduct = async (product) => {
@@ -224,66 +224,6 @@ export const deleteProduct = async (id) => {
 export const adjustStock = async (id, delta) => {
   const res = await http.patch(`${PRODUCT_API_BASE}/${id}/stock`, { delta });
   return res.data;
-};
-
-// -------- WISHLIST APIs --------
-
-const WISHLIST_API_BASE = "/wishlist";
-
-export const getWishlist = async () => {
-  const res = await http.get(WISHLIST_API_BASE);
-  return res.data; // [{ productId, productName, price, stockQuantity, addedAt }]
-};
-
-export const addWishlistItem = async (productId) => {
-  const res = await http.post(WISHLIST_API_BASE, { productId });
-  return res.data;
-};
-
-export const removeWishlistItem = async (productId) => {
-  await http.delete(`${WISHLIST_API_BASE}/${productId}`);
-};
-
-export const moveWishlistItemToCart = async (productId, quantity = 1) => {
-  await http.post(`${WISHLIST_API_BASE}/${productId}/move-to-cart`, {
-    quantity,
-  });
-};
-
-// -------- REVIEW APIs --------
-
-const REVIEW_API_BASE = "/reviews";
-
-export const getProductReviews = async (productId, params = {}) => {
-  const res = await http.get(`${REVIEW_API_BASE}/product/${productId}`, {
-    params,
-  });
-  return res.data; // { content, page, size, totalElements, totalPages }
-};
-
-export const getProductRatingSummary = async (productId) => {
-  const res = await http.get(`${REVIEW_API_BASE}/product/${productId}/summary`);
-  return res.data; // { productId, averageRating, reviewCount }
-};
-
-export const getMyReviews = async () => {
-  const res = await http.get(`${REVIEW_API_BASE}/mine`);
-  return res.data;
-};
-
-// Create-or-update: submitting again for a product you already reviewed
-// edits the existing review rather than erroring.
-export const submitReview = async (productId, rating, title, body) => {
-  const res = await http.post(`${REVIEW_API_BASE}/product/${productId}`, {
-    rating,
-    title,
-    body,
-  });
-  return res.data; // includes verifiedPurchase
-};
-
-export const deleteReview = async (id) => {
-  await http.delete(`${REVIEW_API_BASE}/${id}`);
 };
 
 // -------- ADDRESS BOOK APIs --------
@@ -322,18 +262,13 @@ export const deleteAddress = async (id) => {
 // a duplicate — see order-svc's Idempotency-Key header handling.
 // addressId: optional — id of a saved address (see ADDRESS APIs above); if
 // given, its fields are snapshotted onto the order for shipping/invoicing.
-export const createOrder = async (
-  items,
-  idempotencyKey,
-  couponCode,
-  addressId,
-) => {
+export const createOrder = async (items, idempotencyKey, addressId) => {
   const headers = idempotencyKey
     ? { "Idempotency-Key": idempotencyKey }
     : undefined;
   const res = await http.post(
     ORDER_API_BASE,
-    { items, couponCode, addressId },
+    { items, addressId },
     { headers },
   );
   return res.data;
@@ -392,52 +327,13 @@ export const updateOrderStatus = async (id, status) => {
   return res.data;
 };
 
-// -------- RETURN / REFUND APIs --------
-
-const RETURN_API_BASE = "/returns";
-
-// items: [{ productId, quantity }] — only DELIVERED orders, within the return window.
-export const requestReturn = async (orderId, reason, items) => {
-  const res = await http.post(`${ORDER_API_BASE}/${orderId}/returns`, {
-    reason,
-    items,
-  });
-  return res.data;
-};
-
-export const getMyReturns = async () => {
-  const res = await http.get(`${RETURN_API_BASE}/mine`);
-  return res.data;
-};
-
-export const getReturn = async (id) => {
-  const res = await http.get(`${RETURN_API_BASE}/${id}`);
-  return res.data;
-};
-
-// Admin-only.
-export const getAllReturns = async (params = {}) => {
-  const res = await http.get(RETURN_API_BASE, { params });
-  return res.data; // { content, page, size, totalElements, totalPages }
-};
-
-export const approveReturn = async (id) => {
-  const res = await http.post(`${RETURN_API_BASE}/${id}/approve`);
-  return res.data;
-};
-
-export const rejectReturn = async (id, reason) => {
-  const res = await http.post(`${RETURN_API_BASE}/${id}/reject`, { reason });
-  return res.data;
-};
-
 // -------- CART APIs (server-side, persists across refresh/devices) --------
 
 const CART_API_BASE = "/cart";
 
 export const getCart = async () => {
   const res = await http.get(CART_API_BASE);
-  return res.data; // { items, couponCode, subtotal, discountAmount, total }
+  return res.data; // { items, subtotal, total }
 };
 
 export const addCartItem = async (productId, quantity) => {
@@ -460,21 +356,12 @@ export const removeCartItem = async (productId) => {
   return res.data;
 };
 
-export const applyCartCoupon = async (code) => {
-  const res = await http.post(`${CART_API_BASE}/coupon`, { code });
-  return res.data;
-};
-
-export const removeCartCoupon = async () => {
-  const res = await http.delete(`${CART_API_BASE}/coupon`);
-  return res.data;
-};
 
 // Converts the cart into an order (PENDING_PAYMENT, stock reserved) and
 // clears the cart on success — the order still needs payOrder() to complete.
 // Lives at /orders/checkout, not /cart/checkout: checkout-svc is the
 // orchestrator that actually places the order (talking to catalog-svc,
-// inventory-svc, promotions-svc), cart-svc just supplies the contents.
+// inventory-svc), cart-svc just supplies the contents.
 // addressId: optional, same as createOrder's.
 export const checkoutCart = async (idempotencyKey, addressId) => {
   const headers = idempotencyKey
@@ -488,25 +375,6 @@ export const checkoutCart = async (idempotencyKey, addressId) => {
   return res.data;
 };
 
-// -------- COUPON APIs (admin-only management) --------
-
-const COUPON_API_BASE = "/coupons";
-
-export const getCoupons = async () => {
-  const res = await http.get(COUPON_API_BASE);
-  return res.data;
-};
-
-export const createCoupon = async (coupon) => {
-  const res = await http.post(COUPON_API_BASE, coupon);
-  return res.data;
-};
-
-export const deactivateCoupon = async (id) => {
-  const res = await http.patch(`${COUPON_API_BASE}/${id}/deactivate`);
-  return res.data;
-};
-
 // -------- OUTBOX ADMIN APIs (admin-only) --------
 // checkout-svc's compensation outbox — see CompensationOutboxProcessor.
 // Only PENDING and DEAD_LETTER entries are ever returned (COMPLETED ones
@@ -516,7 +384,7 @@ const ADMIN_OUTBOX_API_BASE = "/admin/outbox";
 
 export const getOutboxEntries = async () => {
   const res = await http.get(ADMIN_OUTBOX_API_BASE);
-  return res.data; // [{ id, type, productId, delta, couponCode, reason, status, attempts, lastError, createdAt, updatedAt }]
+  return res.data; // [{ id, type, productId, delta, reason, status, attempts, lastError, createdAt, updatedAt }]
 };
 
 // Resets a DEAD_LETTER entry back to PENDING (attempts=0) so

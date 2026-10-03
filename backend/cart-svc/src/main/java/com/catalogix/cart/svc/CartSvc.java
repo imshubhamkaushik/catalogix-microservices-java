@@ -3,7 +3,6 @@ package com.catalogix.cart.svc;
 import com.catalogix.cart.client.CatalogClient;
 import com.catalogix.cart.client.InventoryClient;
 import com.catalogix.cart.client.ProductInfo;
-import com.catalogix.cart.client.PromotionsClient;
 import com.catalogix.cart.dto.*;
 import com.catalogix.cart.exception.EmptyCartException;
 import com.catalogix.cart.model.Cart;
@@ -27,15 +26,13 @@ public class CartSvc {
     private final CartRepository repo;
     private final CatalogClient catalogClient;
     private final InventoryClient inventoryClient;
-    private final PromotionsClient promotionsClient;
     private static final String CART_IS_EMPTY = "Cart is empty";
 
     public CartSvc(CartRepository repo, CatalogClient catalogClient,
-                   InventoryClient inventoryClient, PromotionsClient promotionsClient) {
+                   InventoryClient inventoryClient) {
         this.repo = repo;
         this.catalogClient = catalogClient;
         this.inventoryClient = inventoryClient;
-        this.promotionsClient = promotionsClient;
     }
 
     @Transactional
@@ -89,35 +86,11 @@ public class CartSvc {
         return toResponse(saved, bearerToken);
     }
 
-    @Transactional
-    public CartResponse applyCoupon(Long userId, String code, String bearerToken) {
-        Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY));
-        BigDecimal subtotal = calculateSubtotal(cart, bearerToken);
-        // Validated as a preview here purely to give the user an immediate
-        // yes/no — the coupon isn't actually redeemed until checkout-svc
-        // calls promotions-svc's commit() at order time.
-        promotionsClient.preview(code, subtotal, bearerToken);
-        cart.setCouponCode(code.toUpperCase());
-        cart.setUpdatedAt(Instant.now());
-        Cart saved = repo.save(cart);
-        return toResponse(saved, bearerToken);
-    }
-
-    @Transactional
-    public CartResponse removeCoupon(Long userId, String bearerToken) {
-        Cart cart = repo.findByUserId(userId)
-                .orElseThrow(() -> new EmptyCartException(CART_IS_EMPTY ));
-        cart.setCouponCode(null);
-        cart.setUpdatedAt(Instant.now());
-        Cart saved = repo.save(cart);
-        return toResponse(saved, bearerToken);
-    }
 
     /**
      * Handed to checkout-svc when the user checks out. Deliberately just
-     * product/quantity pairs plus the coupon code — checkout-svc re-derives
-     * price and re-reserves stock itself rather than trusting a snapshot
+     * product/quantity pairs — checkout-svc re-derives price and re-reserves
+     * stock itself rather than trusting a snapshot
      * cart-svc computed possibly seconds earlier, exactly as if the browser
      * had posted the same payload straight to POST /orders.
      */
@@ -131,7 +104,7 @@ public class CartSvc {
         List<CartItemLine> lines = cart.getItems().stream()
                 .map(i -> new CartItemLine(i.getProductId(), i.getQuantity()))
                 .toList();
-        return new CheckoutHandoff(lines, cart.getCouponCode());
+        return new CheckoutHandoff(lines);
     }
 
     // Called by checkout-svc after it has successfully created the order —
@@ -142,20 +115,11 @@ public class CartSvc {
     public void clear(Long userId) {
         repo.findByUserId(userId).ifPresent(cart -> {
             cart.getItems().clear();
-            cart.setCouponCode(null);
             cart.setUpdatedAt(Instant.now());
             repo.save(cart);
         });
     }
 
-    private BigDecimal calculateSubtotal(Cart cart, String bearerToken) {
-        BigDecimal subtotal = BigDecimal.ZERO;
-        for (CartItem item : cart.getItems()) {
-            ProductInfo info = catalogClient.fetch(item.getProductId(), bearerToken);
-            subtotal = subtotal.add(info.getPrice().multiply(BigDecimal.valueOf(item.getQuantity())));
-        }
-        return subtotal;
-    }
 
     private CartResponse toResponse(Cart cart, String bearerToken) {
         List<CartItemResponse> items = cart.getItems().stream().map(item -> {
@@ -169,19 +133,6 @@ public class CartSvc {
         BigDecimal subtotal = items.stream().map(CartItemResponse::getSubtotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal discount = BigDecimal.ZERO;
-        if (cart.getCouponCode() != null && !items.isEmpty()) {
-            try {
-                discount = promotionsClient.preview(cart.getCouponCode(), subtotal, bearerToken);
-            } catch (RuntimeException e) {
-                // A read must not mutate persisted cart state because of a
-                // transient promotions-service timeout or 5xx response.
-                log.debug("Coupon preview unavailable for cart {}: {}", cart.getId(), e.getMessage());
-                discount = BigDecimal.ZERO;
-            }
-        }
-
-        BigDecimal total = subtotal.subtract(discount).max(BigDecimal.ZERO);
-        return new CartResponse(items, cart.getCouponCode(), subtotal, discount, total);
+        return new CartResponse(items, subtotal, subtotal);
     }
 }

@@ -14,7 +14,6 @@ public class CheckoutClients {
     private final CatalogClient catalog;
     private final InventoryClient inventory;
     private final PaymentClient payment;
-    private final PromotionsClient promotions;
     private final RefundClient refund;
 
     public CheckoutClients(
@@ -23,14 +22,12 @@ public class CheckoutClients {
             CatalogClient catalog,
             InventoryClient inventory,
             PaymentClient payment,
-            PromotionsClient promotions,
             RefundClient refund) {
         this.address = address;
         this.cart = cart;
         this.catalog = catalog;
         this.inventory = inventory;
         this.payment = payment;
-        this.promotions = promotions;
         this.refund = refund;
     }
 
@@ -54,9 +51,6 @@ public class CheckoutClients {
         return payment;
     }
 
-    public PromotionsClient promotions() {
-        return promotions;
-    }
 
     public RefundClient refund() {
         return refund;

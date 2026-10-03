@@ -6,6 +6,7 @@ import java.time.Instant;
 @Entity
 @Table(name = "users")
 public class User {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -19,37 +20,21 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    // "USER" (customer), "SELLER" or "ADMIN". Everyone registers as USER; only an
-    // admin can assign SELLER or ADMIN (see UserSvc.assignRole). The one
-    // bootstrap admin of a fresh deployment is created by AdminSeeder.
     @Column(nullable = false)
     private String role = "USER";
 
-    // A pending request for a higher role (currently only "SELLER"), waiting for
-    // an admin to approve or reject it. Both null when there is no pending request.
-    @Column(name = "requested_role")
     private String requestedRole;
 
-    @Column(name = "role_requested_at")
     private Instant roleRequestedAt;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
-    // Tracked for UI purposes (e.g. showing a "verify your email" banner) but
-    // NOT enforced as a login gate — see V4 migration / README for why.
     @Column(nullable = false)
     private boolean verified = false;
 
-    // Self-service opt-out toggles (see V6 migration). NOT currently
-    // enforced by notification-svc — see UserSvc's notificationPreferences
-    // methods for why. Stored here regardless so the preference itself is
-    // real and persisted, ready for that follow-up.
-    @Column(name = "order_emails_enabled", nullable = false)
+    @Column(nullable = false)
     private boolean orderEmailsEnabled = true;
-
-    @Column(name = "promo_emails_enabled", nullable = false)
-    private boolean promoEmailsEnabled = true;
 
     public User() {
     }
@@ -58,9 +43,9 @@ public class User {
         this.name = name;
         this.email = email;
         this.password = password;
+        this.createdAt = Instant.now();
     }
 
-    // getters and setters
     public Long getId() {
         return id;
     }
@@ -139,13 +124,5 @@ public class User {
 
     public void setOrderEmailsEnabled(boolean orderEmailsEnabled) {
         this.orderEmailsEnabled = orderEmailsEnabled;
-    }
-
-    public boolean isPromoEmailsEnabled() {
-        return promoEmailsEnabled;
-    }
-
-    public void setPromoEmailsEnabled(boolean promoEmailsEnabled) {
-        this.promoEmailsEnabled = promoEmailsEnabled;
     }
 }

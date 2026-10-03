@@ -35,7 +35,7 @@ class UserPreferenceClientTest {
 
     @Test
     void returnsTheRemotePreferenceWhenTheCallSucceeds() {
-        var payload = new UserPreferenceClient.PreferencesPayload(false, true);
+        var payload = new UserPreferenceClient.PreferencesPayload(false);
         when(restTemplate.exchange(
                 eq(USER_SVC_URL + "/users/1/notification-preferences"),
                 eq(HttpMethod.GET),

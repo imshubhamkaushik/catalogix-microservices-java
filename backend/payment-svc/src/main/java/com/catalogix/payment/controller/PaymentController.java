@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Called synchronously and only by checkout-svc, on the request thread that
- * is finalizing an order (or, for /refund, processing an approved return) —
+ * is finalizing an order or processing an authorized refund —
  * never by a browser directly (no gateway route is exposed for this service).
  *
  * SECURITY FIX: this used to accept any authenticated user's regular token
@@ -74,7 +74,7 @@ public class PaymentController {
 
     // Same SYSTEM-only lockdown as /payments above — checkout-svc is the
     // only legitimate caller, only when an admin approves a return (see
-    // checkout-svc's ReturnSvc), and only for CARD/UPI orders (COD never
+    // checkout-svc's cancellation/refund flow), and only for CARD/UPI orders (COD never
     // reaches this at all, since there's nothing to refund).
     @PostMapping("/refund")
     public ResponseEntity<RefundResponse> refund(

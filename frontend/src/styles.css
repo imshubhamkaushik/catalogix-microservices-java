@@ -788,11 +788,7 @@ body {
   height: 100%;
 }
 
-.product-card-wishlist {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-}
+
 
 .product-card-body {
   padding: 12px 14px 14px;
@@ -1384,85 +1380,7 @@ body {
   border-color: var(--green-400);
 }
 
-/* ─── Star ratings ───────────────────────────────────────────── */
-.rating-stars {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-}
 
-.rating-stars svg {
-  display: block;
-}
-.star-filled {
-  color: var(--amber-400);
-}
-.star-empty {
-  color: var(--gray-200);
-}
-
-.rating-count {
-  font-size: 11px;
-  color: var(--gray-400);
-  margin-left: 2px;
-}
-
-.rating-none {
-  font-size: 11px;
-  color: var(--gray-400);
-  font-style: italic;
-}
-
-/* ─── Wishlist heart button ──────────────────────────────────── */
-.wishlist-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-sm);
-  border: 0.5px solid var(--gray-200);
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--gray-400);
-  flex-shrink: 0;
-  transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
-}
-.wishlist-btn:hover {
-  background: var(--coral-50);
-  border-color: var(--coral-600);
-  color: var(--coral-600);
-}
-.wishlist-btn-active {
-  background: var(--coral-50);
-  border-color: var(--coral-600);
-  color: var(--coral-600);
-  animation: heartPop 0.35s ease;
-}
-
-@keyframes heartPop {
-  0% {
-    transform: scale(1);
-  }
-  35% {
-    transform: scale(1.28);
-  }
-  60% {
-    transform: scale(0.92);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-.wishlist-btn-active:hover {
-  background: var(--red-50);
-  border-color: var(--red-200);
-  color: var(--red-600);
-}
 
 .item-actions-product {
   gap: 10px;
@@ -1644,7 +1562,7 @@ body {
   flex-wrap: wrap;
 }
 
-.coupon-row {
+.stock-editor-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1674,7 +1592,7 @@ body {
   font-weight: 500;
 }
 
-/* ─── Order row secondary actions (track / invoice / return) ────── */
+/* ─── Order row secondary actions (track / invoice) ───────────── */
 .order-detail-actions {
   display: flex;
   gap: 6px;
@@ -1736,7 +1654,7 @@ body {
   margin-top: 2px;
 }
 
-/* ─── Modal overlay (invoice, return request) ────────────────── */
+/* ─── Modal overlay (invoice) ───────────────────────────────── */
 .modal-overlay {
   position: fixed;
   inset: 0;

@@ -68,7 +68,6 @@ public class AdminController {
         response.setType(e.getType());
         response.setProductId(e.getProductId());
         response.setDelta(e.getDelta());
-        response.setCouponCode(e.getCouponCode());
         response.setReason(e.getReason());
         response.setStatus(e.getStatus());
         response.setAttempts(e.getAttempts());

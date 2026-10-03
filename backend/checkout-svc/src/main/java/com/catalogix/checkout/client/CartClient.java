@@ -26,7 +26,7 @@ public class CartClient {
     }
 
     public record ItemLine(Long productId, Integer quantity) {}
-    public record Handoff(List<ItemLine> items, String couponCode) {}
+    public record Handoff(List<ItemLine> items) {}
 
     public Handoff handoff(String bearerToken) {
         HttpHeaders headers = new HttpHeaders();

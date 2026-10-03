@@ -49,13 +49,7 @@ spec:
             - name: tmp
               mountPath: /tmp
           # Gateway listens on port 11000 (unprivileged, >1024) as non-root
-          # UID 1000 — same as frontend's 11001, this needs no extra Linux
-          # capability to bind. This used to listen on 80 and require
-          # NET_BIND_SERVICE added back specifically for that; now that it's
-          # on 11000, all capabilities can stay dropped, identical to
-          # frontend.yaml's securityContext. (DEVOPS.md's "NET_BIND_SERVICE
-          # on the gateway" section describes the old port-80 setup — update
-          # that note if you ever move this port again.)
+          # UID 1000, so it needs no additional Linux capability to bind.
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

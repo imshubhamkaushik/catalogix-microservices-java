@@ -145,8 +145,9 @@ initContainers:
 catalogix.commonEnv
 Env vars every backend service needs regardless of what it does: its own
 DB connection using ITS OWN role (not a shared master credential — see
-terraform/platform-infra/modules/db-roles), the shared JWT secret, RabbitMQ
-connection, and the OTLP tracing endpoint.
+terraform/platform-infra/modules/db-roles) and the shared JWT secret.
+RabbitMQ variables are added only when the service opts in with
+`usesRabbitMQ: true`; this keeps the broker dependency explicit.
 
 Secret key names here (jwt_secret, rabbitmq_user, db_user_<svc>, etc.) are
 lowercase and must exactly match the AWS Secrets Manager JSON keys, because
@@ -179,6 +180,7 @@ Usage: {{ include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) 
     secretKeyRef:
       name: catalogix-secrets
       key: jwt_secret
+{{- if .svc.usesRabbitMQ }}
 - name: RABBITMQ_HOST
   value: "{{ .root.Values.rabbitmq.host }}"
 - name: RABBITMQ_PORT
@@ -193,22 +195,9 @@ Usage: {{ include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) 
     secretKeyRef:
       name: catalogix-secrets
       key: rabbitmq_password
-# The 3 services that actually talk to RabbitMQ (user-svc, checkout-svc,
-# notification-svc) don't agree on one env var naming scheme in their own
-# application.properties:
-#   - user-svc reads RABBITMQ_USERNAME (not RABBITMQ_USER above — only
-#     HOST/PORT/PASSWORD happened to match)
-#   - checkout-svc and notification-svc read SPRING_RABBITMQ_HOST/PORT/
-#     USERNAME/PASSWORD entirely (Spring Boot's own auto-config property
-#     names), none of which match RABBITMQ_* above at all
-# Every one of those properties falls back to a default (localhost/guest)
-# when unset, so the app doesn't crash — it just silently authenticates
-# as "guest" against the wrong host, which then fails RabbitHealthIndicator
-# and fails /actuator/health, which the startupProbe polls, which
-# eventually kills and restarts the pod: a CrashLoopBackOff with a much
-# less obvious cause than a missing placeholder. Rather than patch three
-# different property names in application code, alias them all here so
-# every naming convention resolves to the same real values.
+# user-svc and notification-svc use the generic RABBITMQ_* aliases; checkout-svc
+# uses Spring Boot's SPRING_RABBITMQ_* names. Keep both forms here so the three
+# broker users share one secret and the non-broker services never receive it.
 - name: RABBITMQ_USERNAME
   valueFrom:
     secretKeyRef:
@@ -228,8 +217,7 @@ Usage: {{ include "catalogix.commonEnv" (dict "name" $name "svc" $svc "root" $) 
     secretKeyRef:
       name: catalogix-secrets
       key: rabbitmq_password
-# Tracing removed along with Tempo — nothing consumes OTLP_ENDPOINT any more, so this chart no
-# longer sets it. If you reintroduce a tracing backend, add its OTLP endpoint env var here.
+{{- end }}
 # Connection pool per pod. Total connections = pods x pool, and every pod of
 # every service shares one RDS instance whose max_connections is small on
 # micro/small classes — size this together with hpa.maxReplicas.

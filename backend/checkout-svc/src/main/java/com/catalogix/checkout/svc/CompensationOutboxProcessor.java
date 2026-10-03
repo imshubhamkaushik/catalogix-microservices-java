@@ -1,7 +1,6 @@
 package com.catalogix.checkout.svc;
 
 import com.catalogix.checkout.client.InventoryClient;
-import com.catalogix.checkout.client.PromotionsClient;
 import com.catalogix.checkout.model.CompensationOutbox;
 import com.catalogix.checkout.model.CompensationType;
 import com.catalogix.checkout.model.OutboxStatus;
@@ -15,12 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
-/**
- * Retries compensating actions (release stock, release a coupon use) that
- * failed on their live/synchronous attempt. Generalized from the original
- * stock-only outbox processor — same retry/dead-letter shape, now dispatched
- * by CompensationType instead of assuming every row is a stock adjustment.
- */
+/** Retries failed stock-compensation calls from the transactional outbox. */
 @Service
 public class CompensationOutboxProcessor {
 
@@ -29,46 +23,26 @@ public class CompensationOutboxProcessor {
 
     private final CompensationOutboxRepository outboxRepo;
     private final InventoryClient inventoryClient;
-    private final PromotionsClient promotionsClient;
 
-    public CompensationOutboxProcessor(
-            CompensationOutboxRepository outboxRepo,
-            InventoryClient inventoryClient,
-            PromotionsClient promotionsClient) {
+    public CompensationOutboxProcessor(CompensationOutboxRepository outboxRepo, InventoryClient inventoryClient) {
         this.outboxRepo = outboxRepo;
         this.inventoryClient = inventoryClient;
-        this.promotionsClient = promotionsClient;
     }
 
     @Scheduled(fixedDelayString = "${OUTBOX_POLL_INTERVAL_MS:5000}")
     @Transactional
     public void processPending() {
-        // claimPendingBatch() row-locks (FOR UPDATE SKIP LOCKED) everything
-        // it returns for the life of this transaction — see the repository
-        // Javadoc for why that matters once this service has >1 replica.
         List<CompensationOutbox> batch = outboxRepo.claimPendingBatch();
 
         for (CompensationOutbox entry : batch) {
             try {
                 if (entry.getType() == CompensationType.RELEASE_STOCK) {
                     if (entry.getOperationId() == null && entry.getUndoOf() == null) {
-                        inventoryClient.adjust(
-                                entry.getProductId(),
-                                entry.getDelta()
-                        );
+                        inventoryClient.adjust(entry.getProductId(), entry.getDelta());
                     } else {
                         inventoryClient.adjust(
-                                entry.getProductId(),
-                                entry.getDelta(),
-                                entry.getOperationId(),
-                                entry.getUndoOf()
-                        );
+                                entry.getProductId(), entry.getDelta(), entry.getOperationId(), entry.getUndoOf());
                     }
-                } else if (entry.getType() == CompensationType.RELEASE_COUPON) {
-                    promotionsClient.release(
-                            entry.getCouponCode(),
-                            entry.getOperationId()
-                    );
                 }
                 entry.setStatus(OutboxStatus.COMPLETED);
             } catch (RuntimeException e) {

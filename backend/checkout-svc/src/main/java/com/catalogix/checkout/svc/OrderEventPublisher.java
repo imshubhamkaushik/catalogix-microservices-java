@@ -3,7 +3,6 @@ package com.catalogix.checkout.svc;
 import com.catalogix.checkout.config.RabbitMQConfig;
 import com.catalogix.checkout.event.OrderCancelledEvent;
 import com.catalogix.checkout.event.OrderConfirmedEvent;
-import com.catalogix.checkout.event.ReturnRefundedEvent;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,11 +56,6 @@ public class OrderEventPublisher {
         publish("order.cancelled", event, event.orderId());
     }
 
-    @Async
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onReturnRefunded(ReturnRefundedEvent event) {
-        publish("return.refunded", event, event.orderId());
-    }
 
     private void publish(String routingKey, Object event, Long orderId) {
         try {

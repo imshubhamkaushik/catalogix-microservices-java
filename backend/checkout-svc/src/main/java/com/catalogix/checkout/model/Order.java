@@ -52,17 +52,6 @@ public class Order {
     @Column(name = "idempotency_key", length = 64)
     private String idempotencyKey;
 
-    @Column(name = "applied_coupon_code", length = 50)
-    private String appliedCouponCode;
-
-    // Stable promotions-svc redemption operation id. Persisting it with the
-    // order lets later cancellation/payment-decline/expiry compensation release
-    // the exact redemption rather than guessing from the coupon code.
-    @Column(name = "coupon_operation_id", length = 160)
-    private String couponOperationId;
-
-    @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
-    private BigDecimal discountAmount = BigDecimal.ZERO;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<OrderItem> items = new ArrayList<>();
@@ -102,12 +91,9 @@ public class Order {
     @Column(name = "shipping_phone", length = 20)
     private String shippingPhone;
 
-    // Set once, in payOrder(), the moment payment succeeds (or COD is
-    // confirmed) — never touched again. This is what a later return/refund
-    // request (see ReturnSvc) uses to decide HOW to reverse this order:
-    // CARD/UPI route through payment-svc's refund endpoint using
-    // paymentReference; COD never captured anything, so a return on a COD
-    // order skips payment-svc entirely — there's nothing to refund.
+    // Set once, in payOrder(), when the payment succeeds (or COD is confirmed).
+    // It is snapshotted so later invoice/payment reconciliation never has to
+    // call payment-svc just to identify the original payment method.
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", length = 20)
     private PaymentMethod paymentMethod;
@@ -177,22 +163,6 @@ public class Order {
         this.idempotencyKey = idempotencyKey;
     }
 
-    public String getAppliedCouponCode() {
-        return appliedCouponCode;
-    }
-    public void setAppliedCouponCode(String appliedCouponCode) {
-        this.appliedCouponCode = appliedCouponCode;
-    }
-
-    public String getCouponOperationId() { return couponOperationId; }
-    public void setCouponOperationId(String couponOperationId) { this.couponOperationId = couponOperationId; }
-
-    public BigDecimal getDiscountAmount() {
-        return discountAmount;
-    }
-    public void setDiscountAmount(BigDecimal discountAmount) {
-        this.discountAmount = discountAmount;
-    }
 
     // Convenience method to keep both sides of the bidirectional association in sync.
     public void addItem(OrderItem item) {

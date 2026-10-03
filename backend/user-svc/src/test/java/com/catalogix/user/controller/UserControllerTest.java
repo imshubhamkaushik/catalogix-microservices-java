@@ -455,7 +455,6 @@ class UserControllerTest {
     void updateNotificationPreferencesReturnsUpdatedUser() throws Exception {
         NotificationPreferencesRequest req = new NotificationPreferencesRequest();
         req.setOrderEmailsEnabled(false);
-        req.setPromoEmailsEnabled(true);
 
         UserResponse updated = new UserResponse();
         updated.setId(1L);
@@ -465,7 +464,6 @@ class UserControllerTest {
         updated.setVerified(true);
         updated.setCreatedAt(java.time.Instant.now());
         updated.setOrderEmailsEnabled(false);
-        updated.setPromoEmailsEnabled(true);
         when(svc.updateNotificationPreferences(eq(1L), any(NotificationPreferencesRequest.class)))
                 .thenReturn(updated);
 
@@ -474,21 +472,19 @@ class UserControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderEmailsEnabled").value(false))
-                .andExpect(jsonPath("$.promoEmailsEnabled").value(true));
-    }
+                .andExpect(jsonPath("$.orderEmailsEnabled").value(false));
+                    }
 
     // GET /users/{id}/notification-preferences — internal, SYSTEM-only
     @Test
     void getNotificationPreferencesReturnsForASystemCaller() throws Exception {
         when(svc.getNotificationPreferences(5L))
-                .thenReturn(new NotificationPreferencesResponse(false, true));
+                .thenReturn(new NotificationPreferencesResponse(false));
 
         mvc.perform(get("/users/5/notification-preferences").requestAttr("userRole", "SYSTEM"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderEmailsEnabled").value(false))
-                .andExpect(jsonPath("$.promoEmailsEnabled").value(true));
-    }
+                .andExpect(jsonPath("$.orderEmailsEnabled").value(false));
+                    }
 
     @Test
     void getNotificationPreferencesRejectsARegularUserToken() throws Exception {
@@ -508,7 +504,6 @@ class UserControllerTest {
         pending.setVerified(true);
         pending.setCreatedAt(java.time.Instant.now());
         pending.setOrderEmailsEnabled(true);
-        pending.setPromoEmailsEnabled(true);
         pending.setRequestedRole("SELLER");
         when(svc.becomeSeller(1L)).thenReturn(pending);
 

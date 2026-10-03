@@ -161,8 +161,8 @@ public class PaymentSvc {
         }
     }
 
-    // Called only by checkout-svc's ReturnSvc, only for CARD/UPI orders —
-    // COD is filtered out before this is ever reached (see ReturnSvc's
+    // Called only by checkout-svc's cancellation/refund flow, only for CARD/UPI orders —
+    // COD is filtered out before this is ever reached (see the cancellation flow's
     // Javadoc), since a COD order never has a SUCCEEDED Payment row to find here.
     @Transactional
     public RefundResponse refund(ProcessRefundRequest req) {
