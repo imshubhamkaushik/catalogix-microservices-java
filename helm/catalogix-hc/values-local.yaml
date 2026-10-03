@@ -88,37 +88,43 @@ backendServices:
       - name: SEED_ADMIN_PASSWORD
         value: "Admin@12345"
     image:
-      repository: "catalogix_user-svc"
+      repository: "catalogix-user-svc"
       tag: "latest"
   
   catalog-svc: 
     replicaCount: 1
     image:
-      repository: "catalogix_catalog-svc"
+      repository: "catalogix-catalog-svc"
       tag: "latest"
   
   inventory-svc: 
     replicaCount: 1
     image:
-      repository: "catalogix_inventory-svc"
+      repository: "catalogix-inventory-svc"
       tag: "latest"
   
   cart-svc: 
     replicaCount: 1
     image:
-      repository: "catalogix_cart-svc"
+      repository: "catalogix-cart-svc"
       tag: "latest"
   
   payment-svc: 
     replicaCount: 1
     image:
-      repository: "catalogix_payment-svc"
+      repository: "catalogix-payment-svc"
       tag: "latest"
   
   checkout-svc: 
     replicaCount: 1
     image:
-      repository: "catalogix_checkout-svc"
+      repository: "catalogix-checkout-svc"
+      tag: "latest"
+
+  notification-svc:
+    replicaCount: 1
+    image:
+      repository: "catalogix-notification-svc"
       tag: "latest"
 
 gateway:
@@ -126,7 +132,7 @@ gateway:
   hpa:
     enabled: false
   image:
-      repository: "catalogix_gateway"
+      repository: "catalogix-gateway"
       tag: "latest"
   service:
     # Docker Desktop's Kubernetes gives a Service of type LoadBalancer an
@@ -148,5 +154,5 @@ gateway:
 frontend:
   replicaCount: 1
   image:
-      repository: "catalogix_frontend"
+      repository: "catalogix-frontend"
       tag: "latest"

@@ -1,6 +1,6 @@
 global:
   imageRegistry: ""
-  imageTag: "1.0-0"
+  imageTag: "2.0-0"
   cloudProvider: "aws"
 
 database:
