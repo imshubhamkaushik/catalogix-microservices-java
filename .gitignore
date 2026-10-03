@@ -55,7 +55,7 @@ __pycache__/
 
 # `helm template` output contains rendered Secrets (random JWT/DB/RabbitMQ values)
 catalogix-rendered.yaml
-rendered*.yaml
+*rendered*.yaml
 
 # Python tooling caches
 .ruff_cache/
