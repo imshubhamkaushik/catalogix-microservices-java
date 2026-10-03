@@ -38,7 +38,7 @@ CVE-2026-22801
 
 # Details   : Out-of-bounds read and infinite loop in png_set_quantize() when called with a palette image that has no hIST chunk and more than 2× the display-supported colour count. Fixed in libpng 1.6.55.
 
-# Why ignored : png_set_quantize() is a colour-reduction function used by image editors and display applications. None of the workloads deployed to the EKS cluster — user-svc, frontend-svc, Postgres StatefulSet, Prometheus, Grafana, Alertmanager — call this function. The vulnerability is triggered only by an application explicitly invoking png_set_quantize() on a malformed palette image, which no service in this project does.
+# Why ignored : png_set_quantize() is a colour-reduction function used by image editors and display applications. None of the workloads deployed to the EKS cluster — user-svc, product-svc, frontend-svc, Postgres StatefulSet, Prometheus, Grafana, Alertmanager — call this function. The vulnerability is triggered only by an application explicitly invoking png_set_quantize() on a malformed palette image, which no service in this project does.
 
 # Revisit   : When base image is next updated; remove once distro ships libpng >= 1.6.55-r0 (Alpine) or equivalent Debian/Ubuntu patch.
 
