@@ -194,7 +194,7 @@ Two pipelines — one per Jenkinsfile:
 | Unit + integration tests | Maven runs in parallel, dynamically generated from a service list (`BACKEND_SERVICES`) — only for changed services; service unit/controller suites run as part of the build |
 | Build artifacts | `mvn package` and `npm run build` run in parallel for the 7 backend services + frontend; gateway is Nginx and is validated by Dockerfile lint + image build |
 | SonarQube analysis | Sonar Scanner sends results to the SonarQube EC2; pipeline polls the quality gate and fails on breach |
-| Docker build + Trivy scan | All 9 application images built and scanned in parallel via a shared-library function (`buildAndScanImage`); Trivy exits with code 1 on HIGH/CRITICAL findings (unfixed CVEs excluded via `.trivyignore.yaml` with documented justification) |
+| Docker build + Trivy scan | All 9 application images built and scanned in parallel via a shared-library function (`buildAndScanImage`); Trivy exits with code 1 on HIGH/CRITICAL findings (unfixed CVEs excluded via `.trivyignore` with documented justification) |
 | Push to ECR | Images are tagged `MAJOR_VERSION-BUILD_NUMBER` and pushed to ECR, with retry |
 | Helm chart scan | Trivy scans `helm/catalogix-hc` for Kubernetes misconfigurations; exits on CRITICAL |
 | Fetch RDS endpoint | Retrieved from SSM Parameter Store — not hardcoded, not stored as a Jenkins credential |
@@ -224,7 +224,7 @@ Security is enforced at multiple points in the pipeline — it is not a post-dep
 | Secrets never in pipeline | ESO + Secrets Manager | No human or Jenkins credential ever holds a DB password, JWT secret, or RabbitMQ credential |
 | EKS API endpoint scoped | Terraform — `public_access_cidrs` | Locked to Jenkins EC2 IP + deployer IP at apply time |
 
-CVEs accepted via `.trivyignore.yaml` are documented with package name, CVE ID, severity, reason for acceptance, a revisit condition, and an `expired_at` date (Trivy stops honouring the entry after that date, forcing a re-review).
+CVEs accepted via `.trivyignore` are documented with package name, CVE ID, severity, reason for acceptance, a revisit condition, and an `expired_at` date (Trivy stops honouring the entry after that date, forcing a re-review).
 
 ---
 
@@ -655,9 +655,9 @@ Monitoring is cluster-level infrastructure. Deploying it from the application pi
  
 ### 6. Trivy `--ignore-unfixed` flag
  
-Unfixed CVEs have no available patched version — blocking a deployment on them provides no security benefit. Accepted findings are documented in `.trivyignore.yaml` with package name, CVE ID, severity, reason, and a revisit condition.
+Unfixed CVEs have no available patched version — blocking a deployment on them provides no security benefit. Accepted findings are documented in `.trivyignore` with package name, CVE ID, severity, reason, and a revisit condition.
  
-**Trade-off:** Unfixed vulnerabilities are not surfaced in pipeline output, which could mask them from the team. Compensating control: `.trivyignore.yaml` is version-controlled and reviewed at base image updates.
+**Trade-off:** Unfixed vulnerabilities are not surfaced in pipeline output, which could mask them from the team. Compensating control: `.trivyignore` is version-controlled and reviewed at base image updates.
 
 ### 7. Python CLI alongside Bash scripts
  

@@ -26,7 +26,7 @@
 //
 // Usage:
 //   def changed = getChangedServices(BACKEND_SERVICES, [prefix: 'backend/'])
-//   def changedFrontend = getChangedServices(['frontend-svc'], [prefix: ''])
+//   def changedFrontend = getChangedServices(['frontend'], [prefix: ''])
 // Optional: [baseCommit: '<sha>'] overrides the baseline (used by tests).
 //
 // Tests: groovy vars/test/GetChangedServicesTest.groovy

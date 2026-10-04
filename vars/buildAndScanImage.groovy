@@ -1,7 +1,7 @@
 // jenkins/shared-library/vars/buildAndScanImage.groovy
 //
-// Builds a Docker image and fails the build on HIGH/CRITICAL CVEs, honoring .trivyignore. 
-// One function is used for all 9 application images (7 backend +
+// Builds a Docker image and fails the build on HIGH/CRITICAL CVEs, honoring
+// .trivyignore (entries there carry expiry dates). One function is used for all 9 application images (7 backend +
 // frontend + gateway) instead of a duplicated block per service — this
 // is the piece that keeps the Jenkinsfile's line count from scaling with
 // service count.
